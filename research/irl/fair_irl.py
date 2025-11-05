@@ -134,7 +134,22 @@ def generate_demo(clf, X_test, y_test, can_observe_y=False):
     return demo
 
 
-def generate_demos_k_folds( X, y, clf, obj_set, n_demos=3):
+def add_demo_bias(demo, unfairness_types=[]):
+    for unfairness_type in unfairness_types:
+        match unfairness_type:
+            case "redlining":
+                minority_z = demo["z"].value_counts(ascending=True).index[0]
+                minority_yhat = demo["yhat"].value_counts(ascending=True).index[0]
+                z_mask = demo['z'] == minority_z
+                random_mask = np.zeros(len(demo), dtype=bool)
+                random_mask[z_mask] = np.random.random(z_mask.sum()) < 0.2
+                demo.loc[random_mask, 'yhat'] = minority_yhat
+    return demo
+
+
+
+
+def generate_demos_k_folds( X, y, clf, obj_set, n_demos=3, unfairness_types=[]):
     """
     Generates the expert demonstrations which will be used as the positive
     training samples in the IRL loop, or generates the initial policy
@@ -172,9 +187,23 @@ def generate_demos_k_folds( X, y, clf, obj_set, n_demos=3):
 
         # Fit the classifier
         clf.fit(X_train, y_train)
+    
+        # Swap thresholds for expert classifiers (invert fairness objective, sort of)
+        for unfairness_type in unfairness_types:
+            match unfairness_type:
+                case "threshold_swapping":
+                    try:
+                        thresholds = clf.clf.interpolated_thresholder_.interpolation_dict
+                        thresholds[0], thresholds[1] = thresholds[1], thresholds[0]
+                        clf.clf.interpolated_thresholder_.interpolation_dict = thresholds
+                    except AttributeError:
+                        pass
+        # Access clf 
+        # clf.clf.interpolated_thresholder_.interpolation_dict[0]["operation0"]
 
         logging.debug('\t\tGenerating demo...')
         demo = generate_demo(clf, X_test, y_test)
+        demo = add_demo_bias(demo, unfairness_types=unfairness_types)
         logging.debug(
             df_to_log(
                 demo.groupby(['z', 'y'])[['yhat']].agg(['count', 'mean'])

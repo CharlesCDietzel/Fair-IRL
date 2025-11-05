@@ -3,6 +3,7 @@
 experiments/**/logs/*
 experiments/**/resources/*
 */**/data/**/*.csv
+*/**/data/**/*.zip
 */**/experiment_output/**/*.csv
 */**/experiment_output/**/*.json
 data/**/*.csv
@@ -10,3 +11,4 @@ data/**/*.p
 dist/
 *egg-info/
 *.DS_Store
+*.json

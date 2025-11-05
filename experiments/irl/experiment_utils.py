@@ -1726,6 +1726,7 @@ def run_trial_target_domain(
             clf=expert_algo_lookup[exp_info['EXPERT_ALGO']],
             obj_set=feat_obj_set,
             n_demos=exp_info['N_EXPERT_DEMOS'],
+            unfairness_types=[]
         )
 
         # Generate expert demonstrations for performance measures.
@@ -1735,6 +1736,7 @@ def run_trial_target_domain(
             clf=expert_algo_lookup[exp_info['EXPERT_ALGO']],
             obj_set=perf_obj_set,
             n_demos=exp_info['N_EXPERT_DEMOS'],
+            unfairness_types=[]
         )
 
     else:
@@ -1798,6 +1800,47 @@ def run_trial_target_domain(
     logging.info(f"target domain muL_perf_hold = {np.round(muL_perf_target_hold, 3)}")
 
     return muE_target, muE_perf_target, muL_target_hold, muL_perf_target_hold, clf_pol
+
+
+def compute_feat_exp(
+        all_objs, exp_info, X=None, y=None, feature_types=None, unfairness_types=[]
+):
+    objectives = []
+    for obj_name in all_objs:
+        objectives.append(OBJ_LOOKUP_BY_NAME[obj_name]())
+    feat_obj_set = ObjectiveSet(objectives)
+    del objectives
+
+
+    # These are the feature type sthat will be used as inputs for the expert
+    # classifier.
+    expert_demo_feature_types = feature_types
+
+    # These are the feature types that will be used in the classifier that will
+    # predict `y` given `X` when learning the optimal policy for a given reward
+    # function.
+
+    expert_algo_lookup = generate_expert_algo_lookup(expert_demo_feature_types)
+
+    # Split data into 3 sets.
+    #     1. Demo: for computing expert demos AND learning muL - muE diffs
+    #     2. Hold – computes the unbiased values for muL and t (dataset is
+    #.       never shown to the IRL learning algo.)
+    # X_demo, X_hold, y_demo, y_hold = train_test_split(X, y, test_size=.5)
+
+    # Check if expert works on target domain.
+    # if not exp_info['EXPERT_CANNOT_PREDICT_IN_TARGET']:
+
+        # Generate expert demonstrations to compare against.
+    muE_all, _ = generate_demos_k_folds(
+        X=X,
+        y=y,
+        clf=expert_algo_lookup[exp_info['EXPERT_ALGO']],
+        obj_set=feat_obj_set,
+        n_demos=exp_info['N_EXPERT_DEMOS'],
+        unfairness_types=unfairness_types
+    )
+    return muE_all
 
 
 def run_experiment(
