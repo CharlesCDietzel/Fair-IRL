@@ -478,6 +478,7 @@ def generate_single_exp_results_df(feat_obj_set, perf_obj_set, results):
     exp_df_cols.append(f"source_trial_runtime")
     exp_df_cols.append(f"source_irl_loop_runtime")
     exp_df_cols.append(f"source_trial_inputsize")
+    exp_df_cols.append(f"unfairness_types")
 
     exp_df = pd.DataFrame(results, columns=exp_df_cols)
 
@@ -488,7 +489,7 @@ def new_trial_result(
     feat_obj_set, perf_obj_set, muE, muE_hold, muE_perf_hold, df_irl,
     source_trial_runtime, source_irl_loop_runtime, source_trial_inputsize,
     muE_target=None, muE_perf_target=None, muL_target_hold=None,
-    muL_perf_target_hold=None,
+    muL_perf_target_hold=None, unfairness_types=[]
 ):
     """
     Generates a row of "results", which are collected and persisted for each
@@ -631,11 +632,13 @@ def new_trial_result(
     result.append(source_irl_loop_runtime)
     result.append(source_trial_inputsize)
 
+    result.append(unfairness_types)
+
     return result
 
 
 def run_trial_source_domain(
-    exp_info, X=None, y=None, feature_types=None, plot_svm_iters=False,
+    exp_info, X=None, y=None, feature_types=None, plot_svm_iters=False, unfairness_types=[]
 ):
     """
     Runs 1 trial to learn weights in the source domain.
@@ -746,6 +749,7 @@ def run_trial_source_domain(
             clf=expert_algo_lookup[exp_info['EXPERT_ALGO']],
             obj_set=feat_obj_set,
             n_demos=exp_info['N_EXPERT_DEMOS'],
+            unfairness_types=unfairness_types,
         )
 
         # Fit expert on entire training dataset. This is used when computing demos
@@ -819,6 +823,7 @@ def run_trial_source_domain(
             clf=expert_algo_lookup[non_expert_algo],
             obj_set=feat_obj_set,
             n_demos=1,
+            unfairness_types=unfairness_types
         )
         mu.append(_mu[0])
 
@@ -829,6 +834,7 @@ def run_trial_source_domain(
             clf=expert_algo_lookup[non_expert_algo],
             obj_set=feat_obj_set,
             n_demos=1,
+            unfairness_types=unfairness_types
         )
         mu_deltas_hold = _mu_hold -  muE_hold
         mu_deltas_hold_l2norm = np.linalg.norm(mu_deltas_hold, ord=2)
@@ -1842,6 +1848,121 @@ def compute_feat_exp(
     )
     return muE_all
 
+
+def run_biased_experiment(
+        exp_info, source_X=None, source_y=None, source_feature_types=None,
+        target_X=None, target_y=None, target_feature_types=None, unfairness_types=[],
+):
+    logging.info(f"exp_info: {exp_info}")
+
+    timestamp = datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+    logging.info(f"Experiment timestamp: {timestamp}")
+
+    objectives = []
+    for obj_name in exp_info['FEAT_EXP_OBJECTIVE_NAMES']:
+        objectives.append(OBJ_LOOKUP_BY_NAME[obj_name]())
+    feat_obj_set = ObjectiveSet(objectives)
+    del objectives
+
+    objectives = []
+    for obj_name in exp_info['PERF_MEAS_OBJECTIVE_NAMES']:
+        objectives.append(OBJ_LOOKUP_BY_NAME[obj_name]())
+    perf_obj_set = ObjectiveSet(objectives)
+    del objectives
+
+    results = []
+    trial_i = 0
+    target_clf_pol = None
+
+    while trial_i < exp_info['N_TRIALS']:
+        logging.info(f"\n\nTRIAL {trial_i}\n")
+
+        source_trial_start = datetime.datetime.now()
+
+        # Run trials to learn weights on source domain
+        did_converge, muE, muE_feat_hold, muE_perf_hold, df_irl, weights, t_hold, source_clf_pol, source_irl_loop_runtime = run_trial_source_domain(
+            exp_info,
+            X=source_X,
+            y=source_y,
+            feature_types=source_feature_types,
+            unfairness_types=unfairness_types
+        )
+
+        source_trial_runtime = (
+            datetime.datetime.now() - source_trial_start
+        ).total_seconds()
+
+        source_trial_inputsize = None
+        if hasattr(source_clf_pol, 'mdp'):
+            source_trial_inputsize = source_clf_pol.mdp.n_states_
+
+
+        # If feature expectation error wasn't sufficiently small, skip.
+        if not did_converge:
+            logging.info(f"\nTrial {trial_i} did not converge.\n")
+            trial_i += 1
+            continue
+
+        # Learn clf in target domain using weights learned in source domain
+        muE_target_mean = None
+        muL_target_hold = None
+
+        if exp_info['TARGET_DATASET'] is not None:
+            muE_target, muE_perf_target, muL_target_hold, muL_perf_target_hold, target_clf_pol = run_trial_target_domain(
+                exp_info,
+                weights,
+                t_hold,
+                X=target_X,
+                y=target_y,
+                feature_types=target_feature_types,
+            )
+            muE_target_mean = muE_target.mean(axis=0)
+            muE_perf_target_mean = muE_perf_target.mean(axis=0)
+
+        # Aggregate trial results
+        _result = new_trial_result(
+            feat_obj_set,
+            perf_obj_set,
+            muE,
+            muE_feat_hold,
+            muE_perf_hold,
+            df_irl,
+            source_trial_runtime,
+            source_irl_loop_runtime,
+            source_trial_inputsize,
+            muE_target_mean,
+            muE_perf_target_mean,
+            muL_target_hold,
+            muL_perf_target_hold,
+            unfairness_types=unfairness_types
+        )
+        results.append(_result)
+
+        # Persist the irl loop details so we can look at convergence
+        df_irl.to_csv(
+            f"./../../data/experiment_output/fair_irl/exp_conv_details/{timestamp}__trial{trial_i}.csv",
+            index=None,
+        )
+
+        trial_i += 1
+
+    # Persist trial results
+    exp_df = generate_single_exp_results_df(
+        feat_obj_set,
+        perf_obj_set,
+        results,
+    )
+    exp_df.to_csv(
+        f"./../../data/experiment_output/fair_irl/exp_results/{timestamp}.csv",
+        index=None,
+    )
+
+    # Persist trial info
+    exp_info['timestamp'] = timestamp
+    fp = f"./../../data/experiment_output/fair_irl/exp_info/{timestamp}.json"
+    json.dump(exp_info, open(fp, 'w'))
+
+    return source_clf_pol, target_clf_pol
 
 def run_experiment(
         exp_info, source_X=None, source_y=None, source_feature_types=None,
