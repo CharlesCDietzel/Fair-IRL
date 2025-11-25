@@ -486,9 +486,7 @@ def generate_single_exp_results_df(feat_obj_set, perf_obj_set, results):
 
 def new_trial_result(
     feat_obj_set, perf_obj_set, muE, muE_hold, muE_perf_hold, df_irl,
-    source_trial_runtime, source_irl_loop_runtime, source_trial_inputsize,
-    muE_target=None, muE_perf_target=None, muL_target_hold=None,
-    muL_perf_target_hold=None,
+    source_trial_runtime, source_irl_loop_runtime, source_trial_inputsize
 ):
     """
     Generates a row of "results", which are collected and persisted for each
@@ -592,40 +590,12 @@ def new_trial_result(
     result.append(best_row['mu_delta_l2norm'])
     result.append(best_row['mu_delta_l2norm_hold'])
 
-    # Adds n_feat_exp * 1 values
-    for i, obj in enumerate(feat_obj_set.objectives):
-
-        if muE_target is not None:
-            result.append(muE_target[i])
-        else:
-            result.append(np.nan)
-
-    # Adds n_perf_meas * 1 values
-    for i, obj in enumerate(perf_obj_set.objectives):
-
-        if muE_perf_target is not None:
-            result.append(muE_perf_target[i])
-        else:
-            result.append(np.nan)
-
-    # Adds n_feat_exp * 1 values
-    for i, obj in enumerate(feat_obj_set.objectives):
-
-        if muL_target_hold is not None:
-            result.append(muL_target_hold[i])
-        else:
-            result.append(np.nan)
-
     # Append performance measures of expert_holdout and best learned policies
     # Adds n_perf_meas * 2 values
     for i, obj in enumerate(perf_obj_set.objectives):
         perf_hold_mean = np.mean(muE_perf_hold[:, i])
         result.append(perf_hold_mean)
         result.append(best_row[f"muL_perf_best_hold_{obj.name}"])
-        if muL_perf_target_hold is not None:
-            result.append(muL_perf_target_hold[i])
-        else:
-            result.append(np.nan)
 
     result.append(source_trial_runtime)
     result.append(source_irl_loop_runtime)
@@ -712,6 +682,8 @@ def run_trial_source_domain(
             exp_info['DATASET'],
             n_samples=exp_info['N_DATASET_SAMPLES'],
         )
+    
+    bias_types = exp_info['BIAS_TYPES']
 
     # These are the feature types that will be used as inputs for the expert
     # classifier.
@@ -746,6 +718,7 @@ def run_trial_source_domain(
             clf=expert_algo_lookup[exp_info['EXPERT_ALGO']],
             obj_set=feat_obj_set,
             n_demos=exp_info['N_EXPERT_DEMOS'],
+            bias_types=bias_types
         )
 
         # Fit expert on entire training dataset. This is used when computing demos
@@ -819,6 +792,7 @@ def run_trial_source_domain(
             clf=expert_algo_lookup[non_expert_algo],
             obj_set=feat_obj_set,
             n_demos=1,
+            bias_types=bias_types
         )
         mu.append(_mu[0])
 
@@ -1726,7 +1700,7 @@ def run_trial_target_domain(
             clf=expert_algo_lookup[exp_info['EXPERT_ALGO']],
             obj_set=feat_obj_set,
             n_demos=exp_info['N_EXPERT_DEMOS'],
-            unfairness_types=[]
+            bias_types=[]
         )
 
         # Generate expert demonstrations for performance measures.
@@ -1736,7 +1710,7 @@ def run_trial_target_domain(
             clf=expert_algo_lookup[exp_info['EXPERT_ALGO']],
             obj_set=perf_obj_set,
             n_demos=exp_info['N_EXPERT_DEMOS'],
-            unfairness_types=[]
+            bias_types=[]
         )
 
     else:
@@ -1838,10 +1812,142 @@ def compute_feat_exp(
         clf=expert_algo_lookup[exp_info['EXPERT_ALGO']],
         obj_set=feat_obj_set,
         n_demos=exp_info['N_EXPERT_DEMOS'],
-        unfairness_types=unfairness_types
+        bias_types=unfairness_types
     )
     return muE_all
 
+def run_bias_experiment(
+        exp_info, source_X=None, source_y=None, source_feature_types=None
+):
+    """
+    Runs experiment for source domain and optionally target domain based on
+    the parameters in `exp_info`.
+
+    Parameters
+    ----------
+    exp_info : dict
+        Experiment parameters.
+
+    Returns
+    -------
+    source_clf_pol : research.rl.env.clf_mdp.ClassificationMDPPolicy
+        The classification MDP optimal policy for the source domain. This is
+        returned only for debugging or inpsection purposes.
+    target_clf_pol : research.rl.env.clf_mdp.ClassificationMDPPolicy
+        The classification MDP optimal policy for the target domain. This is
+        returned only for debugging or inpsection purposes.
+
+    Persists
+    --------
+    exp_df : pandas.DataFrame
+        Saves experiment results as a CSV where each row in the CSV represents
+        the relevant results of one trial. The file is stored as
+        "/data/experiment_output/fair_irl/exp_results/{timestamp}.csv"
+    exp_info : dict
+        Saves the experiment parameters and metadata metadata as a JSON file
+        "./../../data/experiment_output/fair_irl/exp_info/{timestamp}.json"
+    source_X : pandas.DataFrame, Optional
+        The X (including z) columns for the source domain.
+    source_y : pandas.Series, Optional
+        Just the y column for the source domain.
+    source_feature_types : dict<str, array-like>, Optional
+        Mapping of column names to their type of feature. Used to when
+        constructing sklearn pipelines for the source domain.
+    target_X : pandas.DataFrame, Optional
+        The X (including z) columns for the target domain.
+    target_y : pandas.Series, Optional
+        Just the y column for the target domain.
+    target_feature_types : dict<str, array-like>, Optional
+        Mapping of column names to their type of feature. Used to when
+        constructing sklearn pipelines for the target domain.
+    """
+    logging.info(f"exp_info: {exp_info}")
+
+    timestamp = datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+    logging.info(f"Experiment timestamp: {timestamp}")
+
+    objectives = []
+    for obj_name in exp_info['FEAT_EXP_OBJECTIVE_NAMES']:
+        objectives.append(OBJ_LOOKUP_BY_NAME[obj_name]())
+    feat_obj_set = ObjectiveSet(objectives)
+    del objectives
+
+    objectives = []
+    for obj_name in exp_info['PERF_MEAS_OBJECTIVE_NAMES']:
+        objectives.append(OBJ_LOOKUP_BY_NAME[obj_name]())
+    perf_obj_set = ObjectiveSet(objectives)
+    del objectives
+
+    results = []
+    trial_i = 0
+
+    while trial_i < exp_info['N_TRIALS']:
+        logging.info(f"\n\nTRIAL {trial_i}\n")
+
+        source_trial_start = datetime.datetime.now()
+
+        # Run trials to learn weights on source domain
+        did_converge, muE, muE_feat_hold, muE_perf_hold, df_irl, weights, t_hold, source_clf_pol, source_irl_loop_runtime = run_trial_source_domain(
+            exp_info,
+            X=source_X,
+            y=source_y,
+            feature_types=source_feature_types,
+        )
+
+        source_trial_runtime = (
+            datetime.datetime.now() - source_trial_start
+        ).total_seconds()
+
+        source_trial_inputsize = None
+        if hasattr(source_clf_pol, 'mdp'):
+            source_trial_inputsize = source_clf_pol.mdp.n_states_
+
+
+        # If feature expectation error wasn't sufficiently small, skip.
+        if not did_converge:
+            logging.info(f"\nTrial {trial_i} did not converge.\n")
+            trial_i += 1
+            continue
+
+        # Aggregate trial results
+        _result = new_trial_result(
+            feat_obj_set,
+            perf_obj_set,
+            muE,
+            muE_feat_hold,
+            muE_perf_hold,
+            df_irl,
+            source_trial_runtime,
+            source_irl_loop_runtime,
+            source_trial_inputsize
+        )
+        results.append(_result)
+
+        # Persist the irl loop details so we can look at convergence
+        df_irl.to_csv(
+            f"./../../data/experiment_output/fair_irl/exp_conv_details/{timestamp}__trial{trial_i}.csv",
+            index=None,
+        )
+
+        trial_i += 1
+
+    # Persist trial results
+    exp_df = generate_single_exp_results_df(
+        feat_obj_set,
+        perf_obj_set,
+        results,
+    )
+    exp_df.to_csv(
+        f"./../../data/experiment_output/fair_irl/exp_results/{timestamp}.csv",
+        index=None,
+    )
+
+    # Persist trial info
+    exp_info['timestamp'] = timestamp
+    fp = f"./../../data/experiment_output/fair_irl/exp_info/{timestamp}.json"
+    json.dump(exp_info, open(fp, 'w'))
+
+    return source_clf_pol
 
 def run_experiment(
         exp_info, source_X=None, source_y=None, source_feature_types=None,

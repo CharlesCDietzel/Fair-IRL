@@ -149,7 +149,7 @@ def add_demo_bias(demo, unfairness_types=[]):
 
 
 
-def generate_demos_k_folds( X, y, clf, obj_set, n_demos=3, unfairness_types=[]):
+def generate_demos_k_folds( X, y, clf, obj_set, n_demos=3, bias_types=[]):
     """
     Generates the expert demonstrations which will be used as the positive
     training samples in the IRL loop, or generates the initial policy
@@ -189,8 +189,8 @@ def generate_demos_k_folds( X, y, clf, obj_set, n_demos=3, unfairness_types=[]):
         clf.fit(X_train, y_train)
     
         # Swap thresholds for expert classifiers (invert fairness objective, sort of)
-        for unfairness_type in unfairness_types:
-            match unfairness_type:
+        for bias_type in bias_types:
+            match bias_type:
                 case "threshold_swapping":
                     try:
                         thresholds = clf.clf.interpolated_thresholder_.interpolation_dict
@@ -203,7 +203,7 @@ def generate_demos_k_folds( X, y, clf, obj_set, n_demos=3, unfairness_types=[]):
 
         logging.debug('\t\tGenerating demo...')
         demo = generate_demo(clf, X_test, y_test)
-        demo = add_demo_bias(demo, unfairness_types=unfairness_types)
+        demo = add_demo_bias(demo, unfairness_types=bias_types)
         logging.debug(
             df_to_log(
                 demo.groupby(['z', 'y'])[['yhat']].agg(['count', 'mean'])
