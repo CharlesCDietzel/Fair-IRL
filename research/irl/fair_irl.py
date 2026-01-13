@@ -134,22 +134,101 @@ def generate_demo(clf, X_test, y_test, can_observe_y=False):
     return demo
 
 
-def add_demo_bias(demo, unfairness_types=[]):
+def add_demo_bias(demo, unfairness_types=[], dataset=None):
+    # Z = 0 is discriminated against, Y = 0 is "bad" outcome
+    # rz - redlined Z value
+    # ry - redline Y outcome
+    # nrz - non-redlined Z value
+    # nry - non-redline Y outcome
+    if dataset == "Adult":
+        rz = 0
+        ry = 0
+        nrz = 1
+        nry = 1
+    elif dataset == "Boston":
+        rz = 0
+        ry = 0
+        nrz = 1
+        nry = 1
+    elif dataset == "ACSIncome__MA":
+        rz = 0
+        ry = 0
+        nrz = 1
+        nry = 1
+    elif dataset == "ACSIncome__MS":
+        rz = 0
+        ry = 0
+        nrz = 1
+        nry = 1
+    elif dataset == "COMPAS": # COMPAS Y redlining is reversed
+        rz = 0
+        ry = 1
+        nrz = 1
+        nry = 0
+
     for unfairness_type in unfairness_types:
+        demo.reset_index(inplace=True)
         match unfairness_type:
-            case "redlining":
+            case "unbalanced_redlining":
+                # wherever Z==rz, set yhat = ry with 20% probability. Otherwise, keep yhat the same
+                # Count how many rows have z == rz
+                rz_count = (demo["z"] == rz).sum()
+                # Multiply that by 20% to get the number of rows to redline
+                n = int(rz_count * 0.2)
+                # Step 3: Get n indices where z == rz
+                rz_indices = demo[demo['z'] == rz].sample(n=n).index
+                # Step 4: Set yhat to ry for sampled rows
+                demo.loc[rz_indices, 'yhat'] = ry
+            case "balanced_redlining":
+                # wherever Z==rz, set yhat = ry with 20% probability. Otherwise, keep yhat the same. Also, whereever Z==nrz, randomly set an equal number of yhat = nry
+                # Count how many rows have z == rz
+                rz_count = (demo["z"] == rz).sum()
+                # Multiply that by 20% to get the number of rows to redline
+                n = int(rz_count * 0.2)
+                # Edge case check: If there are fewer z == nrz than n, set n = nrz_count instead
+                nrz_count = (demo["z"] == nrz).sum()
+                n = min(nrz_count, n)
+                # Get the n indices where z == rz
+                rz_indices = demo[demo['z'] == rz].sample(n=n).index
+                # Set yhat to ry for sampled rows
+                demo.loc[rz_indices, 'yhat'] = ry
+                # Get the n indices where z == nrz
+                nrz_indices = demo[demo['z'] == nrz].sample(n=n).index
+                # Set yhat to nry for sampled rows
+                demo.loc[nrz_indices, 'yhat'] = nry
+            case "perfectly_balanced_redlining":
+                # wherever Z==rz and yhat==nry, set yhat = ry with 20% probability. Also, whereever Z==nrz and yhat==ry, randomly set an equal number of yhat = nry
+                # Count how many rows have z == rz AND yhat == nry
+                rz_count = ((demo["z"] == rz) & (demo["yhat"] == nry)).sum()
+                # Multiply that by 20% to get the number of rows to flip
+                n = int(rz_count * 0.2)
+                # Edge case check: If there are fewer z == nrz and yhat == ry than n, set n = nrz_count instead
+                nrz_count = ((demo["z"] == nrz) & (demo["yhat"] == ry)).sum()
+                n = min(nrz_count, n)
+                # Get the n indices where z == rz AND yhat == nry
+                rz_indices = demo[(demo['z'] == rz) & (demo['yhat'] == nry)].sample(n=n).index
+                # Get the n indices where z == nrz AND yhat == ry
+                nrz_indices = demo[(demo['z'] == nrz) & (demo['yhat'] == ry)].sample(n=n).index
+                # Set yhat to ry for sampled rows
+                demo.loc[rz_indices, 'yhat'] = ry
+                # Set yhat to nry for sampled rows
+                demo.loc[nrz_indices, 'yhat'] = nry
+            case "broken_redlining":
+                # This code is bugged, don't use it. It's only still here for replicating old results.
                 minority_z = demo["z"].value_counts(ascending=True).index[0]
                 minority_yhat = demo["yhat"].value_counts(ascending=True).index[0]
                 z_mask = demo['z'] == minority_z
                 random_mask = np.zeros(len(demo), dtype=bool)
                 random_mask[z_mask] = np.random.random(z_mask.sum()) < 0.2
                 demo.loc[random_mask, 'yhat'] = minority_yhat
+        demo.set_index("index", inplace=True) 
+        demo.index.name = None
     return demo
 
 
 
 
-def generate_demos_k_folds( X, y, clf, obj_set, n_demos=3, bias_types=[]):
+def generate_demos_k_folds(exp_info, X, y, clf, obj_set, n_demos=3, bias_types=[]):
     """
     Generates the expert demonstrations which will be used as the positive
     training samples in the IRL loop, or generates the initial policy
@@ -203,7 +282,7 @@ def generate_demos_k_folds( X, y, clf, obj_set, n_demos=3, bias_types=[]):
 
         logging.debug('\t\tGenerating demo...')
         demo = generate_demo(clf, X_test, y_test)
-        demo = add_demo_bias(demo, unfairness_types=bias_types)
+        demo = add_demo_bias(demo, unfairness_types=bias_types, dataset=exp_info['DATASET'])
         logging.debug(
             df_to_log(
                 demo.groupby(['z', 'y'])[['yhat']].agg(['count', 'mean'])

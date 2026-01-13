@@ -438,6 +438,10 @@ def generate_single_exp_results_df(feat_obj_set, perf_obj_set, results):
 
 
     for obj in feat_obj_set.objectives:
+        exp_df_cols.append(f"muE_biased_{obj.name}_mean")
+        exp_df_cols.append(f"muE_biased_{obj.name}_std")
+
+    for obj in feat_obj_set.objectives:
         exp_df_cols.append(f"muE_{obj.name}_mean")
         exp_df_cols.append(f"muE_{obj.name}_std")
 
@@ -461,19 +465,9 @@ def generate_single_exp_results_df(feat_obj_set, perf_obj_set, results):
     exp_df_cols.append('muL_err_l2norm')
     exp_df_cols.append('muL_hold_err_l2norm')
 
-    for obj in feat_obj_set.objectives:
-        exp_df_cols.append(f"muE_target_{obj.name}")
-
-    for obj in perf_obj_set.objectives:
-        exp_df_cols.append(f"muE_perf_target_{obj.name}")
-
-    for obj in feat_obj_set.objectives:
-        exp_df_cols.append(f"muL_target_hold_{obj.name}")
-
     for obj in perf_obj_set.objectives:
         exp_df_cols.append(f"muE_perf_hold_{obj.name}")
         exp_df_cols.append(f"muL_perf_best_hold_{obj.name}")
-        exp_df_cols.append(f"muL_perf_target_best_hold_{obj.name}")
 
     exp_df_cols.append(f"source_trial_runtime")
     exp_df_cols.append(f"source_irl_loop_runtime")
@@ -485,7 +479,7 @@ def generate_single_exp_results_df(feat_obj_set, perf_obj_set, results):
 
 
 def new_trial_result(
-    feat_obj_set, perf_obj_set, muE, muE_hold, muE_perf_hold, df_irl,
+    feat_obj_set, perf_obj_set, muE_biased, muE, muE_hold, muE_perf_hold, df_irl,
     source_trial_runtime, source_irl_loop_runtime, source_trial_inputsize
 ):
     """
@@ -538,6 +532,12 @@ def new_trial_result(
     result = []
 
     # Do this for feature expectation obj set
+    # Adds n_feat_exp * 2 values
+    for i, obj in enumerate(feat_obj_set.objectives):
+        muE_biased_mean = np.mean(muE_biased[:, i])
+        muE_biased_std = np.std(muE_biased[:, i])
+        result += [muE_biased_mean, muE_biased_std]
+
     # Adds n_feat_exp * 2 values
     for i, obj in enumerate(feat_obj_set.objectives):
         muE_mean = np.mean(muE[:, i])
@@ -708,13 +708,34 @@ def run_trial_source_domain(
     split_is_okay = False
     max_muE_cosine_dist_split = .001
 
+    muE_biased, _ = generate_demos_k_folds(
+        exp_info,
+        X=X,
+        y=y,
+        clf=expert_algo_lookup[exp_info['EXPERT_ALGO']],
+        obj_set=feat_obj_set,
+        n_demos=exp_info['N_EXPERT_DEMOS'],
+        bias_types=bias_types
+    )
+
     while not split_is_okay:
         X_demo, X_hold, y_demo, y_hold = train_test_split(X, y, test_size=.2)
 
         # Generate expert demonstrations to learn from
         muE, demosE = generate_demos_k_folds(
+            exp_info,
             X=X_demo,
             y=y_demo,
+            clf=expert_algo_lookup[exp_info['EXPERT_ALGO']],
+            obj_set=feat_obj_set,
+            n_demos=exp_info['N_EXPERT_DEMOS'],
+            bias_types=bias_types
+        )
+
+        muE_hold_test, _ = generate_demos_k_folds(
+            exp_info,
+            X=X_hold,
+            y=y_hold,
             clf=expert_algo_lookup[exp_info['EXPERT_ALGO']],
             obj_set=feat_obj_set,
             n_demos=exp_info['N_EXPERT_DEMOS'],
@@ -730,14 +751,15 @@ def run_trial_source_domain(
             y_test=y_demo,
             can_observe_y=CAN_OBSERVE_Y,
         )
-        muE_hold = np.array([feat_obj_set.compute_demo_feature_exp(demoE_hold)])
+        muE_hold = np.array([feat_obj_set.compute_demo_feature_exp(demoE_hold)]) # TODO: Maybe replace this with muE_hold_test???
         muE_perf_hold = np.array([perf_obj_set.compute_demo_feature_exp(demoE_hold)])
 
         for demo_i, _ in enumerate(muE):
             split_is_okay = True
-            if cosine(muE[demo_i], muE_hold[demo_i]) > max_muE_cosine_dist_split:
+            if cosine(muE[demo_i], muE_hold_test[demo_i]) > max_muE_cosine_dist_split:
                 split_is_okay = False
 
+    logging.info(f"muE_biased:\n{muE_biased}")
     logging.info(f"muE:\n{muE}")
     logging.info(f"muE_hold:\n{muE_hold}")
     logging.info(f"muE_perf_hold:\n{muE_perf_hold}")
@@ -787,6 +809,7 @@ def run_trial_source_domain(
     for non_expert_algo in exp_info['NON_EXPERT_ALGOS']:
         # Demo set
         _mu, _demos = generate_demos_k_folds(
+            exp_info,
             X=X_demo,
             y=y_demo,
             clf=expert_algo_lookup[non_expert_algo],
@@ -798,11 +821,13 @@ def run_trial_source_domain(
 
         # Holdout set
         _mu_hold, _demos_hold = generate_demos_k_folds(
+            exp_info,
             X=X_demo,
             y=y_demo,
             clf=expert_algo_lookup[non_expert_algo],
             obj_set=feat_obj_set,
             n_demos=1,
+            bias_types=bias_types
         )
         mu_deltas_hold = _mu_hold -  muE_hold
         mu_deltas_hold_l2norm = np.linalg.norm(mu_deltas_hold, ord=2)
@@ -810,6 +835,7 @@ def run_trial_source_domain(
 
     mu = np.array(mu)
     logging.info(f"muL:\n{mu}")
+    # X_biased_exp = pd.DataFrame(muE_biased, columns=feat_obj_set_cols)
     X_irl_exp = pd.DataFrame(muE, columns=feat_obj_set_cols)
     y_irl_exp = pd.Series(np.ones(exp_info['N_EXPERT_DEMOS']), dtype=int)
     X_irl_learn = pd.DataFrame(mu, columns=feat_obj_set_cols)
@@ -1037,7 +1063,7 @@ def run_trial_source_domain(
     mu_delta_l2_norm_arg_smallest_to_largest = np.argsort(mu_delta_l2norm_hist)
     # best_iter = t_arg_smallest_to_largest[0]
     best_iter = mu_delta_l2_norm_arg_smallest_to_largest[0]
-    print('best_iter', best_iter)
+    # print('best_iter', best_iter)
     if not exp_info['ALLOW_NEG_WEIGHTS']:
         best_t = None
         best_t_i = 0
@@ -1045,7 +1071,7 @@ def run_trial_source_domain(
         while not best_t_done:
             if best_t_i >= len(t):
                 np.info(f"best_weight:\t {np.round(weights[best_iter], 3)}")
-                display(weights)
+                # display(weights)
                 raise ValueError('Only negative weights learned')
             best_iter = t_arg_smallest_to_largest[best_t_i]
             best_t = t[best_iter]
@@ -1133,7 +1159,7 @@ def run_trial_source_domain(
         + mu_delta_l2norm_hold_hist
     )
     logging.debug('Experiment Summary')
-    display(df_irl.round(3))
+    # display(df_irl.round(3))
 
     ###
     ## Plot results
@@ -1211,7 +1237,7 @@ def run_trial_source_domain(
 
         # End regular IRL trial
 
-    return True, muE, muE_hold, muE_perf_hold, df_irl, weights, t_hold, clf_pol, irl_loop_runtime
+    return True, muE_biased, muE, muE_hold, muE_perf_hold, df_irl, weights, t_hold, clf_pol, irl_loop_runtime
 
 
 def run_behavioral_cloning_trial_source_domain(
@@ -1259,6 +1285,7 @@ def run_behavioral_cloning_trial_source_domain(
 
     # Generate expert demonstrations to learn from
     muE, demosE = generate_demos_k_folds(
+        exp_info,
         X=X_demo,
         y=y_demo,
         clf=expert_algo_lookup[exp_info['EXPERT_ALGO']],
@@ -1271,6 +1298,7 @@ def run_behavioral_cloning_trial_source_domain(
     # performance. These expert demos are never shown to the IRL algo and are
     # only used for performance measurement.
     muE_hold, demosE_hold = generate_demos_k_folds(
+        exp_info,
         X=X_hold,
         y=y_hold,
         clf=expert_algo_lookup[exp_info['EXPERT_ALGO']],
@@ -1306,6 +1334,7 @@ def run_behavioral_cloning_trial_source_domain(
     mu = []
     for non_expert_algo in exp_info['NON_EXPERT_ALGOS']:
         _mu, _demos = generate_demos_k_folds(
+            exp_info,
             X=X_demo,
             y=y_demo,
             clf=expert_algo_lookup[non_expert_algo],
@@ -1446,7 +1475,7 @@ def run_behavioral_cloning_trial_source_domain(
         .tolist() + mu_delta_l2norm_hold_hist
     )
     logging.debug('Experiment Summary')
-    display(df_irl.round(3))
+    # display(df_irl.round(3))
 
     return True, muE, muE_hold, muE_perf_hold, df_irl, weights, t_hold, clf
 
@@ -1545,6 +1574,7 @@ def run_behavior_cloning_trial_target_domain(
 
         # Generate expert demonstrations to compare against.
         muE_target, _ = generate_demos_k_folds(
+            exp_info,
             X=X_demo,
             y=y_demo,
             clf=expert_algo_lookup[exp_info['EXPERT_ALGO']],
@@ -1554,6 +1584,7 @@ def run_behavior_cloning_trial_target_domain(
 
         # Generate expert demonstrations for performance measures.
         muE_perf_target, _ = generate_demos_k_folds(
+            exp_info,
             X=X_demo,
             y=y_demo,
             clf=expert_algo_lookup[exp_info['EXPERT_ALGO']],
@@ -1695,6 +1726,7 @@ def run_trial_target_domain(
 
         # Generate expert demonstrations to compare against.
         muE_target, _ = generate_demos_k_folds(
+            exp_info,
             X=X_demo,
             y=y_demo,
             clf=expert_algo_lookup[exp_info['EXPERT_ALGO']],
@@ -1705,6 +1737,7 @@ def run_trial_target_domain(
 
         # Generate expert demonstrations for performance measures.
         muE_perf_target, _ = generate_demos_k_folds(
+            exp_info,
             X=X_demo,
             y=y_demo,
             clf=expert_algo_lookup[exp_info['EXPERT_ALGO']],
@@ -1807,6 +1840,7 @@ def compute_feat_exp(
 
         # Generate expert demonstrations to compare against.
     muE_all, _ = generate_demos_k_folds(
+        exp_info,
         X=X,
         y=y,
         clf=expert_algo_lookup[exp_info['EXPERT_ALGO']],
@@ -1882,12 +1916,12 @@ def run_bias_experiment(
     trial_i = 0
 
     while trial_i < exp_info['N_TRIALS']:
-        logging.info(f"\n\nTRIAL {trial_i}\n")
+        # logging.info(f"\n\nTRIAL {trial_i}\n")
 
         source_trial_start = datetime.datetime.now()
 
         # Run trials to learn weights on source domain
-        did_converge, muE, muE_feat_hold, muE_perf_hold, df_irl, weights, t_hold, source_clf_pol, source_irl_loop_runtime = run_trial_source_domain(
+        did_converge, muE_biased, muE, muE_feat_hold, muE_perf_hold, df_irl, weights, t_hold, source_clf_pol, source_irl_loop_runtime = run_trial_source_domain(
             exp_info,
             X=source_X,
             y=source_y,
@@ -1913,6 +1947,7 @@ def run_bias_experiment(
         _result = new_trial_result(
             feat_obj_set,
             perf_obj_set,
+            muE_biased,
             muE,
             muE_feat_hold,
             muE_perf_hold,

@@ -488,7 +488,7 @@ def generate_acs_income(n=10_000, state=None):
     # doing IRL.
     #
     # Balance the positive and negative classes
-    rus = RandomUnderSampler(sampling_strategy=1)
-    X, y = rus.fit_resample(X, y)
+    # rus = RandomUnderSampler(sampling_strategy=1)
+    # X, y = rus.fit_resample(X, y)
 
     return X, y, feature_types
