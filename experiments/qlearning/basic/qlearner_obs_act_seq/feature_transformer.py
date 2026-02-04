@@ -41,15 +41,15 @@ class ObsActSeqFeatureTransformer:
         int or None
             Index of string representation of observation-action sequence.
         """
-        X_t = ''
+        X_t = ""
         for i, x in enumerate(X):
             if i > 0:
-                X_t += ', '
+                X_t += ", "
             obs = x[0]
             act = x[1]
-            X_t += '['
-            X_t += ','.join([str(i) for i in obs])
-            X_t += ']-' + str(act)
+            X_t += "["
+            X_t += ",".join([str(i) for i in obs])
+            X_t += "]-" + str(act)
         if X_t not in self.idx_lookup_:
             self.idx_lookup_[X_t] = self.next_idx_
             self.next_idx_ += 1

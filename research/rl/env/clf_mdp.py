@@ -120,23 +120,25 @@ class ClassificationMDP:
                 -555,  # Distinct value for too infrequent values.
                 # clf_df[x].value_counts().sort_values().index[-1],  # most freq.
             )
-        logging.debug('\nmin_freq_fill_pcts:')
+        logging.debug("\nmin_freq_fill_pcts:")
         logging.debug(min_freq_fill_pcts)
 
         # Generate the state_reducer_ object that replaces infrequent state
         # values with defaults.
-        logging.debug('\nFitting state_reducer_ ...')
+        logging.debug("\nFitting state_reducer_ ...")
         for x in min_freq_fill_pcts.keys():
             min_freq, default_val = min_freq_fill_pcts[x]
             freq = clf_df.groupby(x).size() / len(clf_df)
-            mean_target_rel_delta = (clf_df.groupby(x)['y'].mean() - clf_df['y'].mean()) / clf_df['y'].mean()
+            mean_target_rel_delta = (
+                clf_df.groupby(x)["y"].mean() - clf_df["y"].mean()
+            ) / clf_df["y"].mean()
             # NEW as of 01/07/2024
             # Only use default override for categorical variables if it has a
             # relative mean target encoding > MIN_TARGET_MEAN_ENC_REL_DELTA and
             # its freq > min_freq, OR if its freq is 3x more than min_freq.
             # This is intending to make it so that I can add more categorical
             # variables in datasets without it taking so long.
-            for x_val in (freq[freq < 1*min_freq]).index:
+            for x_val in (freq[freq < 1 * min_freq]).index:
                 # MIN_TARGET_MEAN_ENC_REL_DELTA = .1
                 # if mean_target_rel_delta.loc[x_val] > MIN_TARGET_MEAN_ENC_REL_DELTA and freq[x_val] > min_freq:
                 #     logging.debug(f"\n\t\tBypassing category override; {x}: {x_val}, freq={freq[x_val]:.3f}, y_rel_delta={mean_target_rel_delta[x_val]:.3f}")
@@ -153,9 +155,10 @@ class ClassificationMDP:
         logging.debug(f"\nstate_reducer_: \n{self.state_reducer_}")
         # Generate the reduced_state_df_ and the X,y -> state mapping
         self.reduced_state_df_ = (
-            clf_df
-            .groupby(self.x_cols+['z', 'y']).size()
-            .reset_index().rename(columns={0: 'count'})
+            clf_df.groupby(self.x_cols + ["z", "y"])
+            .size()
+            .reset_index()
+            .rename(columns={0: "count"})
         )
 
         self.reduced_state_lookup_ = {}
@@ -168,47 +171,57 @@ class ClassificationMDP:
         self.n_states_ = state_counter
 
         # Compute `mu0` (initial state probabilities)
-        logging.debug('Computing b_eq ...')
-        self.reduced_state_df_['mu0'] = self.reduced_state_df_['count'] / self.reduced_state_df_['count'].sum()
-        self.reduced_state_df_ = self.reduced_state_df_.drop(columns='count')
+        logging.debug("Computing b_eq ...")
+        self.reduced_state_df_["mu0"] = (
+            self.reduced_state_df_["count"] / self.reduced_state_df_["count"].sum()
+        )
+        self.reduced_state_df_ = self.reduced_state_df_.drop(columns="count")
         logging.debug(f"n_states: {len(self.reduced_state_df_)}")
 
         # Generate the lambda dataframe (state-action indexed)
-        logging.debug('Generating the lambda dataframe ...')
+        logging.debug("Generating the lambda dataframe ...")
         self.ldf_ = self._generate_lambda_linear_equations(self.reduced_state_df_)
 
         # Compute b_eq, which consists of two parts:
         #   1: mu0
         #   2: zeros (for action equality for same y-values)
-        self.b_eq_ = self.reduced_state_df_['mu0']
+        self.b_eq_ = self.reduced_state_df_["mu0"]
         if restrict_y:
-            self.b_eq_ = np.concatenate([
-                self.b_eq_,
-                np.zeros(self.ldf_.groupby(self.x_cols+['z', 'yhat']).size().shape[0]),  # action equality for y
-            ])
+            self.b_eq_ = np.concatenate(
+                [
+                    self.b_eq_,
+                    np.zeros(
+                        self.ldf_.groupby(self.x_cols + ["z", "yhat"]).size().shape[0]
+                    ),  # action equality for y
+                ]
+            )
 
         # Compute transition matrix linear equations `A_eq`, which consists of
         # two parts:
         #   1: Transition matrix
         #   2: Action equality for same y-values
-        logging.debug('Computing transition matrix linear equations A_eq ...')
+        logging.debug("Computing transition matrix linear equations A_eq ...")
         self.A_eq_ = self._compute_A_eq(
-            mu0=self.reduced_state_df_['mu0'],
+            mu0=self.reduced_state_df_["mu0"],
             ldf=self.ldf_,
             x_cols=self.x_cols,
             restrict_y=restrict_y,
         )
 
-        logging.debug('Fitting objectives ...')
-        n_primary_constr = len(self.reduced_state_df_['mu0'])
-        A_eq = np.concatenate([
-            self.A_eq_[0:n_primary_constr],
-            self.A_eq_[n_primary_constr+0:n_primary_constr+2],
-        ])
-        b_eq = np.concatenate([
-            self.b_eq_[0:n_primary_constr],
-            self.b_eq_[n_primary_constr+0:n_primary_constr+2],
-        ])
+        logging.debug("Fitting objectives ...")
+        n_primary_constr = len(self.reduced_state_df_["mu0"])
+        A_eq = np.concatenate(
+            [
+                self.A_eq_[0:n_primary_constr],
+                self.A_eq_[n_primary_constr + 0 : n_primary_constr + 2],
+            ]
+        )
+        b_eq = np.concatenate(
+            [
+                self.b_eq_[0:n_primary_constr],
+                self.b_eq_[n_primary_constr + 0 : n_primary_constr + 2],
+            ]
+        )
         self.obj_set.fit(
             reward_weights=reward_weights,
             ldf=self.ldf_,
@@ -219,7 +232,7 @@ class ClassificationMDP:
 
         return None
 
-    def compute_optimal_policies(self, skip_error_terms=False, method='highs'):
+    def compute_optimal_policies(self, skip_error_terms=False, method="highs"):
         """
         Computes the optimal policies for the classification MDP.
 
@@ -250,10 +263,12 @@ class ClassificationMDP:
                 skip_error_terms=skip_error_terms,
                 method=method,
             )
-            best_policies_best_rewards.append({
-                'policies': list(opt_pols),
-                'reward': np.round(opt_rew, decimals=6),
-            })
+            best_policies_best_rewards.append(
+                {
+                    "policies": list(opt_pols),
+                    "reward": np.round(opt_rew, decimals=6),
+                }
+            )
 
         opt_pols, opt_rew = _find_best_policies_from_multiple_opt_problems(
             best_policies_best_rewards,
@@ -301,19 +316,19 @@ class ClassificationMDP:
         A_eq_
         """
         ldf_mu0 = ldf.copy()
-        ldf = ldf.copy().drop(columns='mu0')
+        ldf = ldf.copy().drop(columns="mu0")
 
         # Construct constraints that correspond to transition matrix.
         n_states = len(mu0)
         n_actions = 2
-        A_eq = np.zeros((n_states, n_states*n_actions))
+        A_eq = np.zeros((n_states, n_states * n_actions))
         for s in range(n_states):
             for sp in range(n_states):
                 for a in range(n_actions):
                     if s == sp:
-                        A_eq[s][sp*n_actions+a] = 1 - self.gamma*mu0[sp]
+                        A_eq[s][sp * n_actions + a] = 1 - self.gamma * mu0[sp]
                     else:
-                        A_eq[s][sp*n_actions+a] = 0 - self.gamma*mu0[sp]
+                        A_eq[s][sp * n_actions + a] = 0 - self.gamma * mu0[sp]
 
         if restrict_y:
             # Construct constraints that require equal actions for the same `y`
@@ -324,11 +339,11 @@ class ClassificationMDP:
 
             # For each, x, a combination:
             #   Add constraint that x,y0,a == x,y1,a
-            n_constr = ldf.groupby(x_cols+['z', 'yhat']).size().shape[0]
+            n_constr = ldf.groupby(x_cols + ["z", "yhat"]).size().shape[0]
             A_eq2 = np.zeros((n_constr, len(ldf)))
 
             group_i = 0
-            for cols, group in ldf.groupby(x_cols+['z', 'yhat']):
+            for cols, group in ldf.groupby(x_cols + ["z", "yhat"]):
                 assert len(group) <= 2
 
                 if len(group) == 1:
@@ -337,10 +352,22 @@ class ClassificationMDP:
                 constr = np.zeros_like(ldf.index, dtype=float)
                 locy0 = group.index[0]
                 locy1 = group.index[1]
-                _group = group[x_cols+['z']]
+                _group = group[x_cols + ["z"]]
                 # Find the mu0 values for each x, a group
-                locy0_mu0 = ldf_mu0[(ldf_mu0[x_cols+['z', 'y']] == list(_group.iloc[0].values)+[0]).sum(axis=1) == len(x_cols)+2]['mu0']
-                locy1_mu0 = ldf_mu0[(ldf_mu0[x_cols+['z', 'y']] == list(_group.iloc[0].values)+[1]).sum(axis=1) == len(x_cols)+2]['mu0']
+                locy0_mu0 = ldf_mu0[
+                    (
+                        ldf_mu0[x_cols + ["z", "y"]]
+                        == list(_group.iloc[0].values) + [0]
+                    ).sum(axis=1)
+                    == len(x_cols) + 2
+                ]["mu0"]
+                locy1_mu0 = ldf_mu0[
+                    (
+                        ldf_mu0[x_cols + ["z", "y"]]
+                        == list(_group.iloc[0].values) + [1]
+                    ).sum(axis=1)
+                    == len(x_cols) + 2
+                ]["mu0"]
                 assert len(locy0_mu0) == 2
                 assert len(locy1_mu0) == 2
                 locy0_mu0 = locy0_mu0.values[0]
@@ -366,7 +393,7 @@ class ClassificationMDP:
         ldf = ldf.sort_values(list(ldf.columns))
         yhat = np.zeros(len(ldf), dtype=int)
         yhat[1::2] = 1  # Makes 'a' 0, 1 repeating sequence
-        ldf['yhat'] = yhat
+        ldf["yhat"] = yhat
         ldf = ldf.reset_index(drop=True)
         return ldf
 
@@ -397,14 +424,14 @@ def _find_best_policies_from_multiple_opt_problems(best_policies_best_rewards):
     best_of_best_reward : float
         The best reward of all opt_problems.
     """
-    rewards = [bpbr['reward'] for bpbr in best_policies_best_rewards]
+    rewards = [bpbr["reward"] for bpbr in best_policies_best_rewards]
     best_idx = np.argwhere(rewards == np.amax(rewards)).flatten().tolist()
     logging.debug(f"best_idx: {best_idx}")
     best_of_best_pols = []
     # For each opt_problem index where the reward is the best reward
     for idx in best_idx:
         # Get all the policies from that opt_problem (all have same reward)
-        pols = best_policies_best_rewards[idx]['policies']
+        pols = best_policies_best_rewards[idx]["policies"]
         # For each of these policies, check add it to the list of
         # best_of_best_pols if it's not already in it.
         for pol in pols:
@@ -424,7 +451,16 @@ def _find_best_policies_from_multiple_opt_problems(best_policies_best_rewards):
 
 
 def _find_all_solutions_lp(
-        n_states, c, A_eq, b_eq, A_ub=None, b_ub=None, error_term=1e-12, skip_error_terms=False, method='highs'):
+    n_states,
+    c,
+    A_eq,
+    b_eq,
+    A_ub=None,
+    b_ub=None,
+    error_term=1e-12,
+    skip_error_terms=False,
+    method="highs",
+):
     """
     Wrapper around scipy.optimize.linprog that finds ALL optimal solutions
     by iteratively solving the LP problem after adding/subtracting an "error"
@@ -465,50 +501,51 @@ def _find_all_solutions_lp(
         The optimal reward.
     """
     best_policies = []
-    best_reward = -1*np.inf
+    best_reward = -1 * np.inf
     n_actions = 2
 
     if skip_error_terms:
 
         if A_ub is None or len(A_ub) == 0:
-            assert(b_ub is None or len(b_ub) == 0)
+            assert b_ub is None or len(b_ub) == 0
             res = linprog(c, A_eq=A_eq, b_eq=b_eq)
         else:
             res = linprog(c, A_eq=A_eq, b_eq=b_eq, A_ub=A_ub, b_ub=b_ub)
 
-        best_reward = -1*res.fun
+        best_reward = -1 * res.fun
         logging.debug(f"\nBest Reward:\t {best_reward}")
         logging.debug(f"Lambdas:\t {np.round(res.x, 2)}")
         pi_opt = np.zeros(n_states, dtype=int)
         for s in range(n_states):
-            start_idx = s*n_actions
-            end_idx = s*n_actions+n_actions
+            start_idx = s * n_actions
+            end_idx = s * n_actions + n_actions
             pi_opt[s] = res.x[start_idx:end_idx].argmax()
 
         best_policies = [pi_opt]
 
     else:
-        for i in range(len(c)-1):
+        for i in range(len(c) - 1):
 
             # Positive error
             cpos = np.array(c)
             cpos[i] += error_term
 
             if A_ub is None or len(A_ub) == 0:
-                assert(b_ub is None or len(b_ub) == 0)
+                assert b_ub is None or len(b_ub) == 0
                 res = linprog(cpos, A_eq=A_eq, b_eq=b_eq)
             else:
                 res = linprog(cpos, A_eq=A_eq, b_eq=b_eq, A_ub=A_ub, b_ub=b_ub)
 
-            if ((-1*res.fun > best_reward)
-                and (not np.isclose(-1*res.fun, best_reward, atol=.001))):
-                best_reward = -1*res.fun
+            if (-1 * res.fun > best_reward) and (
+                not np.isclose(-1 * res.fun, best_reward, atol=0.001)
+            ):
+                best_reward = -1 * res.fun
                 logging.debug(f"\nBest Reward:\t {best_reward}")
                 logging.debug(f"Lambdas:\t {np.round(res.x, 2)}")
             pi_opt = np.zeros(n_states, dtype=int)
             for s in range(n_states):
-                start_idx = s*n_actions
-                end_idx = s*n_actions+n_actions
+                start_idx = s * n_actions
+                end_idx = s * n_actions + n_actions
                 pi_opt[s] = res.x[start_idx:end_idx].argmax()
             if not _is_pol_in_pols(pi_opt, best_policies):
                 best_policies.append(pi_opt)
@@ -519,30 +556,32 @@ def _find_all_solutions_lp(
             cneg[i] -= error_term
 
             if A_ub is None or len(A_ub) == 0:
-                assert(b_ub is None or len(b_ub) == 0)
+                assert b_ub is None or len(b_ub) == 0
                 res = linprog(cneg, A_eq=A_eq, b_eq=b_eq)
             else:
                 res = linprog(cneg, A_eq=A_eq, b_eq=b_eq, A_ub=A_ub, b_ub=b_ub)
 
-            if ((-1*res.fun > best_reward)
-                and (not np.isclose(-1*res.fun, best_reward, atol=.001))):
-                best_reward = -1*res.fun
+            if (-1 * res.fun > best_reward) and (
+                not np.isclose(-1 * res.fun, best_reward, atol=0.001)
+            ):
+                best_reward = -1 * res.fun
                 logging.debug(f"\nBest Reward:\t {best_reward}")
             logging.debug(f"Lambdas:\t {np.round(res.x, 2)}")
             pi_opt = np.zeros(n_states, dtype=int)
             for s in range(n_states):
-                start_idx = s*n_actions
-                end_idx = s*n_actions+n_actions
+                start_idx = s * n_actions
+                end_idx = s * n_actions + n_actions
                 pi_opt[s] = res.x[start_idx:end_idx].argmax()
             if not _is_pol_in_pols(pi_opt, best_policies):
                 best_policies.append(pi_opt)
                 logging.debug(f"Optimal Policy:\t, {pi_opt} \n")
 
-        logging.debug('\nOptimal policies:')
+        logging.debug("\nOptimal policies:")
         for pi in best_policies:
             logging.debug(f"\t{np.round(pi, 2)}")
 
     return best_policies, best_reward
+
 
 def _is_pol_in_pols(pol, policies):
     """

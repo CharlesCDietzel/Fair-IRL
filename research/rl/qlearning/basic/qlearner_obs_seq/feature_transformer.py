@@ -43,9 +43,9 @@ class SeqFeatureTransformer:
         int
             Index of string representation of state/observation sequence.
         """
-        X_t = ''
+        X_t = ""
         for x in X:
-            X_t += ''.join([str(i) for i in x])
+            X_t += "".join([str(i) for i in x])
         if X_t not in self.idx_lookup_:
             self.idx_lookup_[X_t] = self.next_idx_
             self.next_idx_ += 1
@@ -108,8 +108,10 @@ class SeqArrayToSortedStringTransformer:
             Inverse of _lookup. Used for verbose output.
         """
         if not isinstance(env.observation_space, gym.spaces.discrete.Discrete):
-            raise ValueError('SeqArrayToSortedStringTransformer only works \
-                             for Discrete spaces.')
+            raise ValueError(
+                "SeqArrayToSortedStringTransformer only works \
+                             for Discrete spaces."
+            )
         # generate all possible permutations of length seq_len
         all_perms = _all_perms(env.observation_space.n, seq_len)
         all_perms.sort()
@@ -130,10 +132,10 @@ class SeqArrayToSortedStringTransformer:
         int
             Discrete state value.
         """
-        observations_seq = np.asarray(
-            [np.asarray(o) for o in observations_seq])
-        seq_str = ''.join(map(lambda f: str(int(f)), np.ndarray.flatten(
-            np.asarray(observations_seq))))
+        observations_seq = np.asarray([np.asarray(o) for o in observations_seq])
+        seq_str = "".join(
+            map(lambda f: str(int(f)), np.ndarray.flatten(np.asarray(observations_seq)))
+        )
         return self._lookup[seq_str]
 
 
@@ -170,10 +172,10 @@ def _all_perms(num_obs, seq_len):
 
     all_uniq_obs = np.asarray(all_uniq_obs)
 
-    for L in range(0, seq_len+1):
+    for L in range(0, seq_len + 1):
         for subset in product(all_uniq_obs, repeat=L):
             flattened_seq = np.ndarray.flatten(np.array(subset))
-            seq_str = ','.join(flattened_seq.astype(str)).replace(',', '')
+            seq_str = ",".join(flattened_seq.astype(str)).replace(",", "")
             permutations.append(seq_str)
 
     permutations = np.asarray(permutations)

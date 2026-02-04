@@ -38,4 +38,4 @@ class ObservationAsStatesTransformer:
         elif o == [2]:
             return 2
         else:
-            raise ValueError('Invalid observation: '.format(o))
+            raise ValueError("Invalid observation: ".format(o))

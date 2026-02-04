@@ -41,19 +41,18 @@ class HiddenLayer:
         name collisions between the main and target graphs.
     """
 
-    def __init__(self, name, M1, M2, f=tf.nn.tanh, use_bias=True,
-                 use_name_scope=False):
+    def __init__(self, name, M1, M2, f=tf.nn.tanh, use_bias=True, use_name_scope=False):
         self.name = name
 
         if use_name_scope:
             with tf.name_scope(name):
-                with tf.name_scope('weights'):
+                with tf.name_scope("weights"):
                     self.W = tf.Variable(tf.zeros(shape=(M1, M2)))
                     _variable_summaries(self.W)
                 self.params = [self.W]
                 self.use_bias = use_bias
                 if self.use_bias:
-                    with tf.name_scope('biases'):
+                    with tf.name_scope("biases"):
                         self.b = tf.Variable(np.zeros(M2).astype(np.float32))
                         _variable_summaries(self.b)
                     self.params.append(self.b)
@@ -179,9 +178,21 @@ class TensorFlowSeqDQN:
         only used for debugging.
     """
 
-    def __init__(self, name, session, D, K, hidden_layer_sizes, obs_seq_len,
-                 start_obs, gamma, max_experiences=10000, min_experiences=5,
-                 log_summaries=False, logs_dir=None):
+    def __init__(
+        self,
+        name,
+        session,
+        D,
+        K,
+        hidden_layer_sizes,
+        obs_seq_len,
+        start_obs,
+        gamma,
+        max_experiences=10000,
+        min_experiences=5,
+        log_summaries=False,
+        logs_dir=None,
+    ):
         self.name = name
         self.session = session
         self.K = K
@@ -198,17 +209,21 @@ class TensorFlowSeqDQN:
         self.layers = []
         M1 = D
         for idx, M2 in enumerate(hidden_layer_sizes):
-            name = '{}-H{}'.format(self.name, idx)  # Used for TensorBoard
-            layer = HiddenLayer(name, M1, M2,
-                                use_name_scope=self.log_summaries)
+            name = "{}-H{}".format(self.name, idx)  # Used for TensorBoard
+            layer = HiddenLayer(name, M1, M2, use_name_scope=self.log_summaries)
             self.layers.append(layer)
             M1 = M2
 
         ##
         # Create the final layer of the main graph.
         ##
-        layer = HiddenLayer('{}-Output'.format(self.name), M1, K, lambda x: x,
-                            use_name_scope=self.log_summaries)
+        layer = HiddenLayer(
+            "{}-Output".format(self.name),
+            M1,
+            K,
+            lambda x: x,
+            use_name_scope=self.log_summaries,
+        )
         self.layers.append(layer)
 
         ##
@@ -222,10 +237,9 @@ class TensorFlowSeqDQN:
         # Define the tensorflow placehoders for the inputs, targets, and
         # actions.
         ##
-        self.X = tf.placeholder(tf.float32, shape=(None, D),
-                                name='X')
-        self.G = tf.placeholder(tf.float32, shape=(None,), name='G')
-        self.actions = tf.placeholder(tf.int32, shape=(None,), name='actions')
+        self.X = tf.placeholder(tf.float32, shape=(None, D), name="X")
+        self.G = tf.placeholder(tf.float32, shape=(None,), name="G")
+        self.actions = tf.placeholder(tf.int32, shape=(None,), name="actions")
 
         ##
         # Define the forward() calls b/w each hidden layer, and the final
@@ -243,21 +257,19 @@ class TensorFlowSeqDQN:
         # that there is one NN for each action.
         ##
         selected_action_values = tf.reduce_sum(
-            Y_hat * tf.one_hot(self.actions, K),
-            reduction_indices=[1])
+            Y_hat * tf.one_hot(self.actions, K), reduction_indices=[1]
+        )
 
         ##
         # Define the optimizer for the network.
         ##
         if self.log_summaries:
-            with tf.name_scope('cost'):
-                self.cost = tf.reduce_sum(
-                    tf.square(self.G-selected_action_values))
-            with tf.name_scope('train'):
-                self.train_op = tf.train.AdamOptimizer(1e-3).minimize(
-                    self.cost)
+            with tf.name_scope("cost"):
+                self.cost = tf.reduce_sum(tf.square(self.G - selected_action_values))
+            with tf.name_scope("train"):
+                self.train_op = tf.train.AdamOptimizer(1e-3).minimize(self.cost)
         else:
-            self.cost = tf.reduce_sum(tf.square(self.G-selected_action_values))
+            self.cost = tf.reduce_sum(tf.square(self.G - selected_action_values))
             self.train_op = tf.train.AdamOptimizer(1e-3).minimize(self.cost)
 
         ##
@@ -266,13 +278,14 @@ class TensorFlowSeqDQN:
         if self.log_summaries:
             self.merged_summaries_ = tf.summary.merge_all()
             self.train_tb_writer_ = tf.summary.FileWriter(
-                self.logs_dir+'/train', self.session.graph)
-            self.cost_tb_writer_ = tf.summary.FileWriter(self.logs_dir+'/cost')
+                self.logs_dir + "/train", self.session.graph
+            )
+            self.cost_tb_writer_ = tf.summary.FileWriter(self.logs_dir + "/cost")
 
         ##
         # Create the replay memory.
         ##
-        self.experience = {'s': [], 'a': [], 'r': [], 's2': [], 'done': []}
+        self.experience = {"s": [], "a": [], "r": [], "s2": [], "done": []}
 
         self.last_n_obs = [start_obs for i in range(self.obs_seq_len)]
         self.train_obs_seq_counts = {}
@@ -339,8 +352,7 @@ class TensorFlowSeqDQN:
         # Run the predict operator, feeding in the input X.
         ##
         X = np.array(self.last_n_obs).flatten().reshape(1, -1)
-        action_values = self.session.run(self.predict_op,
-                                         feed_dict={self.X: X})
+        action_values = self.session.run(self.predict_op, feed_dict={self.X: X})
         return action_values
 
     def train(self, target_network, n):
@@ -362,9 +374,9 @@ class TensorFlowSeqDQN:
         ##
         # Return early if we don't have enough experiences.
         ##
-        num_exp = len(self.experience['s'])
+        num_exp = len(self.experience["s"])
         if num_exp < self.min_experiences:
-            print('too few experiences', num_exp)
+            print("too few experiences", num_exp)
             return
 
         ##
@@ -377,13 +389,13 @@ class TensorFlowSeqDQN:
             # End of sequence timestep
             nE = nS + self.obs_seq_len
 
-            states = np.array(self.experience['s'][nS:nE])
+            states = np.array(self.experience["s"][nS:nE])
             flat_states = states.flatten().reshape(1, -1)
-            action = self.experience['a'][nE]
-            reward = np.array(self.experience['r'][nE]).flatten().reshape(-1)
-            next_states = np.array(self.experience['s2'][nS+1:nE+1])
+            action = self.experience["a"][nE]
+            reward = np.array(self.experience["r"][nE]).flatten().reshape(-1)
+            next_states = np.array(self.experience["s2"][nS + 1 : nE + 1])
             flat_next_states = next_states.flatten().reshape(1, -1)
-            dones = self.experience['done'][nS:nE]
+            dones = self.experience["done"][nS:nE]
             done = dones[-1]
             # valid_seq = not any(dones)
             valid_seq = True
@@ -392,7 +404,7 @@ class TensorFlowSeqDQN:
         # Update training observation sequence counts
         ##
         transl_obs = [_env_translate_obs(o) for o in states]
-        transl_obs = ', '.join(transl_obs)
+        transl_obs = ", ".join(transl_obs)
         if transl_obs in self.train_obs_seq_counts:
             self.train_obs_seq_counts[transl_obs] += 1
         else:
@@ -402,7 +414,7 @@ class TensorFlowSeqDQN:
         # Update training observation sequence + action counts
         ##
         transl_act = _env_translate_action(action)
-        obs_seq_act = ' => '.join([transl_obs, transl_act])
+        obs_seq_act = " => ".join([transl_obs, transl_act])
         if obs_seq_act in self.train_obs_seq_action_counts:
             self.train_obs_seq_action_counts[obs_seq_act] += 1
         else:
@@ -436,9 +448,12 @@ class TensorFlowSeqDQN:
             try:
                 summary, _ = self.session.run(
                     [self.merged_summaries_, self.cost],
-                    feed_dict={self.X: flat_states,
-                               self.G: G,
-                               self.actions: np.array(action).reshape(-1)})
+                    feed_dict={
+                        self.X: flat_states,
+                        self.G: G,
+                        self.actions: np.array(action).reshape(-1),
+                    },
+                )
                 self.cost_tb_writer_.add_summary(summary, n)
             except:
                 print(flat_states)
@@ -453,9 +468,12 @@ class TensorFlowSeqDQN:
             try:
                 summary, _ = self.session.run(
                     [self.merged_summaries_, self.train_op],
-                    feed_dict={self.X: flat_states,
-                               self.G: G,
-                               self.actions: np.array(action).reshape(-1)})
+                    feed_dict={
+                        self.X: flat_states,
+                        self.G: G,
+                        self.actions: np.array(action).reshape(-1),
+                    },
+                )
             except:
                 print(flat_states)
                 print(G)
@@ -464,9 +482,12 @@ class TensorFlowSeqDQN:
         else:
             self.session.run(
                 [self.train_op],
-                feed_dict={self.X: flat_states,
-                           self.G: G,
-                           self.actions: np.array(action).reshape(-1)})
+                feed_dict={
+                    self.X: flat_states,
+                    self.G: G,
+                    self.actions: np.array(action).reshape(-1),
+                },
+            )
 
         if self.log_summaries:
             self.train_tb_writer_.add_summary(summary, n)
@@ -494,10 +515,10 @@ class TensorFlowSeqDQN:
         -------
         None
         """
-        if len(self.experience['s']) >= self.max_experiences:
-            for p in ['s', 'a', 'r', 's2', 'done']:
+        if len(self.experience["s"]) >= self.max_experiences:
+            for p in ["s", "a", "r", "s2", "done"]:
                 self.experience[p].pop(0)
-        for p, v in zip(['s', 'a', 'r', 's2', 'done'], [s, a, r, s2, done]):
+        for p, v in zip(["s", "a", "r", "s2", "done"], [s, a, r, s2, done]):
             self.experience[p].append(v)
 
     def sample_action(self, o, eps):
@@ -586,7 +607,7 @@ def play_one(env, model, tmodel, eps, gamma, copy_period):
 
 
 def main(logs_dir, copy_period=50, hidden_layer_sizes=[10, 10], N=500):
-    env = gym.make('CartPole-v0')
+    env = gym.make("CartPole-v0")
     gamma = 0.99
 
     # Define D - the number of components in the observations space
@@ -596,11 +617,11 @@ def main(logs_dir, copy_period=50, hidden_layer_sizes=[10, 10], N=500):
     # Define session - The tensorflow interactive session
     session = tf.InteractiveSession()
     # Define model - the main DQN model
-    model = SeqDQN('main', session, D, K, hidden_layer_sizes, gamma, session,
-                   logs_dir=logs_dir)
+    model = SeqDQN(
+        "main", session, D, K, hidden_layer_sizes, gamma, session, logs_dir=logs_dir
+    )
     # Define tmodel - the target DQN model
-    tmodel = SeqDQN('target', session, D, K, hidden_layer_sizes, gamma,
-                    session)
+    tmodel = SeqDQN("target", session, D, K, hidden_layer_sizes, gamma, session)
 
     # Define init - the tensorflow global variables initializer
     init = tf.global_variables_initializer()
@@ -609,19 +630,24 @@ def main(logs_dir, copy_period=50, hidden_layer_sizes=[10, 10], N=500):
 
     totalrewards = np.zeros(N)
     for n in range(N):
-        eps = 1.0/np.sqrt(n+1)
-        totalreward = play_one(env, model, tmodel, eps, gamma, copy_period,
-                               logs_dir)
+        eps = 1.0 / np.sqrt(n + 1)
+        totalreward = play_one(env, model, tmodel, eps, gamma, copy_period, logs_dir)
         totalrewards[n] = totalreward
         if n % 100 == 0:
             ravg = running_avg(totalrewards, n)
-            print('episode:', n,
-                  'total reward:', totalreward,
-                  'eps:', eps,
-                  'avg reward (last 100):', ravg)
+            print(
+                "episode:",
+                n,
+                "total reward:",
+                totalreward,
+                "eps:",
+                eps,
+                "avg reward (last 100):",
+                ravg,
+            )
 
-    print('avg reward for last 100 episodes:', totalrewards[-100:].mean())
-    print('total steps:', totalrewards.sum())
+    print("avg reward for last 100 episodes:", totalrewards[-100:].mean())
+    print("total steps:", totalrewards.sum())
 
     plt.plot(totalrewards)
     plt.title("Rewards")
@@ -631,7 +657,7 @@ def main(logs_dir, copy_period=50, hidden_layer_sizes=[10, 10], N=500):
 
 
 def running_avg(totalrewards, t):
-    return totalrewards[max(0, t-100):(t+1)].mean()
+    return totalrewards[max(0, t - 100) : (t + 1)].mean()
 
 
 def plot_running_avg(totalrewards):
@@ -640,7 +666,7 @@ def plot_running_avg(totalrewards):
     for t in range(N):
         ravg[t] = running_avg(totalrewards, t)
     plt.plot(ravg)
-    plt.title('Running Average')
+    plt.title("Running Average")
     plt.show()
 
 
@@ -657,15 +683,15 @@ def _variable_summaries(var):
     -------
     None
     """
-    with tf.name_scope('summaries'):
+    with tf.name_scope("summaries"):
         mean = tf.reduce_mean(var)
-        tf.summary.scalar('mean', mean)
-        with tf.name_scope('stddev'):
+        tf.summary.scalar("mean", mean)
+        with tf.name_scope("stddev"):
             stddev = tf.sqrt(tf.reduce_mean(tf.square(var - mean)))
-        tf.summary.scalar('stddev', stddev)
-        tf.summary.scalar('max', tf.reduce_max(var))
-        tf.summary.scalar('min', tf.reduce_min(var))
-        tf.summary.histogram('histogram', var)
+        tf.summary.scalar("stddev", stddev)
+        tf.summary.scalar("max", tf.reduce_max(var))
+        tf.summary.scalar("min", tf.reduce_min(var))
+        tf.summary.histogram("histogram", var)
 
 
 def _env_translate_obs(obs):
@@ -683,15 +709,15 @@ def _env_translate_obs(obs):
         A representation of the observation in English.
     """
     if obs[0] == 1:
-        return 'GROWL_LEFT'
+        return "GROWL_LEFT"
     elif obs[1] == 1:
-        return 'GROWL_RIGHT'
+        return "GROWL_RIGHT"
     elif obs[2] == 1:
-        return 'START'
+        return "START"
     elif obs[3] == 1:
-        return 'END'
+        return "END"
     else:
-        raise ValueError('Invalid observation: '.format(obs))
+        raise ValueError("Invalid observation: ".format(obs))
 
 
 def _env_translate_action(action):
@@ -712,12 +738,12 @@ def _env_translate_action(action):
     ACTION_OPEN_RIGHT = 1
     ACTION_LISTEN = 2
     ACTION_MAP = {
-        ACTION_OPEN_LEFT: 'OPEN_LEFT',
-        ACTION_OPEN_RIGHT: 'OPEN_RIGHT',
-        ACTION_LISTEN: 'LISTEN',
+        ACTION_OPEN_LEFT: "OPEN_LEFT",
+        ACTION_OPEN_RIGHT: "OPEN_RIGHT",
+        ACTION_LISTEN: "LISTEN",
     }
     return ACTION_MAP[action]
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()

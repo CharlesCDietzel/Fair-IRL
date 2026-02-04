@@ -10,8 +10,16 @@ from sklearn.model_selection import train_test_split, KFold
 
 
 def compute_optimal_policy(
-    clf_df, clf, x_cols, obj_set, reward_weights, skip_error_terms=False,
-    method='highs', gamma = 1e-9, min_freq_fill_pct=0, restrict_y=True,
+    clf_df,
+    clf,
+    x_cols,
+    obj_set,
+    reward_weights,
+    skip_error_terms=False,
+    method="highs",
+    gamma=1e-9,
+    min_freq_fill_pct=0,
+    restrict_y=True,
 ):
     """
     Learns the optimal policies from the provided reward weights.
@@ -122,14 +130,14 @@ def generate_demo(clf, X_test, y_test, can_observe_y=False):
 
     if can_observe_y:
         # yhat = clf.predict(X_test, y_test)
-        if 'y' in X_test.columns:
-            demo['yhat'] = demo['y'].copy()
+        if "y" in X_test.columns:
+            demo["yhat"] = demo["y"].copy()
         else:
-            demo['yhat'] = y_test
+            demo["yhat"] = y_test
     else:
-        demo['yhat'] = clf.predict(X_test)
+        demo["yhat"] = clf.predict(X_test)
 
-    demo['y'] = y_test.copy()
+    demo["y"] = y_test.copy()
 
     return demo
 
@@ -160,7 +168,7 @@ def add_demo_bias(demo, unfairness_types=[], dataset=None):
         ry = 0
         nrz = 1
         nry = 1
-    elif dataset == "COMPAS": # COMPAS Y redlining is reversed
+    elif dataset == "COMPAS":  # COMPAS Y redlining is reversed
         rz = 0
         ry = 1
         nrz = 1
@@ -177,9 +185,9 @@ def add_demo_bias(demo, unfairness_types=[], dataset=None):
                 # Multiply that by 20% to get the number of rows to redline
                 n = int(rz_count * percent)
                 # Step 3: Get n indices where z == rz
-                rz_indices = demo[demo['z'] == rz].sample(n=n).index
+                rz_indices = demo[demo["z"] == rz].sample(n=n).index
                 # Step 4: Set yhat to ry for sampled rows
-                demo.loc[rz_indices, 'yhat'] = ry
+                demo.loc[rz_indices, "yhat"] = ry
             case "balanced_redlining":
                 # wherever Z==rz, set yhat = ry with 20% probability. Otherwise, keep yhat the same. Also, whereever Z==nrz, randomly set an equal number of yhat = nry
                 # Count how many rows have z == rz
@@ -190,13 +198,13 @@ def add_demo_bias(demo, unfairness_types=[], dataset=None):
                 nrz_count = (demo["z"] == nrz).sum()
                 n = min(nrz_count, n)
                 # Get the n indices where z == rz
-                rz_indices = demo[demo['z'] == rz].sample(n=n).index
+                rz_indices = demo[demo["z"] == rz].sample(n=n).index
                 # Set yhat to ry for sampled rows
-                demo.loc[rz_indices, 'yhat'] = ry
+                demo.loc[rz_indices, "yhat"] = ry
                 # Get the n indices where z == nrz
-                nrz_indices = demo[demo['z'] == nrz].sample(n=n).index
+                nrz_indices = demo[demo["z"] == nrz].sample(n=n).index
                 # Set yhat to nry for sampled rows
-                demo.loc[nrz_indices, 'yhat'] = nry
+                demo.loc[nrz_indices, "yhat"] = nry
             case "perfectly_balanced_redlining":
                 # wherever Z==rz and yhat==nry, set yhat = ry with 20% probability. Also, whereever Z==nrz and yhat==ry, randomly set an equal number of yhat = nry
                 # Count how many rows have z == rz AND yhat == nry
@@ -207,26 +215,28 @@ def add_demo_bias(demo, unfairness_types=[], dataset=None):
                 nrz_count = ((demo["z"] == nrz) & (demo["yhat"] == ry)).sum()
                 n = min(nrz_count, n)
                 # Get the n indices where z == rz AND yhat == nry
-                rz_indices = demo[(demo['z'] == rz) & (demo['yhat'] == nry)].sample(n=n).index
+                rz_indices = (
+                    demo[(demo["z"] == rz) & (demo["yhat"] == nry)].sample(n=n).index
+                )
                 # Get the n indices where z == nrz AND yhat == ry
-                nrz_indices = demo[(demo['z'] == nrz) & (demo['yhat'] == ry)].sample(n=n).index
+                nrz_indices = (
+                    demo[(demo["z"] == nrz) & (demo["yhat"] == ry)].sample(n=n).index
+                )
                 # Set yhat to ry for sampled rows
-                demo.loc[rz_indices, 'yhat'] = ry
+                demo.loc[rz_indices, "yhat"] = ry
                 # Set yhat to nry for sampled rows
-                demo.loc[nrz_indices, 'yhat'] = nry
+                demo.loc[nrz_indices, "yhat"] = nry
             case "broken_redlining":
                 # This code is bugged, don't use it. It's only still here for replicating old results.
                 minority_z = demo["z"].value_counts(ascending=True).index[0]
                 minority_yhat = demo["yhat"].value_counts(ascending=True).index[0]
-                z_mask = demo['z'] == minority_z
+                z_mask = demo["z"] == minority_z
                 random_mask = np.zeros(len(demo), dtype=bool)
                 random_mask[z_mask] = np.random.random(z_mask.sum()) < percent
-                demo.loc[random_mask, 'yhat'] = minority_yhat
-        demo.set_index("index", inplace=True) 
+                demo.loc[random_mask, "yhat"] = minority_yhat
+        demo.set_index("index", inplace=True)
         demo.index.name = None
     return demo
-
-
 
 
 def generate_demos_k_folds(exp_info, X, y, clf, obj_set, n_demos=3, bias_types=[]):
@@ -267,38 +277,42 @@ def generate_demos_k_folds(exp_info, X, y, clf, obj_set, n_demos=3, bias_types=[
 
         # Fit the classifier
         clf.fit(X_train, y_train)
-    
+
         # Swap thresholds for expert classifiers (invert fairness objective, sort of)
         for bias_type in bias_types:
             match bias_type:
                 case "threshold_swapping":
                     try:
-                        thresholds = clf.clf.interpolated_thresholder_.interpolation_dict
+                        thresholds = (
+                            clf.clf.interpolated_thresholder_.interpolation_dict
+                        )
                         thresholds[0], thresholds[1] = thresholds[1], thresholds[0]
-                        clf.clf.interpolated_thresholder_.interpolation_dict = thresholds
+                        clf.clf.interpolated_thresholder_.interpolation_dict = (
+                            thresholds
+                        )
                     except AttributeError:
                         pass
-        # Access clf 
+        # Access clf
         # clf.clf.interpolated_thresholder_.interpolation_dict[0]["operation0"]
 
-        logging.debug('\t\tGenerating demo...')
+        logging.debug("\t\tGenerating demo...")
         demo = generate_demo(clf, X_test, y_test)
-        demo = add_demo_bias(demo, unfairness_types=bias_types, dataset=exp_info['DATASET'])
+        demo = add_demo_bias(
+            demo, unfairness_types=bias_types, dataset=exp_info["DATASET"]
+        )
         logging.debug(
-            df_to_log(
-                demo.groupby(['z', 'y'])[['yhat']].agg(['count', 'mean'])
-            )
+            df_to_log(demo.groupby(["z", "y"])[["yhat"]].agg(["count", "mean"]))
         )
 
-        logging.debug('\t\tComputing feature expectations...')
+        logging.debug("\t\tComputing feature expectations...")
         mu[k] = obj_set.compute_demo_feature_exp(demo)
         demos.append(demo)
         logging.debug(f"\t\tmu[{k}]: {mu[k]}")
 
         return mu, demos
 
-    logging.debug('')
-    logging.debug('Generating expert demonstrations...')
+    logging.debug("")
+    logging.debug("Generating expert demonstrations...")
 
     if n_demos > 1:
         k_fold = KFold(n_demos)
@@ -306,21 +320,40 @@ def generate_demos_k_folds(exp_info, X, y, clf, obj_set, n_demos=3, bias_types=[
             _X_train, _y_train = X.iloc[train], y.iloc[train]
             _X_test, _y_test = X.iloc[test], y.iloc[test]
             mu, demos = _generate_demo(
-                mu, demos, k, _X_train, _X_test, _y_train, _y_test,
+                mu,
+                demos,
+                k,
+                _X_train,
+                _X_test,
+                _y_train,
+                _y_test,
             )
     else:
         _X_train, _X_test, _y_train, _y_test = train_test_split(
-            X, y, test_size=.33,
+            X,
+            y,
+            test_size=0.33,
         )
         mu, demos = _generate_demo(
-            mu, demos, 0, _X_train, _X_test, _y_train, _y_test,
+            mu,
+            demos,
+            0,
+            _X_train,
+            _X_test,
+            _y_train,
+            _y_test,
         )
 
     return mu, demos
 
 
 def irl_error(
-        w, muE, muL, dot_weights_feat_exp=True, allow_neg_weights=False, svm_margin=None,
+    w,
+    muE,
+    muL,
+    dot_weights_feat_exp=True,
+    allow_neg_weights=False,
+    svm_margin=None,
 ):
     """
     Computes t[i] = argmax_{mu[j] for j in muL} wT(muE-mu[j])
@@ -391,7 +424,6 @@ def irl_error(
     best_err = np.inf
     best_j = len(muL) - 1
 
-
     # Trying this out. Make mu delta errors RELATIVE to their magnitude. So
     # adding the muE.mean(axis=0) as a denominator
     mu_deltas = (muE.mean(axis=0) - muL[-1]) / muE.mean(axis=0)
@@ -405,7 +437,7 @@ def irl_error(
         # JDB 01/07/2024
         # Trying this out. Make mu delta errors RELATIVE to their magnitude. So
         # adding the muE.mean(axis=0) as a denominator
-        if allow_neg_weights or  np.all(w > -1e-5):
+        if allow_neg_weights or np.all(w > -1e-5):
             mu_deltas[mu_deltas < 0] = 1 * mu_deltas[mu_deltas < 0]
 
         if dot_weights_feat_exp:
@@ -418,9 +450,8 @@ def irl_error(
     # If accuracy weight is zero, return infinite error
     # TODO: remove this
     if np.allclose(w[0], 0, atol=1e-5):
-        logging.info('\t\tAccuracy weight is zero, infinite error')
+        logging.info("\t\tAccuracy weight is zero, infinite error")
         best_err = np.inf
-
 
     l2_mu_deltas = np.linalg.norm(mu_deltas, ord=2)
 

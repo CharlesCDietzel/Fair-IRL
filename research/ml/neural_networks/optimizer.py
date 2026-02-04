@@ -44,18 +44,17 @@ class MomentumOptimizer(Optimizer):
         List of bias momentums. Same shapes as MLP's bias vectors.
     """
 
-    def __init__(self, D, K, hidden_layer_sizes, lr, mu=0, reg=0,
-                 clip_thresh=np.inf):
+    def __init__(self, D, K, hidden_layer_sizes, lr, mu=0, reg=0, clip_thresh=np.inf):
         self.lr = lr
         self.mu = mu
         self.reg = reg
         self.clip_thresh = clip_thresh
-        self.vW_ = [None for i in range(len(hidden_layer_sizes)+1)]
-        self.vb_ = [None for i in range(len(hidden_layer_sizes)+1)]
+        self.vW_ = [None for i in range(len(hidden_layer_sizes) + 1)]
+        self.vb_ = [None for i in range(len(hidden_layer_sizes) + 1)]
         M = [D] + hidden_layer_sizes + [K]
-        for i in range(len(hidden_layer_sizes)+1):
-            self.vW_[i] = np.zeros((M[i], M[i+1]))
-            self.vb_[i] = np.zeros((M[i+1]))
+        for i in range(len(hidden_layer_sizes) + 1):
+            self.vW_[i] = np.zeros((M[i], M[i + 1]))
+            self.vb_[i] = np.zeros((M[i + 1]))
 
     def layer_update(self, mlp, i, dJdW_i, dJdb_i, grad_max):
         """Returns weight+bias updates for a single layer, i.
@@ -92,21 +91,20 @@ class MomentumOptimizer(Optimizer):
 
         # Clip gradients that are too large
         dJdW_i[dJdW_i > clip_thresh] = clip_thresh
-        dJdW_i[dJdW_i < -1*clip_thresh] = -1*clip_thresh
+        dJdW_i[dJdW_i < -1 * clip_thresh] = -1 * clip_thresh
         dJdb_i[dJdb_i > clip_thresh] = clip_thresh
-        dJdb_i[dJdb_i < -1*clip_thresh] = -1*clip_thresh
+        dJdb_i[dJdb_i < -1 * clip_thresh] = -1 * clip_thresh
 
         # Compute max gradient update (for debugging)
-        grad_max = max((grad_max, max(dJdW_i.max(), dJdW_i.min(),
-                                      key=abs)))
+        grad_max = max((grad_max, max(dJdW_i.max(), dJdW_i.min(), key=abs)))
 
         # Adjust gradients with regularization
-        dJdW_i = dJdW_i - reg*W_i
-        dJdb_i = dJdb_i - reg*b_i
+        dJdW_i = dJdW_i - reg * W_i
+        dJdb_i = dJdb_i - reg * b_i
 
         # Update momentums (velocities)
-        self.vW_[i] = mu*self.vW_[i] + lr*dJdW_i
-        self.vb_[i] = mu*self.vb_[i] + lr*dJdb_i
+        self.vW_[i] = mu * self.vW_[i] + lr * dJdW_i
+        self.vb_[i] = mu * self.vb_[i] + lr * dJdb_i
 
         w_update = self.vW_[i]
         b_update = self.vb_[i]
@@ -142,12 +140,12 @@ class AdaGradOptimizer(Optimizer):
     def __init__(self, D, K, hidden_layer_sizes, lr, epsilon=1e-8):
         self.lr = lr
         self.epsilon = epsilon
-        self.cW_ = [None for i in range(len(hidden_layer_sizes)+1)]
-        self.cb_ = [None for i in range(len(hidden_layer_sizes)+1)]
+        self.cW_ = [None for i in range(len(hidden_layer_sizes) + 1)]
+        self.cb_ = [None for i in range(len(hidden_layer_sizes) + 1)]
         M = [D] + hidden_layer_sizes + [K]
-        for i in range(len(hidden_layer_sizes)+1):
-            self.cW_[i] = np.zeros((M[i], M[i+1]))
-            self.cb_[i] = np.zeros((M[i+1]))
+        for i in range(len(hidden_layer_sizes) + 1):
+            self.cW_[i] = np.zeros((M[i], M[i + 1]))
+            self.cb_[i] = np.zeros((M[i + 1]))
 
     def layer_update(self, mlp, i, dJdW_i, dJdb_i, grad_max):
         """Returns weight+bias updates for a single layer, i.
@@ -179,15 +177,14 @@ class AdaGradOptimizer(Optimizer):
         epsilon = self.epsilon
 
         # Compute max gradient update (for debugging)
-        grad_max = max((grad_max, max(dJdW_i.max(), dJdW_i.min(),
-                                      key=abs)))
+        grad_max = max((grad_max, max(dJdW_i.max(), dJdW_i.min(), key=abs)))
 
         # Update caches
         self.cW_[i] = self.cW_[i] + dJdW_i**2
         self.cb_[i] = self.cb_[i] + dJdb_i**2
 
         # Compute weight/biase updates using cache, eta, epsilon
-        w_update = lr*(dJdW_i/np.sqrt(self.cW_[i] + epsilon))
-        b_update = lr*(dJdb_i/np.sqrt(self.cb_[i] + epsilon))
+        w_update = lr * (dJdW_i / np.sqrt(self.cW_[i] + epsilon))
+        b_update = lr * (dJdb_i / np.sqrt(self.cb_[i] + epsilon))
 
         return w_update, b_update, grad_max

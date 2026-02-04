@@ -7,6 +7,7 @@ from sklearn.base import BaseEstimator, ClassifierMixin
 from sklearn.preprocessing import normalize
 from sklearn.utils.multiclass import unique_labels
 from sklearn.utils.validation import check_X_y, check_array, check_is_fitted
+
 # from tabulate import tabulate
 
 from research.ml.kernel import KERNEL_MAP
@@ -75,16 +76,20 @@ class SVM(BaseEstimator, ClassifierMixin):
     >>> svm.plot_decision_boundary(X, y)
     >>> svm.plot_discriminants(X, y)
     """
+
     def __init__(
-            self, kernel='linear', positive_weights_only=False, **kernel_args,
+        self,
+        kernel="linear",
+        positive_weights_only=False,
+        **kernel_args,
     ):
         if isinstance(kernel, str):
             kernel = KERNEL_MAP.get(kernel)(**kernel_args)
         elif not callable(kernel):
-            raise ValueError('Kernel must be a string or callable.')
+            raise ValueError("Kernel must be a string or callable.")
 
         if kernel is None:
-            msg = 'Invalid kernel. Must be in {}'.format(KERNEL_MAP.keys())
+            msg = "Invalid kernel. Must be in {}".format(KERNEL_MAP.keys())
             raise ValueError(msg)
 
         self.kernel = kernel
@@ -113,12 +118,12 @@ class SVM(BaseEstimator, ClassifierMixin):
         y = y.copy()
 
         # My Input validation
-        if self.kernel.name != 'linear' and vectorized:
-            msg = 'Vectorized loss only works with linear kernel right now.'
+        if self.kernel.name != "linear" and vectorized:
+            msg = "Vectorized loss only works with linear kernel right now."
             raise ValueError(msg)
 
         if vectorized is None:
-            if self.kernel.name == 'linear':
+            if self.kernel.name == "linear":
                 vectorized = True
             else:
                 vectorized = False
@@ -178,7 +183,7 @@ class SVM(BaseEstimator, ClassifierMixin):
         #         ub = np.inf
         #
         con1 = optimize.LinearConstraint(A=y, lb=0, ub=0)
-        con2 = {'type': 'ineq', 'fun': lambda a: a}
+        con2 = {"type": "ineq", "fun": lambda a: a}
 
         if not self.positive_weights_only:
             constraints = (con1, con2)
@@ -189,8 +194,9 @@ class SVM(BaseEstimator, ClassifierMixin):
             for j in range(X.shape[1]):
                 con = optimize.LinearConstraint(
                     (
-                        (X[:,j].reshape(len(X), 1) * y.reshape(len(y), 1))
-                        .reshape(len(X))
+                        (X[:, j].reshape(len(X), 1) * y.reshape(len(y), 1)).reshape(
+                            len(X)
+                        )
                     ),
                     0,
                     np.inf,
@@ -199,14 +205,14 @@ class SVM(BaseEstimator, ClassifierMixin):
 
             constraints = (con1, con2) + tuple(pos_weight_constraints)
 
-        self.opt_result_ = optimize.minimize(loss, initial_alphas,
-                                             constraints=constraints,
-                                             args=(X, y))
+        self.opt_result_ = optimize.minimize(
+            loss, initial_alphas, constraints=constraints, args=(X, y)
+        )
         # Find indices of support vectors
         sup_idx = np.where(self.opt_result_.x > 0.001)
 
         if len(sup_idx[0]) == 0:
-            raise ValueError('No support vectors found.')
+            raise ValueError("No support vectors found.")
 
         self.sup_idx_ = sup_idx
         self.sup_X_ = X[sup_idx]
@@ -233,8 +239,10 @@ class SVM(BaseEstimator, ClassifierMixin):
         np.array<int>, shape (X.shape[0])
             Predicted target (0 or 1) values.
         """
-        check_is_fitted(self, ['opt_result_', 'sup_idx_', 'sup_X_', 'sup_y_',
-                               'sup_alphas_', 'offset_'])
+        check_is_fitted(
+            self,
+            ["opt_result_", "sup_idx_", "sup_X_", "sup_y_", "sup_alphas_", "offset_"],
+        )
         X = check_array(X)
 
         g = self._compute_discriminant(X)
@@ -257,8 +265,10 @@ class SVM(BaseEstimator, ClassifierMixin):
             Predicted probability (discriminant normalized betwen zero and
             one).
         """
-        check_is_fitted(self, ['opt_result_', 'sup_idx_', 'sup_X_', 'sup_y_',
-                               'sup_alphas_', 'offset_'])
+        check_is_fitted(
+            self,
+            ["opt_result_", "sup_idx_", "sup_X_", "sup_y_", "sup_alphas_", "offset_"],
+        )
         X = check_array(X)
 
         g = self._compute_discriminant(X)
@@ -282,10 +292,12 @@ class SVM(BaseEstimator, ClassifierMixin):
         -------
         weights : np.array<float>, len(n_features)
         """
-        check_is_fitted(self, ['opt_result_', 'sup_idx_', 'sup_X_', 'sup_y_',
-                               'sup_alphas_', 'offset_'])
-        sup_X_times_sup_y = (
-            np.array(self.sup_X_) * self.sup_y_.reshape(len(self.sup_y_), 1)
+        check_is_fitted(
+            self,
+            ["opt_result_", "sup_idx_", "sup_X_", "sup_y_", "sup_alphas_", "offset_"],
+        )
+        sup_X_times_sup_y = np.array(self.sup_X_) * self.sup_y_.reshape(
+            len(self.sup_y_), 1
         )
         weights = np.dot(self.sup_alphas_.T, sup_X_times_sup_y)
 
@@ -308,7 +320,7 @@ class SVM(BaseEstimator, ClassifierMixin):
         # sv = np.array(self.sup_X_[0])  # get any support vector
         w = np.array(self.weights(norm=None))
         # margin = sv.dot(w) / np.linalg.norm(w, ord=2)
-        margin = 1/np.linalg.norm(w, ord=2)
+        margin = 1 / np.linalg.norm(w, ord=2)
         return margin
 
     def plot_decision_boundary(self, X, y):
@@ -329,30 +341,29 @@ class SVM(BaseEstimator, ClassifierMixin):
             X = np.array(X)
 
         if np.any(X > 1):
-            raise ValueError('X must be normalized between 0 and 1')
+            raise ValueError("X must be normalized between 0 and 1")
 
         # Compute decision boundary
         y[y == 0] = -1
         _X = np.random.rand(75_000, self.sup_X_.shape[1])
         g = self._compute_discriminant(_X)
-        TOL = .03
+        TOL = 0.03
         H = _X[np.where(np.abs(g) < TOL)]
         Hpos = _X[np.where((np.abs(g) < 1 + TOL) & (np.abs(g) > 1 - TOL))]
-        Hneg = _X[np.where((np.abs(g) > -(1 + TOL))
-                           & (np.abs(g) < (-1 + TOL)))]
+        Hneg = _X[np.where((np.abs(g) > -(1 + TOL)) & (np.abs(g) < (-1 + TOL)))]
         # Plot
         fig, ax = plt.subplots(1, 1, figsize=(10, 10))
         C1 = X[np.where(y == 1)]
         C2 = X[np.where(y == -1)]
-        ax.scatter(C1[:, 0], C1[:, 1], label='C1', marker='x')
-        ax.scatter(C2[:, 0], C2[:, 1], label='C2', marker='o')
+        ax.scatter(C1[:, 0], C1[:, 1], label="C1", marker="x")
+        ax.scatter(C2[:, 0], C2[:, 1], label="C2", marker="o")
         sv = self.sup_X_
-        ax.scatter(sv[:, 0], sv[:, 1], label='SV', marker='*', s=300)
-        ax.scatter(H[:, 0], H[:, 1], label='H', s=5)
-        ax.scatter(Hpos[:, 0], Hpos[:, 1], label='H+', s=5)
-        ax.scatter(Hneg[:, 0], Hneg[:, 1], label='H-', s=5)
+        ax.scatter(sv[:, 0], sv[:, 1], label="SV", marker="*", s=300)
+        ax.scatter(H[:, 0], H[:, 1], label="H", s=5)
+        ax.scatter(Hpos[:, 0], Hpos[:, 1], label="H+", s=5)
+        ax.scatter(Hneg[:, 0], Hneg[:, 1], label="H-", s=5)
         ax.legend()
-        ax.set_title('SVM Decision boundary')
+        ax.set_title("SVM Decision boundary")
         ax.set_xlim([0, 1])
         ax.set_ylim([0, 1])
         plt.show()
@@ -375,11 +386,10 @@ class SVM(BaseEstimator, ClassifierMixin):
         y[y == 0] = -1
         _X = np.random.rand(75_000, self.sup_X_.shape[1])
         g = self._compute_discriminant(_X)
-        TOL = .03
+        TOL = 0.03
         H = _X[np.where(np.abs(g) < TOL)]
         Hpos = _X[np.where((np.abs(g) < 1 + TOL) & (np.abs(g) > 1 - TOL))]
-        Hneg = _X[np.where((np.abs(g) > -(1 + TOL))
-                           & (np.abs(g) < (-1 + TOL)))]
+        Hneg = _X[np.where((np.abs(g) > -(1 + TOL)) & (np.abs(g) < (-1 + TOL)))]
         # Plot
         fig, (ax0, ax1) = plt.subplots(2, 1, figsize=(10, 15))
 
@@ -389,21 +399,21 @@ class SVM(BaseEstimator, ClassifierMixin):
         C1g = g[C1_idx]
         C2g = g[C2_idx]
 
-        sns.kdeplot(g, ax=ax0, label='g(x)')
-        sns.kdeplot(C1g, ax=ax0, label='C1')
-        sns.kdeplot(C2g, ax=ax0, label='C2')
-        ax0.set_title('Distribution of g(x) values')
+        sns.kdeplot(g, ax=ax0, label="g(x)")
+        sns.kdeplot(C1g, ax=ax0, label="C1")
+        sns.kdeplot(C2g, ax=ax0, label="C2")
+        ax0.set_title("Distribution of g(x) values")
 
         sv = self.sup_X_
-        ax1.scatter(sv[:, 0], sv[:, 1], label='SV', marker='*', s=300)
-        ax1.scatter(H[:, 0], H[:, 1], label='H', s=20)
-        ax1.scatter(Hpos[:, 0], Hpos[:, 1], label='H+', s=10)
-        ax1.scatter(Hneg[:, 0], Hneg[:, 1], label='H-', s=10)
-        ax1.scatter(_X[:, 0], _X[:, 1], c=g, label='g(x)', s=1, alpha=.3)
+        ax1.scatter(sv[:, 0], sv[:, 1], label="SV", marker="*", s=300)
+        ax1.scatter(H[:, 0], H[:, 1], label="H", s=20)
+        ax1.scatter(Hpos[:, 0], Hpos[:, 1], label="H+", s=10)
+        ax1.scatter(Hneg[:, 0], Hneg[:, 1], label="H-", s=10)
+        ax1.scatter(_X[:, 0], _X[:, 1], c=g, label="g(x)", s=1, alpha=0.3)
         ax1.legend()
-        ax1.set_title('Discriminant value')
-        ax1.set_xlim([-.1, 1])
-        ax1.set_ylim([-.1, 1.2])
+        ax1.set_title("Discriminant value")
+        ax1.set_xlim([-0.1, 1])
+        ax1.set_ylim([-0.1, 1.2])
         return None
 
     def _loss(self, alphas, _X, y, verbose=False):
@@ -436,20 +446,33 @@ class SVM(BaseEstimator, ClassifierMixin):
             for j, xj in enumerate(X):
                 aj = alphas[j]
                 yj = y[j]
-                term = ai*aj*yi*yj*self.kernel.transform(xi, xj)
+                term = ai * aj * yi * yj * self.kernel.transform(xi, xj)
                 if term != 0:
-                    terms.append([xi, xj, ai, aj, yi, yj,
-                                  self.kernel.transform(xi, xj),
-                                  term])
+                    terms.append(
+                        [xi, xj, ai, aj, yi, yj, self.kernel.transform(xi, xj), term]
+                    )
                 right_sum += term
 
         if verbose:
-            print(tabulate(terms, headers=['xi', 'xj', 'ai', 'aj', 'yi', 'yj',
-                                           'kernel(xi, xj)', 'rhs_sum']))
-            print('\nleft_sum: {:.3f}'.format(left_sum))
-            print('right_sum: {:.3f}'.format(right_sum))
+            print(
+                tabulate(
+                    terms,
+                    headers=[
+                        "xi",
+                        "xj",
+                        "ai",
+                        "aj",
+                        "yi",
+                        "yj",
+                        "kernel(xi, xj)",
+                        "rhs_sum",
+                    ],
+                )
+            )
+            print("\nleft_sum: {:.3f}".format(left_sum))
+            print("right_sum: {:.3f}".format(right_sum))
 
-        total_loss = left_sum - .5*right_sum
+        total_loss = left_sum - 0.5 * right_sum
 
         # Use -1 since we need to minimize
         return -1 * total_loss
@@ -487,11 +510,10 @@ class SVM(BaseEstimator, ClassifierMixin):
         # a shape (n,)
         # a.T shape (n,)
         right_sum = alphas.T.dot(H).dot(alphas)
-        total_loss = left_sum - .5*right_sum
+        total_loss = left_sum - 0.5 * right_sum
 
         if verbose:
-            print(tabulate([[left_sum, right_sum]],
-                           headers=['left_sum', 'right_sum']))
+            print(tabulate([[left_sum, right_sum]], headers=["left_sum", "right_sum"]))
 
         return -1 * total_loss
 

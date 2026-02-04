@@ -8,6 +8,7 @@ Objectives
 Notes
 -----
 """
+
 import numpy as np
 import gym
 import matplotlib.pyplot as plt
@@ -84,8 +85,18 @@ class NumpySeqDQN:
         only used for debugging.
     """
 
-    def __init__(self, env, D, K, hidden_layer_opts, gamma, obs_seq_len,
-                 start_obs, max_experiences=10000, min_experiences=5):
+    def __init__(
+        self,
+        env,
+        D,
+        K,
+        hidden_layer_opts,
+        gamma,
+        obs_seq_len,
+        start_obs,
+        max_experiences=10000,
+        min_experiences=5,
+    ):
         self.env = env
         self.K = K
         self.obs_seq_len = obs_seq_len
@@ -103,7 +114,7 @@ class NumpySeqDQN:
             self.tqnets.append(tqnet)
 
         # Create the replay memory.
-        self.experience = {'s': [], 'a': [], 'r': [], 's2': [], 'done': []}
+        self.experience = {"s": [], "a": [], "r": [], "s2": [], "done": []}
 
         self.last_n_obs = [start_obs for i in range(self.obs_seq_len)]
         self.train_obs_seq_counts = {}
@@ -188,9 +199,9 @@ class NumpySeqDQN:
         ##
         # Return early if we don't have enough experiences.
         ##
-        num_exp = len(self.experience['s'])
+        num_exp = len(self.experience["s"])
         if num_exp < self.min_experiences:
-            print('too few experiences', num_exp)
+            print("too few experiences", num_exp)
             return
 
         ##
@@ -201,11 +212,11 @@ class NumpySeqDQN:
         while invalid_seq:
             # Start of sequence timestep
             nS = np.random.choice(num_exp - seqlen - 1)
-            states = np.array(self.experience['s'][nS:nS+seqlen])
-            action = self.experience['a'][nS+seqlen-1]
-            reward = self.experience['r'][nS+seqlen-1]
-            next_states = self.experience['s2'][nS:nS+seqlen]
-            dones = self.experience['done'][nS:nS+1+seqlen]
+            states = np.array(self.experience["s"][nS : nS + seqlen])
+            action = self.experience["a"][nS + seqlen - 1]
+            reward = self.experience["r"][nS + seqlen - 1]
+            next_states = self.experience["s2"][nS : nS + seqlen]
+            dones = self.experience["done"][nS : nS + 1 + seqlen]
             invalid_seq = any(dones[0:-1])
 
         done = dones[-1]
@@ -215,7 +226,7 @@ class NumpySeqDQN:
             # Update training observation sequence counts
             ##
             transl_obs = [env_translate_obs(o) for o in states]
-            transl_obs = ', '.join(transl_obs)
+            transl_obs = ", ".join(transl_obs)
             if transl_obs in self.train_obs_seq_counts:
                 self.train_obs_seq_counts[transl_obs] += 1
             else:
@@ -225,7 +236,7 @@ class NumpySeqDQN:
             # Update training observation sequence + action counts
             ##
             transl_act = env_translate_action(action)
-            obs_seq_act = ' => '.join([transl_obs, transl_act])
+            obs_seq_act = " => ".join([transl_obs, transl_act])
             if obs_seq_act in self.train_obs_seq_action_counts:
                 self.train_obs_seq_action_counts[obs_seq_act] += 1
             else:
@@ -289,10 +300,10 @@ class NumpySeqDQN:
         -------
         None
         """
-        if len(self.experience['s']) >= self.max_experiences:
-            for p in ['s', 'a', 'r', 's2', 'done']:
+        if len(self.experience["s"]) >= self.max_experiences:
+            for p in ["s", "a", "r", "s2", "done"]:
                 self.experience[p].pop(0)
-        for p, v in zip(['s', 'a', 'r', 's2', 'done'], [s, a, r, s2, done]):
+        for p, v in zip(["s", "a", "r", "s2", "done"], [s, a, r, s2, done]):
             self.experience[p].append(v)
 
     def select_action(self, obs, eps):
@@ -428,7 +439,7 @@ def play_one(env, model, eps, gamma, copy_period, store_seq_counts=True):
 
 
 def main(copy_period=50, obs_seq_len=2, hidden_layer_sizes=[10, 10], N=500):
-    env = gym.make('Tiger-v0')
+    env = gym.make("Tiger-v0")
     gamma = 0.99
     start_obs = env.reset()
 
@@ -437,25 +448,30 @@ def main(copy_period=50, obs_seq_len=2, hidden_layer_sizes=[10, 10], N=500):
     # Define K - the number of possible actions
     K = env.action_space.n
     # Define the hidden layers of the model
-    hidden_layer_opts = {'hidden_layer_sizes': hidden_layer_sizes,
-                         'Z': ReLU()}
+    hidden_layer_opts = {"hidden_layer_sizes": hidden_layer_sizes, "Z": ReLU()}
     # Define model
     model = NumpySeqDQN(D, K, hidden_layer_opts, gamma, obs_seq_len, start_obs)
 
     totalrewards = np.zeros(N)
     for n in range(N):
-        eps = 1.0/np.sqrt(n+1)
+        eps = 1.0 / np.sqrt(n + 1)
         totalreward = play_one(env, model, eps, gamma, copy_period)
         totalrewards[n] = totalreward
         if n % 100 == 0:
             ravg = running_avg(totalrewards, n)
-            print('episode:', n,
-                  'total reward:', totalreward,
-                  'eps:', eps,
-                  'avg reward (last 100):', ravg)
+            print(
+                "episode:",
+                n,
+                "total reward:",
+                totalreward,
+                "eps:",
+                eps,
+                "avg reward (last 100):",
+                ravg,
+            )
 
-    print('avg reward for last 100 episodes:', totalrewards[-100:].mean())
-    print('total steps:', totalrewards.sum())
+    print("avg reward for last 100 episodes:", totalrewards[-100:].mean())
+    print("total steps:", totalrewards.sum())
 
     plt.plot(totalrewards)
     plt.title("Rewards")
@@ -465,7 +481,7 @@ def main(copy_period=50, obs_seq_len=2, hidden_layer_sizes=[10, 10], N=500):
 
 
 def running_avg(totalrewards, t, window):
-    return totalrewards[max(0, t-window):(t+1)].mean()
+    return totalrewards[max(0, t - window) : (t + 1)].mean()
 
 
 def plot_running_avg(totalrewards, window):
@@ -474,9 +490,9 @@ def plot_running_avg(totalrewards, window):
     for t in range(N):
         ravg[t] = running_avg(totalrewards, t, window)
     plt.plot(ravg)
-    plt.title('Running Average')
+    plt.title("Running Average")
     plt.show()
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()

@@ -4,7 +4,7 @@ import numpy as np
 import pandas as pd
 
 
-class OptimizationProblem():
+class OptimizationProblem:
 
     def __init__(self, name, c, A_eq=None, b_eq=None, b_ub=None, A_ub=None):
         self.name = name
@@ -14,7 +14,8 @@ class OptimizationProblem():
         self.b_ub = b_ub
         self.A_ub = A_ub
 
-class ObjectiveSplit():
+
+class ObjectiveSplit:
 
     def __init__(self, name, parent, c, b_ub=None, A_ub=None):
         self.name = name
@@ -23,7 +24,8 @@ class ObjectiveSplit():
         self.b_ub = b_ub
         self.A_ub = A_ub
 
-class Objective():
+
+class Objective:
 
     def __init__(self):
         pass
@@ -132,7 +134,7 @@ class AbsoluteValueObjective(Objective):
 class AccuracyObjective(LinearObjective):
 
     def __init__(self):
-        self.name = 'Acc'
+        self.name = "Acc"
         super().__init__()
 
     def compute_feat_exp(self, demo):
@@ -149,7 +151,7 @@ class AccuracyObjective(LinearObjective):
                 yhat : predictions
                 y : ground truth targets
         """
-        mu = np.mean(demo['yhat'] == demo['y'])
+        mu = np.mean(demo["yhat"] == demo["y"])
 
         return mu
 
@@ -168,19 +170,20 @@ class AccuracyObjective(LinearObjective):
             The objective function for the linear program.
         """
         ldf = ldf.copy()
-        p_all = ldf['mu0'].sum() / 2
-        ldf['r'] = (ldf['yhat'] == ldf['y']).astype(float) / p_all
-        c = -1 * ldf['r']  # Negative since maximizing not minimizing
+        p_all = ldf["mu0"].sum() / 2
+        ldf["r"] = (ldf["yhat"] == ldf["y"]).astype(float) / p_all
+        c = -1 * ldf["r"]  # Negative since maximizing not minimizing
 
         # Check c sums to 1
         assert (c.sum() + 1) < 1e-8
 
         return c
 
+
 class AccuracyParityObjective(AbsoluteValueObjective):
 
     def __init__(self):
-        self.name = 'AccPar'
+        self.name = "AccPar"
         super().__init__()
 
     def compute_feat_exp(self, demo):
@@ -198,17 +201,17 @@ class AccuracyParityObjective(AbsoluteValueObjective):
                 y : ground truth targets
         """
         p_yhat_eq_y_giv_z_eq_0 = (
-            ((demo['yhat'] == demo['y']) & (demo['z'] == 0)).sum()
-            / (demo['z'] == 0).sum()
-        )
+            (demo["yhat"] == demo["y"]) & (demo["z"] == 0)
+        ).sum() / (demo["z"] == 0).sum()
         p_yhat_eq_y_giv_z_eq_1 = (
-            ((demo['yhat'] == demo['y']) & (demo['z'] == 1)).sum()
-            / (demo['z'] == 1).sum()
+            (demo["yhat"] == demo["y"]) & (demo["z"] == 1)
+        ).sum() / (demo["z"] == 1).sum()
+        mu = 1 - max(
+            [
+                p_yhat_eq_y_giv_z_eq_0 - p_yhat_eq_y_giv_z_eq_1,
+                p_yhat_eq_y_giv_z_eq_1 - p_yhat_eq_y_giv_z_eq_0,
+            ]
         )
-        mu = 1 - max([
-            p_yhat_eq_y_giv_z_eq_0 - p_yhat_eq_y_giv_z_eq_1,
-            p_yhat_eq_y_giv_z_eq_1 - p_yhat_eq_y_giv_z_eq_0,
-        ])
         if np.isnan(mu):
             mu = 1
 
@@ -233,15 +236,15 @@ class AccuracyParityObjective(AbsoluteValueObjective):
         """
         n_actions = 2
         ldf = ldf.copy()
-        filt__yhaty_z0 = (ldf['z'] == 0) & (ldf['yhat'] == ldf['y'])
-        filt__yhaty_z1 = (ldf['z'] == 1) & (ldf['yhat'] == ldf['y'])
-        p_z0 = ldf[ldf['z'] == 0]['mu0'].sum() / 2
-        p_z1 = ldf[ldf['z'] == 1]['mu0'].sum() / 2
-        ldf['A_ub'] = 0.0
-        ldf.loc[filt__yhaty_z0, 'A_ub'] = -1 / p_z0
-        ldf.loc[filt__yhaty_z1, 'A_ub'] =  1 / p_z1
+        filt__yhaty_z0 = (ldf["z"] == 0) & (ldf["yhat"] == ldf["y"])
+        filt__yhaty_z1 = (ldf["z"] == 1) & (ldf["yhat"] == ldf["y"])
+        p_z0 = ldf[ldf["z"] == 0]["mu0"].sum() / 2
+        p_z1 = ldf[ldf["z"] == 1]["mu0"].sum() / 2
+        ldf["A_ub"] = 0.0
+        ldf.loc[filt__yhaty_z0, "A_ub"] = -1 / p_z0
+        ldf.loc[filt__yhaty_z1, "A_ub"] = 1 / p_z1
 
-        return ldf['A_ub']
+        return ldf["A_ub"]
 
     def _compute_A_ub_row__split2(self, ldf):
         """
@@ -262,15 +265,15 @@ class AccuracyParityObjective(AbsoluteValueObjective):
         """
         n_actions = 2
         ldf = ldf.copy()
-        filt__yhaty_z0 = (ldf['z'] == 0) & (ldf['yhat'] == ldf['y'])
-        filt__yhaty_z1 = (ldf['z'] == 1) & (ldf['yhat'] == ldf['y'])
-        p_z0 = ldf[ldf['z'] == 0]['mu0'].sum() / 2
-        p_z1 = ldf[ldf['z'] == 1]['mu0'].sum() / 2
-        ldf['A_ub'] = 0.0
-        ldf.loc[filt__yhaty_z0, 'A_ub'] =  1 / p_z0
-        ldf.loc[filt__yhaty_z1, 'A_ub'] = -1 / p_z1
+        filt__yhaty_z0 = (ldf["z"] == 0) & (ldf["yhat"] == ldf["y"])
+        filt__yhaty_z1 = (ldf["z"] == 1) & (ldf["yhat"] == ldf["y"])
+        p_z0 = ldf[ldf["z"] == 0]["mu0"].sum() / 2
+        p_z1 = ldf[ldf["z"] == 1]["mu0"].sum() / 2
+        ldf["A_ub"] = 0.0
+        ldf.loc[filt__yhaty_z0, "A_ub"] = 1 / p_z0
+        ldf.loc[filt__yhaty_z1, "A_ub"] = -1 / p_z1
 
-        return ldf['A_ub']
+        return ldf["A_ub"]
 
     def _construct_reward__split1(self, ldf):
         """
@@ -290,14 +293,14 @@ class AccuracyParityObjective(AbsoluteValueObjective):
             The objective function for the linear program.
         """
         ldf = ldf.copy()
-        filt__yhaty_z0 = (ldf['z'] == 0) & (ldf['yhat'] == ldf['y'])
-        filt__yhaty_z1 = (ldf['z'] == 1) & (ldf['yhat'] == ldf['y'])
-        p_z0 = ldf[ldf['z'] == 0]['mu0'].sum() / 2
-        p_z1 = ldf[ldf['z'] == 1]['mu0'].sum() / 2
-        ldf['r'] = np.zeros(len(ldf))
-        ldf.loc[filt__yhaty_z0, 'r'] = -1 / p_z0
-        ldf.loc[filt__yhaty_z1, 'r'] =  1 / p_z1
-        c = -1 * ldf['r']  # Negative since maximizing not minimizing
+        filt__yhaty_z0 = (ldf["z"] == 0) & (ldf["yhat"] == ldf["y"])
+        filt__yhaty_z1 = (ldf["z"] == 1) & (ldf["yhat"] == ldf["y"])
+        p_z0 = ldf[ldf["z"] == 0]["mu0"].sum() / 2
+        p_z1 = ldf[ldf["z"] == 1]["mu0"].sum() / 2
+        ldf["r"] = np.zeros(len(ldf))
+        ldf.loc[filt__yhaty_z0, "r"] = -1 / p_z0
+        ldf.loc[filt__yhaty_z1, "r"] = 1 / p_z1
+        c = -1 * ldf["r"]  # Negative since maximizing not minimizing
 
         return c
 
@@ -319,14 +322,14 @@ class AccuracyParityObjective(AbsoluteValueObjective):
             The objective function for the linear program.
         """
         ldf = ldf.copy()
-        filt__yhaty_z0 = (ldf['z'] == 0) & (ldf['yhat'] == ldf['y'])
-        filt__yhaty_z1 = (ldf['z'] == 1) & (ldf['yhat'] == ldf['y'])
-        p_z0 = ldf[ldf['z'] == 0]['mu0'].sum() / 2
-        p_z1 = ldf[ldf['z'] == 1]['mu0'].sum() / 2
-        ldf['r'] = np.zeros(len(ldf))
-        ldf.loc[filt__yhaty_z0, 'r'] =  1 / p_z0
-        ldf.loc[filt__yhaty_z1, 'r'] = -1 / p_z1
-        c = -1 * ldf['r']  # Negative since maximizing not minimizing
+        filt__yhaty_z0 = (ldf["z"] == 0) & (ldf["yhat"] == ldf["y"])
+        filt__yhaty_z1 = (ldf["z"] == 1) & (ldf["yhat"] == ldf["y"])
+        p_z0 = ldf[ldf["z"] == 0]["mu0"].sum() / 2
+        p_z1 = ldf[ldf["z"] == 1]["mu0"].sum() / 2
+        ldf["r"] = np.zeros(len(ldf))
+        ldf.loc[filt__yhaty_z0, "r"] = 1 / p_z0
+        ldf.loc[filt__yhaty_z1, "r"] = -1 / p_z1
+        c = -1 * ldf["r"]  # Negative since maximizing not minimizing
 
         return c
 
@@ -334,7 +337,7 @@ class AccuracyParityObjective(AbsoluteValueObjective):
 class DemographicParityObjective(AbsoluteValueObjective):
 
     def __init__(self):
-        self.name = 'DemPar'
+        self.name = "DemPar"
         super().__init__()
 
     def compute_feat_exp(self, demo):
@@ -351,18 +354,18 @@ class DemographicParityObjective(AbsoluteValueObjective):
                 yhat : predictions
                 y : ground truth targets
         """
-        p_yhat_eq_1_giv_z_eq_0 = (
-            ((demo['yhat'] == 1) & (demo['z'] == 0)).sum()
-            / (demo['z'] == 0).sum()
+        p_yhat_eq_1_giv_z_eq_0 = ((demo["yhat"] == 1) & (demo["z"] == 0)).sum() / (
+            demo["z"] == 0
+        ).sum()
+        p_yhat_eq_1_giv_z_eq_1 = ((demo["yhat"] == 1) & (demo["z"] == 1)).sum() / (
+            demo["z"] == 1
+        ).sum()
+        mu = 1 - max(
+            [
+                p_yhat_eq_1_giv_z_eq_0 - p_yhat_eq_1_giv_z_eq_1,
+                p_yhat_eq_1_giv_z_eq_1 - p_yhat_eq_1_giv_z_eq_0,
+            ]
         )
-        p_yhat_eq_1_giv_z_eq_1 = (
-            ((demo['yhat'] == 1) & (demo['z'] == 1)).sum()
-            / (demo['z'] == 1).sum()
-        )
-        mu = 1 - max([
-            p_yhat_eq_1_giv_z_eq_0 - p_yhat_eq_1_giv_z_eq_1,
-            p_yhat_eq_1_giv_z_eq_1 - p_yhat_eq_1_giv_z_eq_0,
-        ])
 
         if np.isnan(mu):
             mu = 1
@@ -387,15 +390,15 @@ class DemographicParityObjective(AbsoluteValueObjective):
         """
         n_actions = 2
         ldf = ldf.copy()
-        filt__yhat1_z0 = (ldf['z'] == 0) & (ldf['yhat'] == 1)
-        filt__yhat1_z1 = (ldf['z'] == 1) & (ldf['yhat'] == 1)
-        p_z0 = ldf[ldf['z'] == 0]['mu0'].sum() / 2
-        p_z1 = ldf[ldf['z'] == 1]['mu0'].sum() / 2
-        ldf['A_ub'] = 0.0
-        ldf.loc[filt__yhat1_z0, 'A_ub'] = -1 / p_z0
-        ldf.loc[filt__yhat1_z1, 'A_ub'] =  1 / p_z1
+        filt__yhat1_z0 = (ldf["z"] == 0) & (ldf["yhat"] == 1)
+        filt__yhat1_z1 = (ldf["z"] == 1) & (ldf["yhat"] == 1)
+        p_z0 = ldf[ldf["z"] == 0]["mu0"].sum() / 2
+        p_z1 = ldf[ldf["z"] == 1]["mu0"].sum() / 2
+        ldf["A_ub"] = 0.0
+        ldf.loc[filt__yhat1_z0, "A_ub"] = -1 / p_z0
+        ldf.loc[filt__yhat1_z1, "A_ub"] = 1 / p_z1
 
-        return ldf['A_ub']
+        return ldf["A_ub"]
 
     def _compute_A_ub_row__split2(self, ldf):
         """
@@ -417,15 +420,15 @@ class DemographicParityObjective(AbsoluteValueObjective):
         """
         n_actions = 2
         ldf = ldf.copy()
-        filt__yhat1_z0 = (ldf['z'] == 0) & (ldf['yhat'] == 1)
-        filt__yhat1_z1 = (ldf['z'] == 1) & (ldf['yhat'] == 1)
-        p_z0 = ldf[ldf['z'] == 0]['mu0'].sum() / 2
-        p_z1 = ldf[ldf['z'] == 1]['mu0'].sum() / 2
-        ldf['A_ub'] = 0.0
-        ldf.loc[filt__yhat1_z0, 'A_ub'] =  1 / p_z0
-        ldf.loc[filt__yhat1_z1, 'A_ub'] = -1 / p_z1
+        filt__yhat1_z0 = (ldf["z"] == 0) & (ldf["yhat"] == 1)
+        filt__yhat1_z1 = (ldf["z"] == 1) & (ldf["yhat"] == 1)
+        p_z0 = ldf[ldf["z"] == 0]["mu0"].sum() / 2
+        p_z1 = ldf[ldf["z"] == 1]["mu0"].sum() / 2
+        ldf["A_ub"] = 0.0
+        ldf.loc[filt__yhat1_z0, "A_ub"] = 1 / p_z0
+        ldf.loc[filt__yhat1_z1, "A_ub"] = -1 / p_z1
 
-        return ldf['A_ub']
+        return ldf["A_ub"]
 
     def _construct_reward__split1(self, ldf):
         """
@@ -445,14 +448,14 @@ class DemographicParityObjective(AbsoluteValueObjective):
             The objective function for the linear program.
         """
         ldf = ldf.copy()
-        filt__yhat1_z0 = (ldf['z'] == 0) & (ldf['yhat'] == 1)
-        filt__yhat1_z1 = (ldf['z'] == 1) & (ldf['yhat'] == 1)
-        p_z0 = ldf[ldf['z'] == 0]['mu0'].sum() / 2
-        p_z1 = ldf[ldf['z'] == 1]['mu0'].sum() / 2
-        ldf['r'] = np.zeros(len(ldf))
-        ldf.loc[filt__yhat1_z0, 'r'] = -1 / p_z0
-        ldf.loc[filt__yhat1_z1, 'r'] = 1 / p_z1
-        c = -1 * ldf['r']  # Negative since maximizing not minimizing
+        filt__yhat1_z0 = (ldf["z"] == 0) & (ldf["yhat"] == 1)
+        filt__yhat1_z1 = (ldf["z"] == 1) & (ldf["yhat"] == 1)
+        p_z0 = ldf[ldf["z"] == 0]["mu0"].sum() / 2
+        p_z1 = ldf[ldf["z"] == 1]["mu0"].sum() / 2
+        ldf["r"] = np.zeros(len(ldf))
+        ldf.loc[filt__yhat1_z0, "r"] = -1 / p_z0
+        ldf.loc[filt__yhat1_z1, "r"] = 1 / p_z1
+        c = -1 * ldf["r"]  # Negative since maximizing not minimizing
 
         return c
 
@@ -474,14 +477,14 @@ class DemographicParityObjective(AbsoluteValueObjective):
             The objective function for the linear program.
         """
         ldf = ldf.copy()
-        filt__yhat1_z0 = (ldf['z'] == 0) & (ldf['yhat'] == 1)
-        filt__yhat1_z1 = (ldf['z'] == 1) & (ldf['yhat'] == 1)
-        p_z0 = ldf[ldf['z'] == 0]['mu0'].sum() / 2
-        p_z1 = ldf[ldf['z'] == 1]['mu0'].sum() / 2
-        ldf['r'] = np.zeros(len(ldf))
-        ldf.loc[filt__yhat1_z0, 'r'] =  1 / p_z0
-        ldf.loc[filt__yhat1_z1, 'r'] = -1 / p_z1
-        c = -1 * ldf['r']  # Negative since maximizing not minimizing
+        filt__yhat1_z0 = (ldf["z"] == 0) & (ldf["yhat"] == 1)
+        filt__yhat1_z1 = (ldf["z"] == 1) & (ldf["yhat"] == 1)
+        p_z0 = ldf[ldf["z"] == 0]["mu0"].sum() / 2
+        p_z1 = ldf[ldf["z"] == 1]["mu0"].sum() / 2
+        ldf["r"] = np.zeros(len(ldf))
+        ldf.loc[filt__yhat1_z0, "r"] = 1 / p_z0
+        ldf.loc[filt__yhat1_z1, "r"] = -1 / p_z1
+        c = -1 * ldf["r"]  # Negative since maximizing not minimizing
 
         return c
 
@@ -489,7 +492,7 @@ class DemographicParityObjective(AbsoluteValueObjective):
 class EqualOpportunityObjective(AbsoluteValueObjective):
 
     def __init__(self):
-        self.name = 'EqOpp'
+        self.name = "EqOpp"
         super().__init__()
 
     def compute_feat_exp(self, demo):
@@ -507,17 +510,17 @@ class EqualOpportunityObjective(AbsoluteValueObjective):
                 y : ground truth targets
         """
         p_yhat_eq_1_giv_y_eq_1_z_eq_0 = (
-            ((demo['yhat'] == 1) & (demo['y'] == 1) & (demo['z'] == 0)).sum()
-            / ((demo['y'] == 1) & (demo['z'] == 0)).sum()
-        )
+            (demo["yhat"] == 1) & (demo["y"] == 1) & (demo["z"] == 0)
+        ).sum() / ((demo["y"] == 1) & (demo["z"] == 0)).sum()
         p_yhat_eq_1_giv_y_eq_1_z_eq_1 = (
-            ((demo['yhat'] == 1) & (demo['y'] == 1) & (demo['z'] == 1)).sum()
-            / ((demo['y'] == 1) & (demo['z'] == 1)).sum()
+            (demo["yhat"] == 1) & (demo["y"] == 1) & (demo["z"] == 1)
+        ).sum() / ((demo["y"] == 1) & (demo["z"] == 1)).sum()
+        mu = 1 - max(
+            [
+                p_yhat_eq_1_giv_y_eq_1_z_eq_0 - p_yhat_eq_1_giv_y_eq_1_z_eq_1,
+                p_yhat_eq_1_giv_y_eq_1_z_eq_1 - p_yhat_eq_1_giv_y_eq_1_z_eq_0,
+            ]
         )
-        mu = 1 - max([
-            p_yhat_eq_1_giv_y_eq_1_z_eq_0 - p_yhat_eq_1_giv_y_eq_1_z_eq_1,
-            p_yhat_eq_1_giv_y_eq_1_z_eq_1 - p_yhat_eq_1_giv_y_eq_1_z_eq_0,
-        ])
         if np.isnan(mu):
             mu = 1
 
@@ -542,15 +545,15 @@ class EqualOpportunityObjective(AbsoluteValueObjective):
         """
         n_actions = 2
         ldf = ldf.copy()
-        filt__yhat1_y1_z0 = (ldf['z'] == 0) & (ldf['y'] == 1) & (ldf['yhat'] == 1)
-        filt__yhat1_y1_z1 = (ldf['z'] == 1) & (ldf['y'] == 1) & (ldf['yhat'] == 1)
-        p_z0_y1 = ldf[(ldf['z'] == 0) & (ldf['y'] == 1)]['mu0'].sum() / 2
-        p_z1_y1 = ldf[(ldf['z'] == 1) & (ldf['y'] == 1)]['mu0'].sum() / 2
-        ldf['A_ub'] = 0.0
-        ldf.loc[filt__yhat1_y1_z0, 'A_ub'] = -1 / p_z0_y1
-        ldf.loc[filt__yhat1_y1_z1, 'A_ub'] =  1 / p_z1_y1
+        filt__yhat1_y1_z0 = (ldf["z"] == 0) & (ldf["y"] == 1) & (ldf["yhat"] == 1)
+        filt__yhat1_y1_z1 = (ldf["z"] == 1) & (ldf["y"] == 1) & (ldf["yhat"] == 1)
+        p_z0_y1 = ldf[(ldf["z"] == 0) & (ldf["y"] == 1)]["mu0"].sum() / 2
+        p_z1_y1 = ldf[(ldf["z"] == 1) & (ldf["y"] == 1)]["mu0"].sum() / 2
+        ldf["A_ub"] = 0.0
+        ldf.loc[filt__yhat1_y1_z0, "A_ub"] = -1 / p_z0_y1
+        ldf.loc[filt__yhat1_y1_z1, "A_ub"] = 1 / p_z1_y1
 
-        return ldf['A_ub']
+        return ldf["A_ub"]
 
     def _compute_A_ub_row__split2(self, ldf):
         """
@@ -571,15 +574,15 @@ class EqualOpportunityObjective(AbsoluteValueObjective):
         """
         n_actions = 2
         ldf = ldf.copy()
-        filt__yhat1_y1_z0 = (ldf['z'] == 0) & (ldf['y'] == 1) & (ldf['yhat'] == 1)
-        filt__yhat1_y1_z1 = (ldf['z'] == 1) & (ldf['y'] == 1) & (ldf['yhat'] == 1)
-        p_z0_y1 = ldf[(ldf['z'] == 0) & (ldf['y'] == 1)]['mu0'].sum() / 2
-        p_z1_y1 = ldf[(ldf['z'] == 1) & (ldf['y'] == 1)]['mu0'].sum() / 2
-        ldf['A_ub'] = 0.0
-        ldf.loc[filt__yhat1_y1_z0, 'A_ub'] =  1 / p_z0_y1
-        ldf.loc[filt__yhat1_y1_z1, 'A_ub'] = -1 / p_z1_y1
+        filt__yhat1_y1_z0 = (ldf["z"] == 0) & (ldf["y"] == 1) & (ldf["yhat"] == 1)
+        filt__yhat1_y1_z1 = (ldf["z"] == 1) & (ldf["y"] == 1) & (ldf["yhat"] == 1)
+        p_z0_y1 = ldf[(ldf["z"] == 0) & (ldf["y"] == 1)]["mu0"].sum() / 2
+        p_z1_y1 = ldf[(ldf["z"] == 1) & (ldf["y"] == 1)]["mu0"].sum() / 2
+        ldf["A_ub"] = 0.0
+        ldf.loc[filt__yhat1_y1_z0, "A_ub"] = 1 / p_z0_y1
+        ldf.loc[filt__yhat1_y1_z1, "A_ub"] = -1 / p_z1_y1
 
-        return ldf['A_ub']
+        return ldf["A_ub"]
 
     def _construct_reward__split1(self, ldf):
         """
@@ -599,14 +602,14 @@ class EqualOpportunityObjective(AbsoluteValueObjective):
             The objective function for the linear program.
         """
         ldf = ldf.copy()
-        filt__yhat1_y1_z0 = (ldf['z'] == 0) & (ldf['y'] == 1) & (ldf['yhat'] == 1)
-        filt__yhat1_y1_z1 = (ldf['z'] == 1) & (ldf['y'] == 1) & (ldf['yhat'] == 1)
-        p_y1_z0 = ldf[(ldf['y'] == 1) & (ldf['z'] == 0)]['mu0'].sum() / 2
-        p_y1_z1 = ldf[(ldf['y'] == 1) & (ldf['z'] == 1)]['mu0'].sum() / 2
-        ldf['r'] = np.zeros(len(ldf))
-        ldf.loc[filt__yhat1_y1_z0, 'r'] = -1 / p_y1_z0
-        ldf.loc[filt__yhat1_y1_z1, 'r'] =  1 / p_y1_z1
-        c = -1 * ldf['r']  # Negative since maximizing not minimizing
+        filt__yhat1_y1_z0 = (ldf["z"] == 0) & (ldf["y"] == 1) & (ldf["yhat"] == 1)
+        filt__yhat1_y1_z1 = (ldf["z"] == 1) & (ldf["y"] == 1) & (ldf["yhat"] == 1)
+        p_y1_z0 = ldf[(ldf["y"] == 1) & (ldf["z"] == 0)]["mu0"].sum() / 2
+        p_y1_z1 = ldf[(ldf["y"] == 1) & (ldf["z"] == 1)]["mu0"].sum() / 2
+        ldf["r"] = np.zeros(len(ldf))
+        ldf.loc[filt__yhat1_y1_z0, "r"] = -1 / p_y1_z0
+        ldf.loc[filt__yhat1_y1_z1, "r"] = 1 / p_y1_z1
+        c = -1 * ldf["r"]  # Negative since maximizing not minimizing
 
         return c
 
@@ -628,14 +631,14 @@ class EqualOpportunityObjective(AbsoluteValueObjective):
             The objective function for the linear program.
         """
         ldf = ldf.copy()
-        filt__yhat1_y1_z0 = (ldf['z'] == 0) & (ldf['y'] == 1) & (ldf['yhat'] == 1)
-        filt__yhat1_y1_z1 = (ldf['z'] == 1) & (ldf['y'] == 1) & (ldf['yhat'] == 1)
-        p_y1_z0 = ldf[(ldf['y'] == 1) & (ldf['z'] == 0)]['mu0'].sum() / 2
-        p_y1_z1 = ldf[(ldf['y'] == 1) & (ldf['z'] == 1)]['mu0'].sum() / 2
-        ldf['r'] = np.zeros(len(ldf))
-        ldf.loc[filt__yhat1_y1_z0, 'r'] =  1 / p_y1_z0
-        ldf.loc[filt__yhat1_y1_z1, 'r'] = -1 / p_y1_z1
-        c = -1 * ldf['r']  # Negative since maximizing not minimizing
+        filt__yhat1_y1_z0 = (ldf["z"] == 0) & (ldf["y"] == 1) & (ldf["yhat"] == 1)
+        filt__yhat1_y1_z1 = (ldf["z"] == 1) & (ldf["y"] == 1) & (ldf["yhat"] == 1)
+        p_y1_z0 = ldf[(ldf["y"] == 1) & (ldf["z"] == 0)]["mu0"].sum() / 2
+        p_y1_z1 = ldf[(ldf["y"] == 1) & (ldf["z"] == 1)]["mu0"].sum() / 2
+        ldf["r"] = np.zeros(len(ldf))
+        ldf.loc[filt__yhat1_y1_z0, "r"] = 1 / p_y1_z0
+        ldf.loc[filt__yhat1_y1_z1, "r"] = -1 / p_y1_z1
+        c = -1 * ldf["r"]  # Negative since maximizing not minimizing
 
         return c
 
@@ -643,7 +646,7 @@ class EqualOpportunityObjective(AbsoluteValueObjective):
 class FalsePositiveRateParityObjective(AbsoluteValueObjective):
 
     def __init__(self):
-        self.name = 'FPRPar'
+        self.name = "FPRPar"
         super().__init__()
 
     def compute_feat_exp(self, demo):
@@ -661,17 +664,17 @@ class FalsePositiveRateParityObjective(AbsoluteValueObjective):
                 y : ground truth targets
         """
         p_yhat_eq_1_giv_y_eq_0_z_eq_0 = (
-            ((demo['yhat'] == 1) & (demo['y'] == 0) & (demo['z'] == 0)).sum()
-            / ((demo['y'] == 0) & (demo['z'] == 0)).sum()
-        )
+            (demo["yhat"] == 1) & (demo["y"] == 0) & (demo["z"] == 0)
+        ).sum() / ((demo["y"] == 0) & (demo["z"] == 0)).sum()
         p_yhat_eq_1_giv_y_eq_0_z_eq_1 = (
-            ((demo['yhat'] == 1) & (demo['y'] == 0) & (demo['z'] == 1)).sum()
-            / ((demo['y'] == 0) & (demo['z'] == 1)).sum()
+            (demo["yhat"] == 1) & (demo["y"] == 0) & (demo["z"] == 1)
+        ).sum() / ((demo["y"] == 0) & (demo["z"] == 1)).sum()
+        mu = 1 - max(
+            [
+                p_yhat_eq_1_giv_y_eq_0_z_eq_0 - p_yhat_eq_1_giv_y_eq_0_z_eq_1,
+                p_yhat_eq_1_giv_y_eq_0_z_eq_1 - p_yhat_eq_1_giv_y_eq_0_z_eq_0,
+            ]
         )
-        mu = 1 - max([
-            p_yhat_eq_1_giv_y_eq_0_z_eq_0 - p_yhat_eq_1_giv_y_eq_0_z_eq_1,
-            p_yhat_eq_1_giv_y_eq_0_z_eq_1 - p_yhat_eq_1_giv_y_eq_0_z_eq_0,
-        ])
         if np.isnan(mu):
             mu = 1
 
@@ -696,15 +699,15 @@ class FalsePositiveRateParityObjective(AbsoluteValueObjective):
         """
         n_actions = 2
         ldf = ldf.copy()
-        filt__yhat1_y0_z0 = (ldf['z'] == 0) & (ldf['y'] == 0) & (ldf['yhat'] == 1)
-        filt__yhat1_y0_z1 = (ldf['z'] == 1) & (ldf['y'] == 0) & (ldf['yhat'] == 1)
-        p_z0_y0 = ldf[(ldf['z'] == 0) & (ldf['y'] == 0)]['mu0'].sum() / 2
-        p_z1_y0 = ldf[(ldf['z'] == 1) & (ldf['y'] == 0)]['mu0'].sum() / 2
-        ldf['A_ub'] = 0.0
-        ldf.loc[filt__yhat1_y0_z0, 'A_ub'] = -1 / p_z0_y0
-        ldf.loc[filt__yhat1_y0_z1, 'A_ub'] =  1 / p_z1_y0
+        filt__yhat1_y0_z0 = (ldf["z"] == 0) & (ldf["y"] == 0) & (ldf["yhat"] == 1)
+        filt__yhat1_y0_z1 = (ldf["z"] == 1) & (ldf["y"] == 0) & (ldf["yhat"] == 1)
+        p_z0_y0 = ldf[(ldf["z"] == 0) & (ldf["y"] == 0)]["mu0"].sum() / 2
+        p_z1_y0 = ldf[(ldf["z"] == 1) & (ldf["y"] == 0)]["mu0"].sum() / 2
+        ldf["A_ub"] = 0.0
+        ldf.loc[filt__yhat1_y0_z0, "A_ub"] = -1 / p_z0_y0
+        ldf.loc[filt__yhat1_y0_z1, "A_ub"] = 1 / p_z1_y0
 
-        return ldf['A_ub']
+        return ldf["A_ub"]
 
     def _compute_A_ub_row__split2(self, ldf):
         """
@@ -725,15 +728,15 @@ class FalsePositiveRateParityObjective(AbsoluteValueObjective):
         """
         n_actions = 2
         ldf = ldf.copy()
-        filt__yhat1_y0_z0 = (ldf['z'] == 0) & (ldf['y'] == 0) & (ldf['yhat'] == 1)
-        filt__yhat1_y0_z1 = (ldf['z'] == 1) & (ldf['y'] == 0) & (ldf['yhat'] == 1)
-        p_z0_y0 = ldf[(ldf['z'] == 0) & (ldf['y'] == 1)]['mu0'].sum() / 2
-        p_z1_y0 = ldf[(ldf['z'] == 1) & (ldf['y'] == 1)]['mu0'].sum() / 2
-        ldf['A_ub'] = 0.0
-        ldf.loc[filt__yhat1_y0_z0, 'A_ub'] =  1 / p_z0_y0
-        ldf.loc[filt__yhat1_y0_z1, 'A_ub'] = -1 / p_z1_y0
+        filt__yhat1_y0_z0 = (ldf["z"] == 0) & (ldf["y"] == 0) & (ldf["yhat"] == 1)
+        filt__yhat1_y0_z1 = (ldf["z"] == 1) & (ldf["y"] == 0) & (ldf["yhat"] == 1)
+        p_z0_y0 = ldf[(ldf["z"] == 0) & (ldf["y"] == 1)]["mu0"].sum() / 2
+        p_z1_y0 = ldf[(ldf["z"] == 1) & (ldf["y"] == 1)]["mu0"].sum() / 2
+        ldf["A_ub"] = 0.0
+        ldf.loc[filt__yhat1_y0_z0, "A_ub"] = 1 / p_z0_y0
+        ldf.loc[filt__yhat1_y0_z1, "A_ub"] = -1 / p_z1_y0
 
-        return ldf['A_ub']
+        return ldf["A_ub"]
 
     def _construct_reward__split1(self, ldf):
         """
@@ -753,14 +756,14 @@ class FalsePositiveRateParityObjective(AbsoluteValueObjective):
             The objective function for the linear program.
         """
         ldf = ldf.copy()
-        filt__yhat1_y0_z0 = (ldf['z'] == 0) & (ldf['y'] == 0) & (ldf['yhat'] == 1)
-        filt__yhat1_y0_z1 = (ldf['z'] == 1) & (ldf['y'] == 0) & (ldf['yhat'] == 1)
-        p_y0_z0 = ldf[(ldf['y'] == 0) & (ldf['z'] == 0)]['mu0'].sum() / 2
-        p_y0_z1 = ldf[(ldf['y'] == 0) & (ldf['z'] == 1)]['mu0'].sum() / 2
-        ldf['r'] = np.zeros(len(ldf))
-        ldf.loc[filt__yhat1_y0_z0, 'r'] = -1 / p_y0_z0
-        ldf.loc[filt__yhat1_y0_z1, 'r'] =  1 / p_y0_z1
-        c = -1 * ldf['r']  # Negative since maximizing not minimizing
+        filt__yhat1_y0_z0 = (ldf["z"] == 0) & (ldf["y"] == 0) & (ldf["yhat"] == 1)
+        filt__yhat1_y0_z1 = (ldf["z"] == 1) & (ldf["y"] == 0) & (ldf["yhat"] == 1)
+        p_y0_z0 = ldf[(ldf["y"] == 0) & (ldf["z"] == 0)]["mu0"].sum() / 2
+        p_y0_z1 = ldf[(ldf["y"] == 0) & (ldf["z"] == 1)]["mu0"].sum() / 2
+        ldf["r"] = np.zeros(len(ldf))
+        ldf.loc[filt__yhat1_y0_z0, "r"] = -1 / p_y0_z0
+        ldf.loc[filt__yhat1_y0_z1, "r"] = 1 / p_y0_z1
+        c = -1 * ldf["r"]  # Negative since maximizing not minimizing
 
         return c
 
@@ -782,14 +785,14 @@ class FalsePositiveRateParityObjective(AbsoluteValueObjective):
             The objective function for the linear program.
         """
         ldf = ldf.copy()
-        filt__yhat1_y0_z0 = (ldf['z'] == 0) & (ldf['y'] == 0) & (ldf['yhat'] == 1)
-        filt__yhat1_y0_z1 = (ldf['z'] == 1) & (ldf['y'] == 0) & (ldf['yhat'] == 1)
-        p_y0_z0 = ldf[(ldf['y'] == 0) & (ldf['z'] == 0)]['mu0'].sum() / 2
-        p_y0_z1 = ldf[(ldf['y'] == 0) & (ldf['z'] == 1)]['mu0'].sum() / 2
-        ldf['r'] = np.zeros(len(ldf))
-        ldf.loc[filt__yhat1_y0_z0, 'r'] =  1 / p_y0_z0
-        ldf.loc[filt__yhat1_y0_z1, 'r'] = -1 / p_y0_z1
-        c = -1 * ldf['r']  # Negative since maximizing not minimizing
+        filt__yhat1_y0_z0 = (ldf["z"] == 0) & (ldf["y"] == 0) & (ldf["yhat"] == 1)
+        filt__yhat1_y0_z1 = (ldf["z"] == 1) & (ldf["y"] == 0) & (ldf["yhat"] == 1)
+        p_y0_z0 = ldf[(ldf["y"] == 0) & (ldf["z"] == 0)]["mu0"].sum() / 2
+        p_y0_z1 = ldf[(ldf["y"] == 0) & (ldf["z"] == 1)]["mu0"].sum() / 2
+        ldf["r"] = np.zeros(len(ldf))
+        ldf.loc[filt__yhat1_y0_z0, "r"] = 1 / p_y0_z0
+        ldf.loc[filt__yhat1_y0_z1, "r"] = -1 / p_y0_z1
+        c = -1 * ldf["r"]  # Negative since maximizing not minimizing
 
         return c
 
@@ -797,7 +800,7 @@ class FalsePositiveRateParityObjective(AbsoluteValueObjective):
 class TrueNegativeRateParityObjective(AbsoluteValueObjective):
 
     def __init__(self):
-        self.name = 'TNRPar'
+        self.name = "TNRPar"
         super().__init__()
 
     def compute_feat_exp(self, demo):
@@ -815,17 +818,17 @@ class TrueNegativeRateParityObjective(AbsoluteValueObjective):
                 y : ground truth targets
         """
         p_yhat_eq_0_giv_y_eq_0_z_eq_0 = (
-            ((demo['yhat'] == 0) & (demo['y'] == 0) & (demo['z'] == 0)).sum()
-            / ((demo['y'] == 0) & (demo['z'] == 0)).sum()
-        )
+            (demo["yhat"] == 0) & (demo["y"] == 0) & (demo["z"] == 0)
+        ).sum() / ((demo["y"] == 0) & (demo["z"] == 0)).sum()
         p_yhat_eq_0_giv_y_eq_0_z_eq_1 = (
-            ((demo['yhat'] == 0) & (demo['y'] == 0) & (demo['z'] == 1)).sum()
-            / ((demo['y'] == 0) & (demo['z'] == 1)).sum()
+            (demo["yhat"] == 0) & (demo["y"] == 0) & (demo["z"] == 1)
+        ).sum() / ((demo["y"] == 0) & (demo["z"] == 1)).sum()
+        mu = 1 - max(
+            [
+                p_yhat_eq_0_giv_y_eq_0_z_eq_0 - p_yhat_eq_0_giv_y_eq_0_z_eq_1,
+                p_yhat_eq_0_giv_y_eq_0_z_eq_1 - p_yhat_eq_0_giv_y_eq_0_z_eq_0,
+            ]
         )
-        mu = 1 - max([
-            p_yhat_eq_0_giv_y_eq_0_z_eq_0 - p_yhat_eq_0_giv_y_eq_0_z_eq_1,
-            p_yhat_eq_0_giv_y_eq_0_z_eq_1 - p_yhat_eq_0_giv_y_eq_0_z_eq_0,
-        ])
         if np.isnan(mu):
             mu = 1
 
@@ -850,15 +853,15 @@ class TrueNegativeRateParityObjective(AbsoluteValueObjective):
         """
         n_actions = 2
         ldf = ldf.copy()
-        filt__yhat0_y0_z0 = (ldf['z'] == 0) & (ldf['y'] == 0) & (ldf['yhat'] == 0)
-        filt__yhat0_y0_z1 = (ldf['z'] == 1) & (ldf['y'] == 0) & (ldf['yhat'] == 0)
-        p_z0_y0 = ldf[(ldf['z'] == 0) & (ldf['y'] == 0)]['mu0'].sum() / 2
-        p_z1_y0 = ldf[(ldf['z'] == 1) & (ldf['y'] == 0)]['mu0'].sum() / 2
-        ldf['A_ub'] = 0.0
-        ldf.loc[filt__yhat0_y0_z0, 'A_ub'] = -1 / p_z0_y0
-        ldf.loc[filt__yhat0_y0_z1, 'A_ub'] =  1 / p_z1_y0
+        filt__yhat0_y0_z0 = (ldf["z"] == 0) & (ldf["y"] == 0) & (ldf["yhat"] == 0)
+        filt__yhat0_y0_z1 = (ldf["z"] == 1) & (ldf["y"] == 0) & (ldf["yhat"] == 0)
+        p_z0_y0 = ldf[(ldf["z"] == 0) & (ldf["y"] == 0)]["mu0"].sum() / 2
+        p_z1_y0 = ldf[(ldf["z"] == 1) & (ldf["y"] == 0)]["mu0"].sum() / 2
+        ldf["A_ub"] = 0.0
+        ldf.loc[filt__yhat0_y0_z0, "A_ub"] = -1 / p_z0_y0
+        ldf.loc[filt__yhat0_y0_z1, "A_ub"] = 1 / p_z1_y0
 
-        return ldf['A_ub']
+        return ldf["A_ub"]
 
     def _compute_A_ub_row__split2(self, ldf):
         """
@@ -879,15 +882,15 @@ class TrueNegativeRateParityObjective(AbsoluteValueObjective):
         """
         n_actions = 2
         ldf = ldf.copy()
-        filt__yhat0_y0_z0 = (ldf['z'] == 0) & (ldf['y'] == 0) & (ldf['yhat'] == 0)
-        filt__yhat0_y0_z1 = (ldf['z'] == 1) & (ldf['y'] == 0) & (ldf['yhat'] == 0)
-        p_z0_y0 = ldf[(ldf['z'] == 0) & (ldf['y'] == 0)]['mu0'].sum() / 2
-        p_z1_y0 = ldf[(ldf['z'] == 1) & (ldf['y'] == 0)]['mu0'].sum() / 2
-        ldf['A_ub'] = 0.0
-        ldf.loc[filt__yhat0_y0_z0, 'A_ub'] =  1 / p_z0_y0
-        ldf.loc[filt__yhat0_y0_z1, 'A_ub'] = -1 / p_z1_y0
+        filt__yhat0_y0_z0 = (ldf["z"] == 0) & (ldf["y"] == 0) & (ldf["yhat"] == 0)
+        filt__yhat0_y0_z1 = (ldf["z"] == 1) & (ldf["y"] == 0) & (ldf["yhat"] == 0)
+        p_z0_y0 = ldf[(ldf["z"] == 0) & (ldf["y"] == 0)]["mu0"].sum() / 2
+        p_z1_y0 = ldf[(ldf["z"] == 1) & (ldf["y"] == 0)]["mu0"].sum() / 2
+        ldf["A_ub"] = 0.0
+        ldf.loc[filt__yhat0_y0_z0, "A_ub"] = 1 / p_z0_y0
+        ldf.loc[filt__yhat0_y0_z1, "A_ub"] = -1 / p_z1_y0
 
-        return ldf['A_ub']
+        return ldf["A_ub"]
 
     def _construct_reward__split1(self, ldf):
         """
@@ -907,14 +910,14 @@ class TrueNegativeRateParityObjective(AbsoluteValueObjective):
             The objective function for the linear program.
         """
         ldf = ldf.copy()
-        filt__yhat0_y0_z0 = (ldf['z'] == 0) & (ldf['y'] == 0) & (ldf['yhat'] == 0)
-        filt__yhat0_y0_z1 = (ldf['z'] == 1) & (ldf['y'] == 0) & (ldf['yhat'] == 0)
-        p_y0_z0 = ldf[(ldf['y'] == 0) & (ldf['z'] == 0)]['mu0'].sum() / 2
-        p_y0_z1 = ldf[(ldf['y'] == 0) & (ldf['z'] == 1)]['mu0'].sum() / 2
-        ldf['r'] = np.zeros(len(ldf))
-        ldf.loc[filt__yhat0_y0_z0, 'r'] = -1 / p_y0_z0
-        ldf.loc[filt__yhat0_y0_z1, 'r'] =  1 / p_y0_z1
-        c = -1 * ldf['r']  # Negative since maximizing not minimizing
+        filt__yhat0_y0_z0 = (ldf["z"] == 0) & (ldf["y"] == 0) & (ldf["yhat"] == 0)
+        filt__yhat0_y0_z1 = (ldf["z"] == 1) & (ldf["y"] == 0) & (ldf["yhat"] == 0)
+        p_y0_z0 = ldf[(ldf["y"] == 0) & (ldf["z"] == 0)]["mu0"].sum() / 2
+        p_y0_z1 = ldf[(ldf["y"] == 0) & (ldf["z"] == 1)]["mu0"].sum() / 2
+        ldf["r"] = np.zeros(len(ldf))
+        ldf.loc[filt__yhat0_y0_z0, "r"] = -1 / p_y0_z0
+        ldf.loc[filt__yhat0_y0_z1, "r"] = 1 / p_y0_z1
+        c = -1 * ldf["r"]  # Negative since maximizing not minimizing
 
         return c
 
@@ -936,14 +939,14 @@ class TrueNegativeRateParityObjective(AbsoluteValueObjective):
             The objective function for the linear program.
         """
         ldf = ldf.copy()
-        filt__yhat0_y0_z0 = (ldf['z'] == 0) & (ldf['y'] == 0) & (ldf['yhat'] == 0)
-        filt__yhat0_y0_z1 = (ldf['z'] == 1) & (ldf['y'] == 0) & (ldf['yhat'] == 0)
-        p_y0_z0 = ldf[(ldf['y'] == 0) & (ldf['z'] == 0)]['mu0'].sum() / 2
-        p_y0_z1 = ldf[(ldf['y'] == 0) & (ldf['z'] == 1)]['mu0'].sum() / 2
-        ldf['r'] = np.zeros(len(ldf))
-        ldf.loc[filt__yhat0_y0_z0, 'r'] =  1 / p_y0_z0
-        ldf.loc[filt__yhat0_y0_z1, 'r'] = -1 / p_y0_z1
-        c = -1 * ldf['r']  # Negative since maximizing not minimizing
+        filt__yhat0_y0_z0 = (ldf["z"] == 0) & (ldf["y"] == 0) & (ldf["yhat"] == 0)
+        filt__yhat0_y0_z1 = (ldf["z"] == 1) & (ldf["y"] == 0) & (ldf["yhat"] == 0)
+        p_y0_z0 = ldf[(ldf["y"] == 0) & (ldf["z"] == 0)]["mu0"].sum() / 2
+        p_y0_z1 = ldf[(ldf["y"] == 0) & (ldf["z"] == 1)]["mu0"].sum() / 2
+        ldf["r"] = np.zeros(len(ldf))
+        ldf.loc[filt__yhat0_y0_z0, "r"] = 1 / p_y0_z0
+        ldf.loc[filt__yhat0_y0_z1, "r"] = -1 / p_y0_z1
+        c = -1 * ldf["r"]  # Negative since maximizing not minimizing
 
         return c
 
@@ -951,7 +954,7 @@ class TrueNegativeRateParityObjective(AbsoluteValueObjective):
 class FalseNegativeRateParityObjective(AbsoluteValueObjective):
 
     def __init__(self):
-        self.name = 'FNRPar'
+        self.name = "FNRPar"
         super().__init__()
 
     def compute_feat_exp(self, demo):
@@ -969,17 +972,17 @@ class FalseNegativeRateParityObjective(AbsoluteValueObjective):
                 y : ground truth targets
         """
         p_yhat_eq_0_giv_y_eq_1_z_eq_0 = (
-            ((demo['yhat'] == 0) & (demo['y'] == 1) & (demo['z'] == 0)).sum()
-            / ((demo['y'] == 1) & (demo['z'] == 0)).sum()
-        )
+            (demo["yhat"] == 0) & (demo["y"] == 1) & (demo["z"] == 0)
+        ).sum() / ((demo["y"] == 1) & (demo["z"] == 0)).sum()
         p_yhat_eq_0_giv_y_eq_1_z_eq_1 = (
-            ((demo['yhat'] == 0) & (demo['y'] == 1) & (demo['z'] == 1)).sum()
-            / ((demo['y'] == 1) & (demo['z'] == 1)).sum()
+            (demo["yhat"] == 0) & (demo["y"] == 1) & (demo["z"] == 1)
+        ).sum() / ((demo["y"] == 1) & (demo["z"] == 1)).sum()
+        mu = 1 - max(
+            [
+                p_yhat_eq_0_giv_y_eq_1_z_eq_0 - p_yhat_eq_0_giv_y_eq_1_z_eq_1,
+                p_yhat_eq_0_giv_y_eq_1_z_eq_1 - p_yhat_eq_0_giv_y_eq_1_z_eq_0,
+            ]
         )
-        mu = 1 - max([
-            p_yhat_eq_0_giv_y_eq_1_z_eq_0 - p_yhat_eq_0_giv_y_eq_1_z_eq_1,
-            p_yhat_eq_0_giv_y_eq_1_z_eq_1 - p_yhat_eq_0_giv_y_eq_1_z_eq_0,
-        ])
         if np.isnan(mu):
             mu = 1
 
@@ -1004,15 +1007,15 @@ class FalseNegativeRateParityObjective(AbsoluteValueObjective):
         """
         n_actions = 2
         ldf = ldf.copy()
-        filt__yhat0_y1_z0 = (ldf['z'] == 0) & (ldf['y'] == 1) & (ldf['yhat'] == 0)
-        filt__yhat0_y1_z1 = (ldf['z'] == 1) & (ldf['y'] == 1) & (ldf['yhat'] == 0)
-        p_z0_y1 = ldf[(ldf['z'] == 0) & (ldf['y'] == 1)]['mu0'].sum() / 2
-        p_z1_y1 = ldf[(ldf['z'] == 1) & (ldf['y'] == 1)]['mu0'].sum() / 2
-        ldf['A_ub'] = 0.0
-        ldf.loc[filt__yhat0_y1_z0, 'A_ub'] = -1 / p_z0_y1
-        ldf.loc[filt__yhat0_y1_z1, 'A_ub'] =  1 / p_z1_y1
+        filt__yhat0_y1_z0 = (ldf["z"] == 0) & (ldf["y"] == 1) & (ldf["yhat"] == 0)
+        filt__yhat0_y1_z1 = (ldf["z"] == 1) & (ldf["y"] == 1) & (ldf["yhat"] == 0)
+        p_z0_y1 = ldf[(ldf["z"] == 0) & (ldf["y"] == 1)]["mu0"].sum() / 2
+        p_z1_y1 = ldf[(ldf["z"] == 1) & (ldf["y"] == 1)]["mu0"].sum() / 2
+        ldf["A_ub"] = 0.0
+        ldf.loc[filt__yhat0_y1_z0, "A_ub"] = -1 / p_z0_y1
+        ldf.loc[filt__yhat0_y1_z1, "A_ub"] = 1 / p_z1_y1
 
-        return ldf['A_ub']
+        return ldf["A_ub"]
 
     def _compute_A_ub_row__split2(self, ldf):
         """
@@ -1033,15 +1036,15 @@ class FalseNegativeRateParityObjective(AbsoluteValueObjective):
         """
         n_actions = 2
         ldf = ldf.copy()
-        filt__yhat0_y1_z0 = (ldf['z'] == 0) & (ldf['y'] == 1) & (ldf['yhat'] == 0)
-        filt__yhat0_y1_z1 = (ldf['z'] == 1) & (ldf['y'] == 1) & (ldf['yhat'] == 0)
-        p_z0_y1 = ldf[(ldf['z'] == 0) & (ldf['y'] == 1)]['mu0'].sum() / 2
-        p_z1_y1 = ldf[(ldf['z'] == 1) & (ldf['y'] == 1)]['mu0'].sum() / 2
-        ldf['A_ub'] = 0.0
-        ldf.loc[filt__yhat0_y1_z0, 'A_ub'] =  1 / p_z0_y1
-        ldf.loc[filt__yhat0_y1_z1, 'A_ub'] = -1 / p_z1_y1
+        filt__yhat0_y1_z0 = (ldf["z"] == 0) & (ldf["y"] == 1) & (ldf["yhat"] == 0)
+        filt__yhat0_y1_z1 = (ldf["z"] == 1) & (ldf["y"] == 1) & (ldf["yhat"] == 0)
+        p_z0_y1 = ldf[(ldf["z"] == 0) & (ldf["y"] == 1)]["mu0"].sum() / 2
+        p_z1_y1 = ldf[(ldf["z"] == 1) & (ldf["y"] == 1)]["mu0"].sum() / 2
+        ldf["A_ub"] = 0.0
+        ldf.loc[filt__yhat0_y1_z0, "A_ub"] = 1 / p_z0_y1
+        ldf.loc[filt__yhat0_y1_z1, "A_ub"] = -1 / p_z1_y1
 
-        return ldf['A_ub']
+        return ldf["A_ub"]
 
     def _construct_reward__split1(self, ldf):
         """
@@ -1061,14 +1064,14 @@ class FalseNegativeRateParityObjective(AbsoluteValueObjective):
             The objective function for the linear program.
         """
         ldf = ldf.copy()
-        filt__yhat0_y1_z0 = (ldf['z'] == 0) & (ldf['y'] == 1) & (ldf['yhat'] == 0)
-        filt__yhat0_y1_z1 = (ldf['z'] == 1) & (ldf['y'] == 1) & (ldf['yhat'] == 0)
-        p_y1_z0 = ldf[(ldf['y'] == 1) & (ldf['z'] == 0)]['mu0'].sum() / 2
-        p_y1_z1 = ldf[(ldf['y'] == 1) & (ldf['z'] == 1)]['mu0'].sum() / 2
-        ldf['r'] = np.zeros(len(ldf))
-        ldf.loc[filt__yhat0_y1_z0, 'r'] = -1 / p_y1_z0
-        ldf.loc[filt__yhat0_y1_z1, 'r'] =  1 / p_y1_z1
-        c = -1 * ldf['r']  # Negative since maximizing not minimizing
+        filt__yhat0_y1_z0 = (ldf["z"] == 0) & (ldf["y"] == 1) & (ldf["yhat"] == 0)
+        filt__yhat0_y1_z1 = (ldf["z"] == 1) & (ldf["y"] == 1) & (ldf["yhat"] == 0)
+        p_y1_z0 = ldf[(ldf["y"] == 1) & (ldf["z"] == 0)]["mu0"].sum() / 2
+        p_y1_z1 = ldf[(ldf["y"] == 1) & (ldf["z"] == 1)]["mu0"].sum() / 2
+        ldf["r"] = np.zeros(len(ldf))
+        ldf.loc[filt__yhat0_y1_z0, "r"] = -1 / p_y1_z0
+        ldf.loc[filt__yhat0_y1_z1, "r"] = 1 / p_y1_z1
+        c = -1 * ldf["r"]  # Negative since maximizing not minimizing
 
         return c
 
@@ -1090,14 +1093,14 @@ class FalseNegativeRateParityObjective(AbsoluteValueObjective):
             The objective function for the linear program.
         """
         ldf = ldf.copy()
-        filt__yhat0_y1_z0 = (ldf['z'] == 0) & (ldf['y'] == 1) & (ldf['yhat'] == 0)
-        filt__yhat0_y1_z1 = (ldf['z'] == 1) & (ldf['y'] == 1) & (ldf['yhat'] == 0)
-        p_y1_z0 = ldf[(ldf['y'] == 1) & (ldf['z'] == 0)]['mu0'].sum() / 2
-        p_y1_z1 = ldf[(ldf['y'] == 1) & (ldf['z'] == 1)]['mu0'].sum() / 2
-        ldf['r'] = np.zeros(len(ldf))
-        ldf.loc[filt__yhat0_y1_z0, 'r'] =  1 / p_y1_z0
-        ldf.loc[filt__yhat0_y1_z1, 'r'] = -1 / p_y1_z1
-        c = -1 * ldf['r']  # Negative since maximizing not minimizing
+        filt__yhat0_y1_z0 = (ldf["z"] == 0) & (ldf["y"] == 1) & (ldf["yhat"] == 0)
+        filt__yhat0_y1_z1 = (ldf["z"] == 1) & (ldf["y"] == 1) & (ldf["yhat"] == 0)
+        p_y1_z0 = ldf[(ldf["y"] == 1) & (ldf["z"] == 0)]["mu0"].sum() / 2
+        p_y1_z1 = ldf[(ldf["y"] == 1) & (ldf["z"] == 1)]["mu0"].sum() / 2
+        ldf["r"] = np.zeros(len(ldf))
+        ldf.loc[filt__yhat0_y1_z0, "r"] = 1 / p_y1_z0
+        ldf.loc[filt__yhat0_y1_z1, "r"] = -1 / p_y1_z1
+        c = -1 * ldf["r"]  # Negative since maximizing not minimizing
 
         return c
 
@@ -1109,7 +1112,7 @@ class PredictiveParityObjective(Objective):
     """
 
     def __init__(self):
-        self.name = 'PredPar'
+        self.name = "PredPar"
         super().__init__()
 
     def compute_feat_exp(self, demo):
@@ -1127,17 +1130,17 @@ class PredictiveParityObjective(Objective):
                 y : ground truth targets
         """
         p_y_eq_1_giv_yhat_eq_1_z_eq_0 = (
-            ((demo['yhat'] == 1) & (demo['y'] == 1) & (demo['z'] == 0)).sum()
-            / ((demo['yhat'] == 1) & (demo['z'] == 0)).sum()
-        )
+            (demo["yhat"] == 1) & (demo["y"] == 1) & (demo["z"] == 0)
+        ).sum() / ((demo["yhat"] == 1) & (demo["z"] == 0)).sum()
         p_y_eq_1_giv_yhat_eq_1_z_eq_1 = (
-            ((demo['yhat'] == 1) & (demo['y'] == 1) & (demo['z'] == 1)).sum()
-            / ((demo['yhat'] == 1) & (demo['z'] == 1)).sum()
+            (demo["yhat"] == 1) & (demo["y"] == 1) & (demo["z"] == 1)
+        ).sum() / ((demo["yhat"] == 1) & (demo["z"] == 1)).sum()
+        mu = 1 - max(
+            [
+                p_y_eq_1_giv_yhat_eq_1_z_eq_0 - p_y_eq_1_giv_yhat_eq_1_z_eq_1,
+                p_y_eq_1_giv_yhat_eq_1_z_eq_1 - p_y_eq_1_giv_yhat_eq_1_z_eq_0,
+            ]
         )
-        mu = 1 - max([
-            p_y_eq_1_giv_yhat_eq_1_z_eq_0 - p_y_eq_1_giv_yhat_eq_1_z_eq_1,
-            p_y_eq_1_giv_yhat_eq_1_z_eq_1 - p_y_eq_1_giv_yhat_eq_1_z_eq_0,
-        ])
         if np.isnan(mu):
             mu = 1
 
@@ -1151,7 +1154,7 @@ class NegativePredictiveParityObjective(Objective):
     """
 
     def __init__(self):
-        self.name = 'NegPredPar'
+        self.name = "NegPredPar"
         super().__init__()
 
     def compute_feat_exp(self, demo):
@@ -1169,21 +1172,22 @@ class NegativePredictiveParityObjective(Objective):
                 y : ground truth targets
         """
         p_y_eq_0_giv_yhat_eq_0_z_eq_0 = (
-            ((demo['yhat'] == 0) & (demo['y'] == 0) & (demo['z'] == 0)).sum()
-            / ((demo['yhat'] == 0) & (demo['z'] == 0)).sum()
-        )
+            (demo["yhat"] == 0) & (demo["y"] == 0) & (demo["z"] == 0)
+        ).sum() / ((demo["yhat"] == 0) & (demo["z"] == 0)).sum()
         p_y_eq_0_giv_yhat_eq_0_z_eq_1 = (
-            ((demo['yhat'] == 0) & (demo['y'] == 0) & (demo['z'] == 1)).sum()
-            / ((demo['yhat'] == 0) & (demo['z'] == 1)).sum()
+            (demo["yhat"] == 0) & (demo["y"] == 0) & (demo["z"] == 1)
+        ).sum() / ((demo["yhat"] == 0) & (demo["z"] == 1)).sum()
+        mu = 1 - max(
+            [
+                p_y_eq_0_giv_yhat_eq_0_z_eq_0 - p_y_eq_0_giv_yhat_eq_0_z_eq_1,
+                p_y_eq_0_giv_yhat_eq_0_z_eq_1 - p_y_eq_0_giv_yhat_eq_0_z_eq_0,
+            ]
         )
-        mu = 1 - max([
-            p_y_eq_0_giv_yhat_eq_0_z_eq_0 - p_y_eq_0_giv_yhat_eq_0_z_eq_1,
-            p_y_eq_0_giv_yhat_eq_0_z_eq_1 - p_y_eq_0_giv_yhat_eq_0_z_eq_0,
-        ])
         if np.isnan(mu):
             mu = 1
 
         return mu
+
 
 class GroupPositiveRateZ0Objective(LinearObjective):
 
@@ -1206,11 +1210,9 @@ class GroupPositiveRateZ0Objective(LinearObjective):
                 yhat : predictions
                 y : ground truth targets
         """
-        p_yhat_eq_1_giv_z_eq_z = (
-            (
-                (demo['yhat'] == 1) & (demo['z'] == self.z)
-            ).sum() / (demo['z'] == self.z).sum()
-        )
+        p_yhat_eq_1_giv_z_eq_z = ((demo["yhat"] == 1) & (demo["z"] == self.z)).sum() / (
+            demo["z"] == self.z
+        ).sum()
 
         mu = p_yhat_eq_1_giv_z_eq_z
 
@@ -1234,14 +1236,12 @@ class GroupPositiveRateZ0Objective(LinearObjective):
             The objective function for the linear program.
         """
         ldf = ldf.copy()
-        filt__yhat1_giv_z = (
-            (ldf['z'] == self.z) & (ldf['yhat'] == 1)
-        )
+        filt__yhat1_giv_z = (ldf["z"] == self.z) & (ldf["yhat"] == 1)
         # Divide by 2 since ldf has two duplicate rows per state
-        p_z = ldf[ldf['z'] == self.z]['mu0'].sum() / 2
-        ldf['r'] = np.zeros(len(ldf))
-        ldf.loc[filt__yhat1_giv_z, 'r'] = 1 / p_z
-        c = -1 * ldf['r']  # Negative since maximizing not minimizing
+        p_z = ldf[ldf["z"] == self.z]["mu0"].sum() / 2
+        ldf["r"] = np.zeros(len(ldf))
+        ldf.loc[filt__yhat1_giv_z, "r"] = 1 / p_z
+        c = -1 * ldf["r"]  # Negative since maximizing not minimizing
 
         # Check c sums to 1
         assert (c.sum() + 1) < 1e-8
@@ -1276,11 +1276,9 @@ class GroupNegativeRateZ0Objective(LinearObjective):
                 yhat : predictions
                 y : ground truth targets
         """
-        p_yhat_eq_0_giv_z_eq_z = (
-            (
-                (demo['yhat'] == 0) & (demo['z'] == self.z)
-            ).sum() / (demo['z'] == self.z).sum()
-        )
+        p_yhat_eq_0_giv_z_eq_z = ((demo["yhat"] == 0) & (demo["z"] == self.z)).sum() / (
+            demo["z"] == self.z
+        ).sum()
 
         mu = p_yhat_eq_0_giv_z_eq_z
 
@@ -1304,14 +1302,12 @@ class GroupNegativeRateZ0Objective(LinearObjective):
             The objective function for the linear program.
         """
         ldf = ldf.copy()
-        filt__yhat0_giv_z = (
-            (ldf['z'] == self.z) & (ldf['yhat'] == 0)
-        )
+        filt__yhat0_giv_z = (ldf["z"] == self.z) & (ldf["yhat"] == 0)
         # Divide by 2 since ldf has two duplicate rows per state
-        p_z = ldf[ldf['z'] == self.z]['mu0'].sum() / 2
-        ldf['r'] = np.zeros(len(ldf))
-        ldf.loc[filt__yhat0_giv_z, 'r'] = 1 / p_z
-        c = -1 * ldf['r']  # Negative since maximizing not minimizing
+        p_z = ldf[ldf["z"] == self.z]["mu0"].sum() / 2
+        ldf["r"] = np.zeros(len(ldf))
+        ldf.loc[filt__yhat0_giv_z, "r"] = 1 / p_z
+        c = -1 * ldf["r"]  # Negative since maximizing not minimizing
 
         # Check c sums to 1
         assert (c.sum() + 1) < 1e-8
@@ -1323,6 +1319,7 @@ class GroupNegativeRateZ1Objective(GroupNegativeRateZ0Objective):
 
     def __init__(self):
         super().__init__(z=1)
+
 
 class GroupTruePositiveRateZ0Objective(LinearObjective):
 
@@ -1346,10 +1343,8 @@ class GroupTruePositiveRateZ0Objective(LinearObjective):
                 y : ground truth targets
         """
         p_yhat_eq_1_giv_y_eq_1_z_eq_z = (
-            (
-                (demo['yhat'] == 1) & (demo['y'] == 1) & (demo['z'] == self.z)
-            ).sum() / ((demo['y'] == 1) & (demo['z'] == self.z)).sum()
-        )
+            (demo["yhat"] == 1) & (demo["y"] == 1) & (demo["z"] == self.z)
+        ).sum() / ((demo["y"] == 1) & (demo["z"] == self.z)).sum()
 
         mu = p_yhat_eq_1_giv_y_eq_1_z_eq_z
 
@@ -1374,13 +1369,13 @@ class GroupTruePositiveRateZ0Objective(LinearObjective):
         """
         ldf = ldf.copy()
         filt__yhat1_giv_y1_z = (
-            (ldf['z'] == self.z) & (ldf['y'] == 1) & (ldf['yhat'] == 1)
+            (ldf["z"] == self.z) & (ldf["y"] == 1) & (ldf["yhat"] == 1)
         )
         # Divide by 2 since ldf has two duplicate rows per state
-        p_y1_z = ldf[(ldf['y'] == 1) & (ldf['z'] == self.z)]['mu0'].sum() / 2
-        ldf['r'] = np.zeros(len(ldf))
-        ldf.loc[filt__yhat1_giv_y1_z, 'r'] = 1 / p_y1_z
-        c = -1 * ldf['r']  # Negative since maximizing not minimizing
+        p_y1_z = ldf[(ldf["y"] == 1) & (ldf["z"] == self.z)]["mu0"].sum() / 2
+        ldf["r"] = np.zeros(len(ldf))
+        ldf.loc[filt__yhat1_giv_y1_z, "r"] = 1 / p_y1_z
+        c = -1 * ldf["r"]  # Negative since maximizing not minimizing
 
         # Check c sums to 1
         assert (c.sum() + 1) < 1e-8
@@ -1416,10 +1411,8 @@ class GroupTrueNegativeRateZ0Objective(LinearObjective):
                 y : ground truth targets
         """
         p_yhat_eq_0_giv_y_eq_0_z_eq_z = (
-            (
-                (demo['yhat'] == 0) & (demo['y'] == 0) & (demo['z'] == self.z)
-            ).sum() / ((demo['y'] == 0) & (demo['z'] == self.z)).sum()
-        )
+            (demo["yhat"] == 0) & (demo["y"] == 0) & (demo["z"] == self.z)
+        ).sum() / ((demo["y"] == 0) & (demo["z"] == self.z)).sum()
 
         mu = p_yhat_eq_0_giv_y_eq_0_z_eq_z
 
@@ -1444,12 +1437,12 @@ class GroupTrueNegativeRateZ0Objective(LinearObjective):
         """
         ldf = ldf.copy()
         filt__yhat0_giv_y0_z = (
-            (ldf['z'] == self.z) & (ldf['y'] == 0) & (ldf['yhat'] == 0)
+            (ldf["z"] == self.z) & (ldf["y"] == 0) & (ldf["yhat"] == 0)
         )
-        p_y0_z = ldf[(ldf['y'] == 0) & (ldf['z'] == self.z)]['mu0'].sum() / 2
-        ldf['r'] = np.zeros(len(ldf))
-        ldf.loc[filt__yhat0_giv_y0_z, 'r'] = 1 / p_y0_z
-        c = -1 * ldf['r']  # Negative since maximizing not minimizing
+        p_y0_z = ldf[(ldf["y"] == 0) & (ldf["z"] == self.z)]["mu0"].sum() / 2
+        ldf["r"] = np.zeros(len(ldf))
+        ldf.loc[filt__yhat0_giv_y0_z, "r"] = 1 / p_y0_z
+        c = -1 * ldf["r"]  # Negative since maximizing not minimizing
 
         return c
 
@@ -1482,16 +1475,14 @@ class GroupFalsePositiveRateZ0Objective(LinearObjective):
                 y : ground truth targets
         """
         p_yhat_eq_1_giv_y_eq_0_z_eq_z = (
-            (
-                (demo['yhat'] == 1) & (demo['y'] == 0) & (demo['z'] == self.z)
-            ).sum() / ((demo['y'] == 0) & (demo['z'] == self.z)).sum()
-        )
+            (demo["yhat"] == 1) & (demo["y"] == 0) & (demo["z"] == self.z)
+        ).sum() / ((demo["y"] == 0) & (demo["z"] == self.z)).sum()
 
         mu = p_yhat_eq_1_giv_y_eq_0_z_eq_z
 
         # Absence should imply 0
         if np.isnan(mu):
-            mu = 1.
+            mu = 1.0
 
         return mu
 
@@ -1511,12 +1502,12 @@ class GroupFalsePositiveRateZ0Objective(LinearObjective):
         """
         ldf = ldf.copy()
         filt__yhat1_giv_y0_z = (
-            (ldf['z'] == self.z) & (ldf['y'] == 0) & (ldf['yhat'] == 1)
+            (ldf["z"] == self.z) & (ldf["y"] == 0) & (ldf["yhat"] == 1)
         )
-        p_y0_z = ldf[(ldf['y'] == 0) & (ldf['z'] == self.z)]['mu0'].sum() / 2
-        ldf['r'] = np.zeros(len(ldf))
-        ldf.loc[filt__yhat1_giv_y0_z, 'r'] = 1 / p_y0_z
-        c = -1 * ldf['r']  # Negative since maximizing not minimizing
+        p_y0_z = ldf[(ldf["y"] == 0) & (ldf["z"] == self.z)]["mu0"].sum() / 2
+        ldf["r"] = np.zeros(len(ldf))
+        ldf.loc[filt__yhat1_giv_y0_z, "r"] = 1 / p_y0_z
+        c = -1 * ldf["r"]  # Negative since maximizing not minimizing
 
         return c
 
@@ -1549,16 +1540,14 @@ class GroupFalseNegativeRateZ0Objective(LinearObjective):
                 y : ground truth targets
         """
         p_yhat_eq_1_giv_y_eq_0_z_eq_z = (
-            (
-                (demo['yhat'] == 1) & (demo['y'] == 0) & (demo['z'] == self.z)
-            ).sum() / ((demo['y'] == 0) & (demo['z'] == self.z)).sum()
-        )
+            (demo["yhat"] == 1) & (demo["y"] == 0) & (demo["z"] == self.z)
+        ).sum() / ((demo["y"] == 0) & (demo["z"] == self.z)).sum()
 
         mu = p_yhat_eq_1_giv_y_eq_0_z_eq_z
 
         # Absence should imply 1
         if np.isnan(mu):
-            mu = 1.
+            mu = 1.0
 
         return mu
 
@@ -1578,12 +1567,12 @@ class GroupFalseNegativeRateZ0Objective(LinearObjective):
         """
         ldf = ldf.copy()
         filt__yhat1_giv_y0_z = (
-            (ldf['z'] == self.z) & (ldf['y'] == 0) & (ldf['yhat'] == 1)
+            (ldf["z"] == self.z) & (ldf["y"] == 0) & (ldf["yhat"] == 1)
         )
-        p_y0_z = ldf[(ldf['y'] == 0) & (ldf['z'] == self.z)]['mu0'].sum() / 2
-        ldf['r'] = np.zeros(len(ldf))
-        ldf.loc[filt__yhat1_giv_y0_z, 'r'] = 1 / p_y0_z
-        c = -1 * ldf['r']  # Negative since maximizing not minimizing
+        p_y0_z = ldf[(ldf["y"] == 0) & (ldf["z"] == self.z)]["mu0"].sum() / 2
+        ldf["r"] = np.zeros(len(ldf))
+        ldf.loc[filt__yhat1_giv_y0_z, "r"] = 1 / p_y0_z
+        c = -1 * ldf["r"]  # Negative since maximizing not minimizing
 
         return c
 
@@ -1594,7 +1583,7 @@ class GroupFalseNegativeRateZ1Objective(GroupFalseNegativeRateZ0Objective):
         super().__init__(z=1)
 
 
-class ObjectiveSet():
+class ObjectiveSet:
     """
     The set of all objectives that make up the space of possible objectives in
     the reward function. An obj_set gets paired with a set of reward
@@ -1676,9 +1665,8 @@ class ObjectiveSet():
                 linear_splits += obj.to_splits()
             if obj.n_splits == 2:
                 abs_val_splits += obj.to_splits()
-                abs_val_split_generator.append([counter, counter+1])
+                abs_val_split_generator.append([counter, counter + 1])
                 counter += 2
-
 
         # abs_val_splits_perms = list(itertools.product(*[[0,1], [2,3]]))
         # >>> [(0, 2), (0, 3), (1, 2), (1, 3)]
@@ -1687,7 +1675,7 @@ class ObjectiveSet():
         for split_indexes in abs_val_splits_perms:
             _abs_val_splits = [abs_val_splits[idx] for idx in split_indexes]
             all_splits = linear_splits + _abs_val_splits
-            name = ','.join([split.name for split in all_splits])
+            name = ",".join([split.name for split in all_splits])
             A_ub = np.array([split.A_ub for split in _abs_val_splits], dtype=float)
             b_ub = np.array([split.b_ub for split in _abs_val_splits], dtype=float)
             c = reward_weights[all_splits[0].parent.name] * all_splits[0].c

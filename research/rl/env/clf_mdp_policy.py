@@ -89,14 +89,14 @@ class ClassificationMDPPolicy(BaseEstimator, ClassifierMixin):
         #     self.clf.predict_proba(X)[:,0] >= np.random.rand(len(X))
         # ).astype(int)
         if y is None:
-            df['y'] = self.clf.predict(df)
+            df["y"] = self.clf.predict(df)
         else:
-            df['y'] = y
+            df["y"] = y
 
         actions = np.zeros(len(X))
 
         # Get rid of any unused columns otherwise the state lookup breaks.
-        df = df[self.mdp.x_cols + ['z', 'y']]
+        df = df[self.mdp.x_cols + ["z", "y"]]
 
         # Transform state input using fitted state_reducer_
         for x in self.mdp.state_reducer_.keys():
@@ -110,7 +110,7 @@ class ClassificationMDPPolicy(BaseEstimator, ClassifierMixin):
                 state = self.mdp.reduced_state_lookup_[tuple(row)]
                 actions[i] = self.pi[state]
             except KeyError as e:
-                logging.debug('\tState Lookup Error: ' + str(e))
+                logging.debug("\tState Lookup Error: " + str(e))
                 logging.debug(f"\tUsing default action: {self.default_action}")
                 actions[i] = self.default_action
                 n_state_lookup_errors += 1
@@ -133,6 +133,6 @@ class ClassificationMDPPolicy(BaseEstimator, ClassifierMixin):
             Policy represented as a dataframe.
         """
         pi_df = self.mdp.ldf_.iloc[:, :-2].drop_duplicates().copy()
-        pi_df['a'] = self.predict(pi_df)
+        pi_df["a"] = self.predict(pi_df)
         self.pi_df_ = pi_df
         return None

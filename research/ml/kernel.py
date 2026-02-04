@@ -31,12 +31,12 @@ class GaussianKernel(Kernel):
         the ability of the kernel to fit complex boundaries.
     """
 
-    def __init__(self, pairwise, radius=.5):
+    def __init__(self, pairwise, radius=0.5):
         if radius <= 0:
-            raise ValueError('radius must be greater than zero.')
+            raise ValueError("radius must be greater than zero.")
         self.pairwise = pairwise
         self.radius = radius
-        self.name = 'gaussian'
+        self.name = "gaussian"
 
     def transform(self, xi, xj, return_similarity=False):
         """Computes Gaussian distance.
@@ -56,23 +56,26 @@ class GaussianKernel(Kernel):
             Gaussian distance.
         """
         if self.pairwise:
-            sqdist = (np.sum(xi**2, 1).reshape(-1, 1) + np.sum(xj**2, 1)
-                      - 2*np.dot(xi, xj.T))
-            dist = np.exp(-.5 * sqdist / self.radius)
+            sqdist = (
+                np.sum(xi**2, 1).reshape(-1, 1)
+                + np.sum(xj**2, 1)
+                - 2 * np.dot(xi, xj.T)
+            )
+            dist = np.exp(-0.5 * sqdist / self.radius)
             if return_similarity:
                 return np.ones_like(dist) - dist
             else:
                 return dist
         else:
-            norm = np.linalg.norm(xi-xj)
-            return np.exp(-norm**2 / self.radius**2)
+            norm = np.linalg.norm(xi - xj)
+            return np.exp(-(norm**2) / self.radius**2)
 
 
 class LinearKernel(Kernel):
     """Linear kernel: <xi,xj>"""
 
     def __init__(self):
-        self.name = 'linear'
+        self.name = "linear"
         pass
 
     def transform(self, xi, xj):
@@ -105,7 +108,7 @@ class PolynomialKernel(Kernel):
 
     def __init__(self, degree=2):
         self.degree = degree
-        self.name = 'polynomial'
+        self.name = "polynomial"
 
     def transform(self, xi, xj):
         """Computes polynomail distance.
@@ -122,14 +125,14 @@ class PolynomialKernel(Kernel):
         float
             Polynomial distance.
         """
-        return (1+xi.dot(xj))**self.degree
+        return (1 + xi.dot(xj)) ** self.degree
 
 
 class SigmoidKernel(Kernel):
     """Sigmoid kernel: 1 / (1 + np.exp(-A))"""
 
     def __init__(self, radius=1):
-        self.name = 'sigmoid'
+        self.name = "sigmoid"
 
     def transform(self, xi, xj):
         """Computes Sigmoid distance.
@@ -153,7 +156,7 @@ class TanHKernel(Kernel):
     """Hyperbolic Tangent kernel: tanh(xi*xj)"""
 
     def __init__(self, radius=1):
-        self.name = 'tanh'
+        self.name = "tanh"
 
     def transform(self, xi, xj):
         """Computes TanH distance.
@@ -174,9 +177,9 @@ class TanHKernel(Kernel):
 
 
 KERNEL_MAP = {
-    'gaussian': GaussianKernel,
-    'linear': LinearKernel,
-    'polynomial': PolynomialKernel,
-    'sigmoid': SigmoidKernel,
-    'tanh': TanHKernel,
+    "gaussian": GaussianKernel,
+    "linear": LinearKernel,
+    "polynomial": PolynomialKernel,
+    "sigmoid": SigmoidKernel,
+    "tanh": TanHKernel,
 }

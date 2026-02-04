@@ -70,8 +70,18 @@ class NumpyDQNObsSingle:
         are lists.
     """
 
-    def __init__(self, env, feature_transformer, D, K, hidden_layer_opts,
-                 gamma, start_obs, max_experiences=10000, min_experiences=5):
+    def __init__(
+        self,
+        env,
+        feature_transformer,
+        D,
+        K,
+        hidden_layer_opts,
+        gamma,
+        start_obs,
+        max_experiences=10000,
+        min_experiences=5,
+    ):
         self.env = env
         self.feature_transformer = feature_transformer
         self.D = D
@@ -90,7 +100,7 @@ class NumpyDQNObsSingle:
             self.tqnets.append(tqnet)
 
         # Create the replay memory.
-        self.experience = {'s': [], 'a': [], 'r': [], 's2': [], 'done': []}
+        self.experience = {"s": [], "a": [], "r": [], "s2": [], "done": []}
 
     def predict(self, obs, use_target=False):
         """
@@ -145,19 +155,19 @@ class NumpyDQNObsSingle:
         ##
         # Return early if we don't have enough experiences.
         ##
-        num_exp = len(self.experience['s'])
+        num_exp = len(self.experience["s"])
         if num_exp < self.min_experiences:
-            print('too few experiences', num_exp)
+            print("too few experiences", num_exp)
             return
 
         # Randomly select a batch of 1 (not sequence) of observations from
         # replay buffer.
         idx = np.random.choice(num_exp, size=1, replace=False)[0]
-        state = self.experience['s'][idx]
-        action = self.experience['a'][idx]
-        reward = self.experience['r'][idx]
-        next_state = self.experience['s2'][idx]
-        done = self.experience['done'][idx]
+        state = self.experience["s"][idx]
+        action = self.experience["a"][idx]
+        reward = self.experience["r"][idx]
+        next_state = self.experience["s2"][idx]
+        done = self.experience["done"][idx]
 
         ##
         # Compute predicted Q values using main network. These are the
@@ -217,10 +227,10 @@ class NumpyDQNObsSingle:
         -------
         None
         """
-        if len(self.experience['s']) >= self.max_experiences:
-            for p in ['s', 'a', 'r', 's2', 'done']:
+        if len(self.experience["s"]) >= self.max_experiences:
+            for p in ["s", "a", "r", "s2", "done"]:
                 self.experience[p].pop(0)
-        for p, v in zip(['s', 'a', 'r', 's2', 'done'], [s, a, r, s2, done]):
+        for p, v in zip(["s", "a", "r", "s2", "done"], [s, a, r, s2, done]):
             self.experience[p].append(v)
 
     def select_action(self, obs, eps):
@@ -274,39 +284,39 @@ class NumpyDQNObsSingle:
         """
         env_class = self.env.__class__.__name__
 
-        s = '\n'
-        if env_class == 'GreaterThanZeroEnv':
+        s = "\n"
+        if env_class == "GreaterThanZeroEnv":
             neg_one = self.predict([-1])[0].round(3)
-            neg_half = self.predict([-.5])[0].round(3)
+            neg_half = self.predict([-0.5])[0].round(3)
             zero = self.predict([0])[0].round(3)
-            pos_half = self.predict([.5])[0].round(3)
+            pos_half = self.predict([0.5])[0].round(3)
             pos_one = self.predict([1])[0].round(3)
-            s += '\n\t   ACTION 0 | ACTION 1'.format('')
-            s += '\n\t   -------- | --------'
-            s += '\nOBS -1.0 {:>10} | {:>8}'.format(*neg_one[0])
-            s += '\nOBS -0.5 {:>10} | {:>8}'.format(*neg_half[0])
-            s += '\nOBS  0.0 {:>10} | {:>8}'.format(*zero[0])
-            s += '\nOBS  0.5 {:>10} | {:>8}'.format(*pos_half[0])
-            s += '\nOBS  1.0 {:>10} | {:>8}'.format(*pos_one[0])
-        elif env_class == 'TigerEnv':
+            s += "\n\t   ACTION 0 | ACTION 1".format("")
+            s += "\n\t   -------- | --------"
+            s += "\nOBS -1.0 {:>10} | {:>8}".format(*neg_one[0])
+            s += "\nOBS -0.5 {:>10} | {:>8}".format(*neg_half[0])
+            s += "\nOBS  0.0 {:>10} | {:>8}".format(*zero[0])
+            s += "\nOBS  0.5 {:>10} | {:>8}".format(*pos_half[0])
+            s += "\nOBS  1.0 {:>10} | {:>8}".format(*pos_one[0])
+        elif env_class == "TigerEnv":
             gl_qvals, _ = self.predict([0])
             gr_qvals, _ = self.predict([1])
             st_qvals, _ = self.predict([2])
             gl_qvals = gl_qvals.round(3)
             gr_qvals = gr_qvals.round(3)
             st_qvals = st_qvals.round(3)
-            s += '\n{: >10} \tOPEN LEFT | OPEN RIGHT | LISTEN'.format('')
-            s += '\n\t\t--------- | ---------- | ------'
-            s += '\nGROWL LEFT {: >14} | {: >10} | {: >6}'.format(*gl_qvals)
-            s += '\nGROWL RIGHT: {: >12} | {: >10} | {: >6}'.format(*gr_qvals)
-            s += '\nSTART: {: >18} | {: >10} | {: >6}'.format(*st_qvals)
-        elif env_class == 'NotXOREnv':
+            s += "\n{: >10} \tOPEN LEFT | OPEN RIGHT | LISTEN".format("")
+            s += "\n\t\t--------- | ---------- | ------"
+            s += "\nGROWL LEFT {: >14} | {: >10} | {: >6}".format(*gl_qvals)
+            s += "\nGROWL RIGHT: {: >12} | {: >10} | {: >6}".format(*gr_qvals)
+            s += "\nSTART: {: >18} | {: >10} | {: >6}".format(*st_qvals)
+        elif env_class == "NotXOREnv":
             s = self.env.q_values(self)
             return s
         else:
-            raise ValueError('Don\'t know how to represent model for this env')
+            raise ValueError("Don't know how to represent model for this env")
 
-        s += '\n'
+        s += "\n"
         return s
 
 
@@ -364,7 +374,7 @@ def play_one(env, model, eps, gamma, copy_period):
 
 
 def main(copy_period=50, hidden_layer_sizes=[10, 10], N=500):
-    env = gym.make('Tiger-v0')
+    env = gym.make("Tiger-v0")
     gamma = 0.99
     start_obs = env.reset()
 
@@ -373,24 +383,30 @@ def main(copy_period=50, hidden_layer_sizes=[10, 10], N=500):
     # Define K - the number of possible actions
     K = env.action_space.n
     # Define the hidden layers of the model
-    hidden_layer_opts = {'hidden_layer_sizes': hidden_layer_sizes, 'Z': ReLU()}
+    hidden_layer_opts = {"hidden_layer_sizes": hidden_layer_sizes, "Z": ReLU()}
     # Define model
     model = NumpyDQNObsSingle(D, K, hidden_layer_opts, gamma, start_obs)
 
     totalrewards = np.zeros(N)
     for n in range(N):
-        eps = 1.0/np.sqrt(n+1)
+        eps = 1.0 / np.sqrt(n + 1)
         totalreward = play_one(env, model, eps, gamma, copy_period)
         totalrewards[n] = totalreward
         if n % 100 == 0:
             ravg = running_avg(totalrewards, n)
-            print('episode:', n,
-                  'total reward:', totalreward,
-                  'eps:', eps,
-                  'avg reward (last 100):', ravg)
+            print(
+                "episode:",
+                n,
+                "total reward:",
+                totalreward,
+                "eps:",
+                eps,
+                "avg reward (last 100):",
+                ravg,
+            )
 
-    print('avg reward for last 100 episodes:', totalrewards[-100:].mean())
-    print('total steps:', totalrewards.sum())
+    print("avg reward for last 100 episodes:", totalrewards[-100:].mean())
+    print("total steps:", totalrewards.sum())
 
     plt.plot(totalrewards)
     plt.title("Rewards")
@@ -400,7 +416,7 @@ def main(copy_period=50, hidden_layer_sizes=[10, 10], N=500):
 
 
 def running_avg(totalrewards, t):
-    return totalrewards[max(0, t-100):(t+1)].mean()
+    return totalrewards[max(0, t - 100) : (t + 1)].mean()
 
 
 def plot_running_avg(totalrewards):
@@ -409,9 +425,9 @@ def plot_running_avg(totalrewards):
     for t in range(N):
         ravg[t] = running_avg(totalrewards, t)
     plt.plot(ravg)
-    plt.title('Running Average')
+    plt.title("Running Average")
     plt.show()
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()

@@ -54,7 +54,7 @@ class Sigmoid(Activation):
             Partial derivative of loss function w.r.t. activation function
             at layer i.
         """
-        dZ = _Z*(1-_Z)
+        dZ = _Z * (1 - _Z)
         return dZ
 
 

@@ -4,13 +4,11 @@ from sklearn.compose import ColumnTransformer
 from sklearn.feature_selection import SelectPercentile, chi2
 from sklearn.impute import SimpleImputer
 from sklearn.pipeline import Pipeline
-from sklearn.preprocessing import (
-    KBinsDiscretizer, OneHotEncoder, OrdinalEncoder
-)
+from sklearn.preprocessing import KBinsDiscretizer, OneHotEncoder, OrdinalEncoder
 from sklearn.utils.validation import check_is_fitted
 
 
-class ManualClassifier():
+class ManualClassifier:
     """
     A Scikit-Learn compatible classifier that allows for manual predictions.
 
@@ -102,21 +100,19 @@ def is_clf_fitted(clf_inst):
         True if clf_inst fitted. False if not fitted..
     """
     is_fitted = [
-        v for v in vars(clf_inst) if (
-            v.endswith("_") and not v.startswith("__")
-        )
+        v for v in vars(clf_inst) if (v.endswith("_") and not v.startswith("__"))
     ]
     return is_fitted
 
 
-def df_to_log(df, title='', tab_level=1):
-    tab_prefix = tab_level * '\t'
+def df_to_log(df, title="", tab_level=1):
+    tab_prefix = tab_level * "\t"
     str_out = (
         title
-        + '\n'
+        + "\n"
         + tab_prefix
-        + df.to_string().replace('\n', '\n' + tab_prefix)
-        + '\n'
+        + df.to_string().replace("\n", "\n" + tab_prefix)
+        + "\n"
     )
     return str_out
 
@@ -146,42 +142,43 @@ def sklearn_clf_pipeline(feature_types, clf_inst):
     numeric_trf = Pipeline(
         steps=[
             ("imputer", SimpleImputer(strategy="median")),
-            ('kbins', KBinsDiscretizer(
-                n_bins=10, encode='ordinal', strategy='uniform')),
+            (
+                "kbins",
+                KBinsDiscretizer(n_bins=10, encode="ordinal", strategy="uniform"),
+            ),
         ]
     )
     categoric_trf = Pipeline(
         steps=[
             (
                 "encoder",
-                 # OneHotEncoder(
-                 #     handle_unknown="ignore",
-                 #     min_frequency=None,
-
-                 # ),
-                 OrdinalEncoder(
-                     handle_unknown="use_encoded_value",
-                     unknown_value=-1,
-                     min_frequency=.2,
-                 ),
+                # OneHotEncoder(
+                #     handle_unknown="ignore",
+                #     min_frequency=None,
+                # ),
+                OrdinalEncoder(
+                    handle_unknown="use_encoded_value",
+                    unknown_value=-1,
+                    min_frequency=0.2,
+                ),
             ),
             # ("selector", SelectPercentile(chi2, percentile=50)),
         ]
     )
     transformers = []
 
-    if len(feature_types['continuous']) > 0:
-        transformers.append(("num", numeric_trf, feature_types['continuous']))
+    if len(feature_types["continuous"]) > 0:
+        transformers.append(("num", numeric_trf, feature_types["continuous"]))
 
-    if len(feature_types['categoric']) > 0:
-        transformers.append(("cat", categoric_trf, feature_types['categoric']))
+    if len(feature_types["categoric"]) > 0:
+        transformers.append(("cat", categoric_trf, feature_types["categoric"]))
 
-    if len(feature_types['boolean']) > 0:
-        transformers.append(('bool', categoric_trf, feature_types['boolean']))
+    if len(feature_types["boolean"]) > 0:
+        transformers.append(("bool", categoric_trf, feature_types["boolean"]))
 
     preprocessor = ColumnTransformer(
         transformers=transformers,
-        sparse_threshold=.000001,
+        sparse_threshold=0.000001,
     )
     pipe = Pipeline(
         steps=[
@@ -217,22 +214,24 @@ def construct_feature_importances(clf_inst, feature_types, should_plot=False):
 
     # Construct feature importances
     feat_imp = pd.DataFrame()
-    feat_imp['feature'] = (
-        feature_types['boolean']
-        + feature_types['continuous']
-        + feature_types['categoric']
+    feat_imp["feature"] = (
+        feature_types["boolean"]
+        + feature_types["continuous"]
+        + feature_types["categoric"]
     )
-    feat_imp['importance'] = clf_inst.feature_importances_
-    feat_imp = feat_imp.sort_values('importance', ascending=False).reset_index(drop=True)
+    feat_imp["importance"] = clf_inst.feature_importances_
+    feat_imp = feat_imp.sort_values("importance", ascending=False).reset_index(
+        drop=True
+    )
 
     fig, ax = None, None
 
     # Plot feature importances
     if should_plot:
-        fig, ax = plt.subplots(1, 1, figsize=(7,5))
-        ax.bar(feat_imp['feature'].str[:8], feat_imp['importance'])
-        ax.set_ylabel('Importance')
-        ax.set_title('Feature Importances')
+        fig, ax = plt.subplots(1, 1, figsize=(7, 5))
+        ax.bar(feat_imp["feature"].str[:8], feat_imp["importance"])
+        ax.set_ylabel("Importance")
+        ax.set_title("Feature Importances")
         plt.xticks(rotation=90)
         plt.show()
 

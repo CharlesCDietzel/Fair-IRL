@@ -4,8 +4,16 @@ from tabulate import tabulate
 
 class QLearnerObsSeq:
 
-    def __init__(self, env, feature_transformer, initial_alpha=.1, gamma=.9,
-                 alpha_decay=0, seq_len=3, translate=True):
+    def __init__(
+        self,
+        env,
+        feature_transformer,
+        initial_alpha=0.1,
+        gamma=0.9,
+        alpha_decay=0,
+        seq_len=3,
+        translate=True,
+    ):
         """
         Started 05/04/2019
         Q Learner with all combinations of seq_len observations as state space.
@@ -74,8 +82,7 @@ class QLearnerObsSeq:
             exp = exp - 1
         num_actions = env.action_space.n
         # axis0 is transformed observation, axis1 is action, value is Q value
-        self.Q = np.random.uniform(low=0, high=0,
-                                   size=(num_states, num_actions))
+        self.Q = np.random.uniform(low=0, high=0, size=(num_states, num_actions))
         # self.Q[:, 2] = 1  # Optimistic value for listening
         self._n_updates = 0
         self.last_n_obs = []
@@ -141,18 +148,17 @@ class QLearnerObsSeq:
         g_last_n_obs_trans = self.feature_transformer.transform(g_last_n_obs)
 
         # Compute alpha (if there's nonzero alpha decay)
-        alpha = self.initial_alpha / (self._n_updates+1)**self._alpha_decay
+        alpha = self.initial_alpha / (self._n_updates + 1) ** self._alpha_decay
 
         # TD(0) update using observation sequences as states
-        G = r + self.gamma*self.Q[g_last_n_obs_trans, at]
-        self.Q[last_n_obs_trans, atm1] += alpha*(
-            G - self.Q[last_n_obs_trans, atm1])
+        G = r + self.gamma * self.Q[g_last_n_obs_trans, at]
+        self.Q[last_n_obs_trans, atm1] += alpha * (G - self.Q[last_n_obs_trans, atm1])
         self._n_updates += 1
 
         if self.translate:
             # Update training observation sequence counts
             transl_obs = [self.env.translate_obs(o) for o in self.last_n_obs]
-            transl_obs = ', '.join(transl_obs)
+            transl_obs = ", ".join(transl_obs)
             if transl_obs in self.train_obs_seq_counts:
                 self.train_obs_seq_counts[transl_obs] += 1
             else:
@@ -162,7 +168,7 @@ class QLearnerObsSeq:
             # Update training observation sequence + action counts
             ##
             transl_act = self.env.translate_action(at)
-            obs_seq_act = ' => '.join([transl_obs, transl_act])
+            obs_seq_act = " => ".join([transl_obs, transl_act])
             if obs_seq_act in self.train_obs_seq_action_counts:
                 self.train_obs_seq_action_counts[obs_seq_act] += 1
             else:
@@ -200,13 +206,13 @@ class QLearnerObsSeq:
             A string showing the Q values of each state/action.
         """
         actions = [0, 1, 2]
-        s = '\n'
+        s = "\n"
         obs_seqs = self.feature_transformer.inverse_lookup_.values()
         rows = []
         for obs_seq in obs_seqs:
-            row = np.empty((len(actions)+1), dtype=object)
+            row = np.empty((len(actions) + 1), dtype=object)
             obs_seq_ = [self.env.translate_obs(o) for o in obs_seq]
-            if 'START' in obs_seq_ or len(obs_seq_) < self.seq_len:
+            if "START" in obs_seq_ or len(obs_seq_) < self.seq_len:
                 continue
             row[0] = obs_seq_
             best_Q = None
@@ -217,11 +223,11 @@ class QLearnerObsSeq:
                 if best_Q is None or Q > best_Q:
                     best_Q = Q
                     best_action = a
-                row[a+1] = str(Q)
-            row[best_action+1] += ' <<'
+                row[a + 1] = str(Q)
+            row[best_action + 1] += " <<"
             rows.append(row)
 
         actions_ = [self.env.translate_action(a) for a in actions]
-        s += tabulate(rows, headers=(['Previous Observations'] + actions_))
-        s += '\n'
+        s += tabulate(rows, headers=(["Previous Observations"] + actions_))
+        s += "\n"
         return s

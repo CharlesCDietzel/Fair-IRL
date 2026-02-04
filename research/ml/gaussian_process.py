@@ -27,6 +27,7 @@ class GaussianProcess(BaseEstimator):
     Most of code is taken from the following tutorial:
     https://katbailey.github.io/post/gaussian-processes-for-dummies/.
     """
+
     def __init__(self, kernel):
         self.kernel = kernel
         self.Xtrain_ = None
@@ -59,8 +60,7 @@ class GaussianProcess(BaseEstimator):
 
         # Compute Xtrain/Xtrain elements of covariance matrix (Xtrain variance)
         K_11 = self.kernel.transform(self.Xtrain_, self.Xtrain_)
-        self.L_11_ = np.linalg.cholesky(K_11
-                                        + 0.00005*np.eye(len(self.Xtrain_)))
+        self.L_11_ = np.linalg.cholesky(K_11 + 0.00005 * np.eye(len(self.Xtrain_)))
 
     def predict(self, Xtest, n_samples=1):
         """
@@ -98,7 +98,7 @@ class GaussianProcess(BaseEstimator):
             K_21 K_22
         """
 
-        '''Compute the posterior mean at test points.'''
+        """Compute the posterior mean at test points."""
         if not self._is_fitted():
             raise NotFittedError()
 
@@ -135,7 +135,7 @@ class GaussianProcess(BaseEstimator):
 
         # Compute Xtest covariance and its decomposition (sqroot)
         K_22 = self.kernel.transform(Xtest, Xtest)
-        L_22 = np.linalg.cholesky(K_22 + 1e-15*np.eye(ntest))
+        L_22 = np.linalg.cholesky(K_22 + 1e-15 * np.eye(ntest))
 
         if use_prior or not self._is_fitted():
             # Sample n_samples sets of standard normals for our test points,
@@ -148,13 +148,13 @@ class GaussianProcess(BaseEstimator):
         mu, L_12 = self._compute_mean_and_non_diag_covariance(Xtest)
 
         # Compute sqroot of entire covariance matrix
-        L = np.linalg.cholesky(K_22 + 1e-6*np.eye(ntest) - np.dot(L_12.T,
-                                                                  L_12))
+        L = np.linalg.cholesky(K_22 + 1e-6 * np.eye(ntest) - np.dot(L_12.T, L_12))
 
         # Sample n_samples sets of standard normals for our test points, then
         # multiply them by the square root of the covariance matrix.
-        f_post = mu.reshape(-1, 1) + np.dot(L, np.random.normal(
-            size=(ntest, n_samples)))
+        f_post = mu.reshape(-1, 1) + np.dot(
+            L, np.random.normal(size=(ntest, n_samples))
+        )
 
         return f_post
 
@@ -186,12 +186,14 @@ class GaussianProcess(BaseEstimator):
         Xtest_sorted = np.take_along_axis(Xtest.flatten(), sort_idx, axis=0)
 
         for sample in range(n_samples):
-            f_prior_sorted = np.take_along_axis(f_prior[:, sample], sort_idx,
-                                                axis=0)
-            ax.plot(Xtest_sorted, f_prior_sorted,
-                    label='Prior Sample {} (predictions)'.format(sample))
+            f_prior_sorted = np.take_along_axis(f_prior[:, sample], sort_idx, axis=0)
+            ax.plot(
+                Xtest_sorted,
+                f_prior_sorted,
+                label="Prior Sample {} (predictions)".format(sample),
+            )
 
-        ax.set_title('{} samples from the GP prior'.format(n_samples))
+        ax.set_title("{} samples from the GP prior".format(n_samples))
         ax.legend()
         plt.show()
 
@@ -238,26 +240,32 @@ class GaussianProcess(BaseEstimator):
         mu_sorted = np.take_along_axis(mu, sort_idx, axis=0)
 
         # Plot training data points
-        ax.plot(self.Xtrain_, self.ytrain_, 'bs', ms=8, label='Train')
+        ax.plot(self.Xtrain_, self.ytrain_, "bs", ms=8, label="Train")
 
         # Plot posterior mean
-        ax.plot(Xtest_sorted, mu_sorted, '--r',
-                label='Posterior $\mu$')  # noqa
+        ax.plot(Xtest_sorted, mu_sorted, "--r", label="Posterior $\mu$")  # noqa
 
         # Sample from posterior
         f_post = self.sample(Xtest, n_samples)
 
         # Plot sampled functions
         for sample in range(n_samples):
-            f_post_sorted = np.take_along_axis(f_post[:, sample], sort_idx,
-                                               axis=0)
-            ax.plot(Xtest_sorted, f_post_sorted,
-                    label='Posterior Sample {} (predictions)'.format(sample))
+            f_post_sorted = np.take_along_axis(f_post[:, sample], sort_idx, axis=0)
+            ax.plot(
+                Xtest_sorted,
+                f_post_sorted,
+                label="Posterior Sample {} (predictions)".format(sample),
+            )
 
         # Plot standard deviation
-        plt.gca().fill_between(Xtest_sorted, mu_sorted-2*stdv,
-                               mu_sorted+2*stdv, color='#999999', alpha=.4)
-        ax.set_title('{} samples from the GP posterior'.format(n_samples))
+        plt.gca().fill_between(
+            Xtest_sorted,
+            mu_sorted - 2 * stdv,
+            mu_sorted + 2 * stdv,
+            color="#999999",
+            alpha=0.4,
+        )
+        ax.set_title("{} samples from the GP posterior".format(n_samples))
         ax.legend()
         plt.show()
 
@@ -277,7 +285,7 @@ class GaussianProcess(BaseEstimator):
             True if model is fitted, otherwise false.
         """
         try:
-            check_is_fitted(self, ['Xtrain_', 'ytrain_', 'L_11_'])
+            check_is_fitted(self, ["Xtrain_", "ytrain_", "L_11_"])
             return True
         except NotFittedError:
             return False
@@ -315,7 +323,9 @@ class GaussianProcess(BaseEstimator):
         #     We can interpret x as the feature weights. In other words, this
         #     step returns the feature weights where the inputs is the
         #     Xtrain/Xtrain covariance matrix elements.
-        cov_fw = np.linalg.solve(self.L_11_, self.ytrain_).reshape(ntest,)
+        cov_fw = np.linalg.solve(self.L_11_, self.ytrain_).reshape(
+            ntest,
+        )
 
         # Obtain the posterior mean by multiplying the cov_fw by the
         # "difference" b/w Xtrain and Xtest.

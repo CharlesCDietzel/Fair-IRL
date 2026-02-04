@@ -27,9 +27,12 @@ def play_one(env, model, eps, verbose=False):
     total_episode_reward = 0
     iters = 0
     if verbose:
-        print('{:<47} | {:<11} | {:<10} | {:<5} | {:<11} | {:<10}'.format(
-            'o_t-n,...,o_t-1', 'o_t-1', 'a_t-1', 'r', 'o_t', 'a_t'))
-        print('-'*100)
+        print(
+            "{:<47} | {:<11} | {:<10} | {:<5} | {:<11} | {:<10}".format(
+                "o_t-n,...,o_t-1", "o_t-1", "a_t-1", "r", "o_t", "a_t"
+            )
+        )
+        print("-" * 100)
     while not done:
         otm1 = ot
         atm1 = model.sample_action(otm1, eps)
@@ -42,13 +45,15 @@ def play_one(env, model, eps, verbose=False):
             _atm1 = env.translate_action(atm1)
             _ot = env.translate_obs(ot)
             _at = env.translate_action(at)
-            if hasattr(model, 'last_n_obs'):
-                _last_n_obs = str(
-                    [env.translate_obs(o) for o in model.last_n_obs])
+            if hasattr(model, "last_n_obs"):
+                _last_n_obs = str([env.translate_obs(o) for o in model.last_n_obs])
             else:
-                _last_n_obs = ''
-            print('{:<47} | {:<11} | {:<10} | {:<5} | {:<11} | {:<10}'.format(
-                _last_n_obs, _otm1, _atm1, r, _ot, _at))
+                _last_n_obs = ""
+            print(
+                "{:<47} | {:<11} | {:<10} | {:<5} | {:<11} | {:<10}".format(
+                    _last_n_obs, _otm1, _atm1, r, _ot, _at
+                )
+            )
         iters += 1
     return total_episode_reward
 
@@ -74,9 +79,9 @@ def plot_running_avg(totalrewards, window, figsize=(20, 5)):
     N = len(totalrewards)
     running_avg = np.empty(N)
     for t in range(N):
-        running_avg[t] = totalrewards[max(0, t-window):(t+1)].mean()
+        running_avg[t] = totalrewards[max(0, t - window) : (t + 1)].mean()
     fig, ax = plt.subplots(1, 1, figsize=figsize)
     ax.plot(running_avg)
     # Plot y=0
-    ax.plot([idx for idx in range(N)], np.zeros(N), c='r')
+    ax.plot([idx for idx in range(N)], np.zeros(N), c="r")
     ax.set_title("Running Average")

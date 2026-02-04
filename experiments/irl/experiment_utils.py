@@ -8,8 +8,13 @@ import pandas as pd
 import seaborn as sns
 import sklearn.base
 from fairlearn.postprocessing import ThresholdOptimizer
-from fairlearn.reductions import ExponentiatedGradient, EqualizedOdds, \
-    ErrorRateParity, BoundedGroupLoss, ZeroOneLoss
+from fairlearn.reductions import (
+    ExponentiatedGradient,
+    EqualizedOdds,
+    ErrorRateParity,
+    BoundedGroupLoss,
+    ZeroOneLoss,
+)
 from matplotlib.ticker import FormatStrFormatter
 from research.rl.env.clf_mdp import *
 from research.rl.env.clf_mdp_policy import *
@@ -32,31 +37,31 @@ cp = sns.color_palette()
 
 # Objective looup
 OBJ_LOOKUP_BY_NAME = {
-    'Acc': AccuracyObjective,
-    'AccPar': AccuracyParityObjective,
-    'DemPar': DemographicParityObjective,
-    'EqOpp': EqualOpportunityObjective,
-    'FPRPar': FalsePositiveRateParityObjective,
-    'TNRPar': TrueNegativeRateParityObjective,
-    'FNRPar': FalseNegativeRateParityObjective,
-    'PredPar': PredictiveParityObjective,
-    'NegPredPar': NegativePredictiveParityObjective,
-    'PR_Z0': GroupPositiveRateZ0Objective,
-    'PR_Z1': GroupPositiveRateZ1Objective,
-    'NR_Z0': GroupNegativeRateZ0Objective,
-    'NR_Z1': GroupNegativeRateZ1Objective,
-    'TPR_Z0': GroupTruePositiveRateZ0Objective,
-    'TPR_Z1': GroupTruePositiveRateZ1Objective,
-    'TNR_Z0': GroupTrueNegativeRateZ0Objective,
-    'TNR_Z1': GroupTrueNegativeRateZ1Objective,
-    'FPR_Z0': GroupFalsePositiveRateZ0Objective,
-    'FPR_Z1': GroupFalsePositiveRateZ1Objective,
-    'FNR_Z0': GroupFalseNegativeRateZ0Objective,
-    'FNR_Z1': GroupFalseNegativeRateZ1Objective,
+    "Acc": AccuracyObjective,
+    "AccPar": AccuracyParityObjective,
+    "DemPar": DemographicParityObjective,
+    "EqOpp": EqualOpportunityObjective,
+    "FPRPar": FalsePositiveRateParityObjective,
+    "TNRPar": TrueNegativeRateParityObjective,
+    "FNRPar": FalseNegativeRateParityObjective,
+    "PredPar": PredictiveParityObjective,
+    "NegPredPar": NegativePredictiveParityObjective,
+    "PR_Z0": GroupPositiveRateZ0Objective,
+    "PR_Z1": GroupPositiveRateZ1Objective,
+    "NR_Z0": GroupNegativeRateZ0Objective,
+    "NR_Z1": GroupNegativeRateZ1Objective,
+    "TPR_Z0": GroupTruePositiveRateZ0Objective,
+    "TPR_Z1": GroupTruePositiveRateZ1Objective,
+    "TNR_Z0": GroupTrueNegativeRateZ0Objective,
+    "TNR_Z1": GroupTrueNegativeRateZ1Objective,
+    "FPR_Z0": GroupFalsePositiveRateZ0Objective,
+    "FPR_Z1": GroupFalsePositiveRateZ1Objective,
+    "FNR_Z0": GroupFalseNegativeRateZ0Objective,
+    "FNR_Z1": GroupFalseNegativeRateZ1Objective,
 }
 
 
-class FairLearnSkLearnWrapper():
+class FairLearnSkLearnWrapper:
     """
     Wrapper around scikit-learn classifiers to make them compatible with
     fairlearn classifiers, which require an additional `sensitive_features`
@@ -73,8 +78,11 @@ class FairLearnSkLearnWrapper():
     clone_on_fit : bool, default False
         If True, resets the base classifier.
     """
+
     def __init__(
-        self, clf, sensitive_features,
+        self,
+        clf,
+        sensitive_features,
         has_access_to_sensitive_features=True,
         clone_on_fit=False,
     ):
@@ -112,7 +120,7 @@ class FairLearnSkLearnWrapper():
         return preds
 
 
-class UnfairNoisyClassifier():
+class UnfairNoisyClassifier:
     """
     Wrapper around scikit-learn classifiers to intentionally make them slightly
     less performant. This is useful when generating initial policies where
@@ -122,6 +130,7 @@ class UnfairNoisyClassifier():
     It randomplly flips negative predictions to positive predictions, based on
     the probabilities defined in the input.
     """
+
     def __init__(self, clf, prob):
         self.clf = clf
         self.prob = prob
@@ -142,12 +151,12 @@ class UnfairNoisyClassifier():
         ).flatten()
 
         for idx in z0_override_indexes:
-            z = X.iloc[idx]['z']
+            z = X.iloc[idx]["z"]
             if z == 0:
                 preds[idx] = 1 - preds[idx]
 
         for idx in z1_override_indexes:
-            z = X.iloc[idx]['z']
+            z = X.iloc[idx]["z"]
             if z == 1:
                 preds[idx] = 1 - preds[idx]
 
@@ -179,7 +188,7 @@ def generate_expert_algo_lookup(feature_types):
 
     # HardtDemPar
     dem_par_thresh_opt = ThresholdOptimizer(
-        constraints='demographic_parity',
+        constraints="demographic_parity",
         predict_method="predict",
         prefit=False,
         estimator=sklearn_clf_pipeline(
@@ -187,16 +196,16 @@ def generate_expert_algo_lookup(feature_types):
             # clf_inst=DecisionTreeClassifier(min_samples_leaf=10, max_depth=4),
             # clf_inst=RandomForestClassifier(), # Messes up DemPar. Why?
             clf_inst=XGBClassifier(),
-        )
+        ),
     )
     dem_par_wrapper = FairLearnSkLearnWrapper(
         clf=dem_par_thresh_opt,
-        sensitive_features='z',
+        sensitive_features="z",
     )
 
     # HardtEqOpp
     eq_opp_thresh_opt = ThresholdOptimizer(
-        constraints='true_positive_rate_parity',
+        constraints="true_positive_rate_parity",
         predict_method="predict",
         prefit=False,
         estimator=sklearn_clf_pipeline(
@@ -204,16 +213,16 @@ def generate_expert_algo_lookup(feature_types):
             # clf_inst=DecisionTreeClassifier(min_samples_leaf=10, max_depth=4),
             # clf_inst=RandomForestClassifier(),
             clf_inst=XGBClassifier(),
-        )
+        ),
     )
     eq_opp_wrapper = FairLearnSkLearnWrapper(
         clf=eq_opp_thresh_opt,
-        sensitive_features='z',
+        sensitive_features="z",
     )
 
     # HardtEqOdds
     eq_odds_thresh_opt = ThresholdOptimizer(
-        constraints='equalized_odds',
+        constraints="equalized_odds",
         predict_method="predict",
         prefit=False,
         estimator=sklearn_clf_pipeline(
@@ -221,28 +230,28 @@ def generate_expert_algo_lookup(feature_types):
             # clf_inst=RandomForestClassifier(),
             clf_inst=XGBClassifier(),
             # clf_inst=DecisionTreeClassifier(min_samples_leaf=10000, max_depth=20),
-        )
+        ),
     )
     eq_odds_thresh_wrapper = FairLearnSkLearnWrapper(
         clf=eq_opp_thresh_opt,
-        sensitive_features='z',
+        sensitive_features="z",
     )
 
     # Equal Odds Reduction
-    eq_odds = EqualizedOdds(difference_bound=.01)
+    eq_odds = EqualizedOdds(difference_bound=0.01)
     eq_odds_exp_grad = ExponentiatedGradient(
-        sample_weight_name='classifier__sample_weight',
+        sample_weight_name="classifier__sample_weight",
         constraints=eq_odds,
         estimator=sklearn_clf_pipeline(
             feature_types=feature_types,
             # clf_inst=DecisionTreeClassifier(min_samples_leaf=10, max_depth=4),
             # clf_inst=RandomForestClassifier(),
             clf_inst=XGBClassifier(),
-        )
+        ),
     )
     eq_odds_red_wrapper = FairLearnSkLearnWrapper(
         clf=eq_odds_exp_grad,
-        sensitive_features='z',
+        sensitive_features="z",
         has_access_to_sensitive_features=False,
         clone_on_fit=True,
     )
@@ -250,25 +259,25 @@ def generate_expert_algo_lookup(feature_types):
     # Bounded Group Loss Reduction
     bgl = BoundedGroupLoss(ZeroOneLoss(), upper_bound=0.03)
     bgl_exp_grad = ExponentiatedGradient(
-        sample_weight_name='classifier__sample_weight',
+        sample_weight_name="classifier__sample_weight",
         constraints=bgl,
         estimator=sklearn_clf_pipeline(
             feature_types=feature_types,
             # clf_inst=DecisionTreeClassifier(min_samples_leaf=5, max_depth=10),
             # clf_inst=RandomForestClassifier(),
             clf_inst=XGBClassifier(),
-        )
+        ),
     )
     bgl_wrapper = FairLearnSkLearnWrapper(
         clf=bgl_exp_grad,
-        sensitive_features='z',
+        sensitive_features="z",
         has_access_to_sensitive_features=False,
         clone_on_fit=True,
     )
 
     # False Positive Rate Noisy
     fpr_thresh_opt = ThresholdOptimizer(
-        constraints='false_positive_rate_parity',
+        constraints="false_positive_rate_parity",
         predict_method="predict",
         prefit=False,
         estimator=sklearn_clf_pipeline(
@@ -276,16 +285,16 @@ def generate_expert_algo_lookup(feature_types):
             # clf_inst=DecisionTreeClassifier(min_samples_leaf=10, max_depth=4),
             # clf_inst=RandomForestClassifier(),
             clf_inst=XGBClassifier(),
-        )
+        ),
     )
     fpr_wrapper = FairLearnSkLearnWrapper(
         clf=fpr_thresh_opt,
-        sensitive_features='z',
+        sensitive_features="z",
     )
 
     # True Negative Rate Noisy
     tnr_thresh_opt = ThresholdOptimizer(
-        constraints='true_negative_rate_parity',
+        constraints="true_negative_rate_parity",
         predict_method="predict",
         prefit=False,
         estimator=sklearn_clf_pipeline(
@@ -293,16 +302,16 @@ def generate_expert_algo_lookup(feature_types):
             # clf_inst=DecisionTreeClassifier(min_samples_leaf=10, max_depth=4),
             # clf_inst=RandomForestClassifier(),
             clf_inst=XGBClassifier(),
-        )
+        ),
     )
     tnr_wrapper = FairLearnSkLearnWrapper(
         clf=tnr_thresh_opt,
-        sensitive_features='z',
+        sensitive_features="z",
     )
 
     # False Positive Rate Noisy
     fnr_thresh_opt = ThresholdOptimizer(
-        constraints='false_negative_rate_parity',
+        constraints="false_negative_rate_parity",
         predict_method="predict",
         prefit=False,
         estimator=sklearn_clf_pipeline(
@@ -310,47 +319,54 @@ def generate_expert_algo_lookup(feature_types):
             # clf_inst=DecisionTreeClassifier(min_samples_leaf=10, max_depth=4),
             # clf_inst=RandomForestClassifier(),
             clf_inst=XGBClassifier(),
-        )
+        ),
     )
     fnr_wrapper = FairLearnSkLearnWrapper(
         clf=fnr_thresh_opt,
-        sensitive_features='z',
+        sensitive_features="z",
     )
 
-    dummy_pipe = DummyClassifier(strategy='uniform')
+    dummy_pipe = DummyClassifier(strategy="uniform")
 
     compas_score_high = ManualClassifier(
         # lambda row: int(row['score_text'] == 'High')
-        lambda row: int(row['decile_score'] >= 6)
+        lambda row: int(row["decile_score"] >= 6)
     )
 
     expert_algo_lookup = {
         # Experts
-        'OptAcc': opt_acc_pipe,
-        'HardtDemPar': dem_par_wrapper,
-        'HardtEqOpp': eq_opp_wrapper,
-        'HardtEqOdds': eq_odds_thresh_wrapper,
-        'HardtFPRPar': fpr_wrapper,
-        'HardtTNRPar': tnr_wrapper,
-        'HardtFNRPar': fnr_wrapper,
-        'Dummy': dummy_pipe,
-        'RedEqOdds': eq_odds_red_wrapper,
-        'BoundedGroupLoss': bgl_wrapper,
-        'COMPAS': compas_score_high,
+        "OptAcc": opt_acc_pipe,
+        "HardtDemPar": dem_par_wrapper,
+        "HardtEqOpp": eq_opp_wrapper,
+        "HardtEqOdds": eq_odds_thresh_wrapper,
+        "HardtFPRPar": fpr_wrapper,
+        "HardtTNRPar": tnr_wrapper,
+        "HardtFNRPar": fnr_wrapper,
+        "Dummy": dummy_pipe,
+        "RedEqOdds": eq_odds_red_wrapper,
+        "BoundedGroupLoss": bgl_wrapper,
+        "COMPAS": compas_score_high,
         # Initial policies
-        'OptAccNoisy': UnfairNoisyClassifier(clf=opt_acc_pipe, prob=[.15, .25]),
-        'HardtDemParNoisy': UnfairNoisyClassifier(clf=dem_par_wrapper, prob=[.05, .25]),
-        'HardtEqOppNoisy': UnfairNoisyClassifier(clf=eq_opp_wrapper, prob=[.05, .25]),
-        'HardtFPRNoisy': UnfairNoisyClassifier(clf=fpr_wrapper, prob=[.05, .05]),
-        'HardtTNRNoisy': UnfairNoisyClassifier(clf=tnr_wrapper, prob=[.05, .05]),
-        'DummyNoisy': UnfairNoisyClassifier(clf=dummy_pipe, prob=[.05, .05]),
+        "OptAccNoisy": UnfairNoisyClassifier(clf=opt_acc_pipe, prob=[0.15, 0.25]),
+        "HardtDemParNoisy": UnfairNoisyClassifier(
+            clf=dem_par_wrapper, prob=[0.05, 0.25]
+        ),
+        "HardtEqOppNoisy": UnfairNoisyClassifier(clf=eq_opp_wrapper, prob=[0.05, 0.25]),
+        "HardtFPRNoisy": UnfairNoisyClassifier(clf=fpr_wrapper, prob=[0.05, 0.05]),
+        "HardtTNRNoisy": UnfairNoisyClassifier(clf=tnr_wrapper, prob=[0.05, 0.05]),
+        "DummyNoisy": UnfairNoisyClassifier(clf=dummy_pipe, prob=[0.05, 0.05]),
     }
 
     return expert_algo_lookup
 
 
 def generate_all_exp_results_df(
-        feat_obj_set, perf_obj_set, n_trials, data_demo, exp_algo, irl_method,
+    feat_obj_set,
+    perf_obj_set,
+    n_trials,
+    data_demo,
+    exp_algo,
+    irl_method,
 ):
     """
     Generate dataframe for experiment parameters and results
@@ -375,7 +391,7 @@ def generate_all_exp_results_df(
     all_exp_df : pandas.DataFrame
         A dataframe with relevant columns, but no data.
     """
-    all_exp_df_cols=['n_trials', 'data_demo', 'exp_algo', 'irl_method']
+    all_exp_df_cols = ["n_trials", "data_demo", "exp_algo", "irl_method"]
 
     # Feature expectation objectives
     for obj in feat_obj_set.objectives:
@@ -403,15 +419,15 @@ def generate_all_exp_results_df(
         all_exp_df_cols.append(f"muL_err_{obj.name}_mean")
         all_exp_df_cols.append(f"muL_err_{obj.name}_std")
 
-    all_exp_df_cols.append('muL_err_l2norm_mean')
-    all_exp_df_cols.append('muL_err_l2norm_std')
+    all_exp_df_cols.append("muL_err_l2norm_mean")
+    all_exp_df_cols.append("muL_err_l2norm_std")
 
     all_exp_df = pd.DataFrame(columns=all_exp_df_cols)
 
-    all_exp_df.loc[0, 'n_trials'] = n_trials
-    all_exp_df.loc[0, 'data_demo'] = 'Adult'
-    all_exp_df.loc[0, 'exp_algo'] = exp_algo
-    all_exp_df.loc[0, 'irl_method'] = 'IRL_METHOD'
+    all_exp_df.loc[0, "n_trials"] = n_trials
+    all_exp_df.loc[0, "data_demo"] = "Adult"
+    all_exp_df.loc[0, "exp_algo"] = exp_algo
+    all_exp_df.loc[0, "irl_method"] = "IRL_METHOD"
 
     return all_exp_df
 
@@ -435,7 +451,6 @@ def generate_single_exp_results_df(feat_obj_set, perf_obj_set, results):
         method.
     """
     exp_df_cols = []
-
 
     for obj in feat_obj_set.objectives:
         exp_df_cols.append(f"muE_unbiased_{obj.name}_mean")
@@ -462,8 +477,8 @@ def generate_single_exp_results_df(feat_obj_set, perf_obj_set, results):
         exp_df_cols.append(f"muL_err_{obj.name}")
         exp_df_cols.append(f"muL_hold_err_{obj.name}")
 
-    exp_df_cols.append('muL_err_l2norm')
-    exp_df_cols.append('muL_hold_err_l2norm')
+    exp_df_cols.append("muL_err_l2norm")
+    exp_df_cols.append("muL_hold_err_l2norm")
 
     for obj in perf_obj_set.objectives:
         exp_df_cols.append(f"muE_perf_hold_{obj.name}")
@@ -479,8 +494,16 @@ def generate_single_exp_results_df(feat_obj_set, perf_obj_set, results):
 
 
 def new_trial_result(
-    feat_obj_set, perf_obj_set, muE_unbiased, muE, muE_hold, muE_perf_hold, df_irl,
-    source_trial_runtime, source_irl_loop_runtime, source_trial_inputsize
+    feat_obj_set,
+    perf_obj_set,
+    muE_unbiased,
+    muE,
+    muE_hold,
+    muE_perf_hold,
+    df_irl,
+    source_trial_runtime,
+    source_irl_loop_runtime,
+    source_trial_inputsize,
 ):
     """
     Generates a row of "results", which are collected and persisted for each
@@ -551,17 +574,14 @@ def new_trial_result(
         result += [muE_hold_mean, muE_hold_std]
 
     best_t = (
-        df_irl.query('(is_expert == 0) and (is_init_policy == 0)')
-        .sort_values('t')
-        ['t'].values[0]
+        df_irl.query("(is_expert == 0) and (is_init_policy == 0)")
+        .sort_values("t")["t"]
+        .values[0]
     )
     try:
         best_idx = (
-            df_irl[
-                (df_irl['is_expert'] == 0) &
-                (df_irl['is_init_policy'] == 0)
-            ]
-            .query('abs(t - @best_t) <= .0001')
+            df_irl[(df_irl["is_expert"] == 0) & (df_irl["is_init_policy"] == 0)]
+            .query("abs(t - @best_t) <= .0001")
             .sort_index()
             .index[0]
         )
@@ -583,15 +603,13 @@ def new_trial_result(
     # Adds n_feat_exp * 2 values
     for i, obj in enumerate(feat_obj_set.objectives):
         _muL_err = abs(best_row[f"{obj.name}"] - np.mean(muE_hold[:, i]))
-        _muL_hold_err = abs(
-            best_row[f"muL_hold_{obj.name}"] - np.mean(muE_hold[:, i])
-        )
+        _muL_hold_err = abs(best_row[f"muL_hold_{obj.name}"] - np.mean(muE_hold[:, i]))
         result.append(_muL_err)
         result.append(_muL_hold_err)
 
     # Adds n_feat_exp * 2 values
-    result.append(best_row['mu_delta_l2norm'])
-    result.append(best_row['mu_delta_l2norm_hold'])
+    result.append(best_row["mu_delta_l2norm"])
+    result.append(best_row["mu_delta_l2norm_hold"])
 
     # Append performance measures of expert_holdout and best learned policies
     # Adds n_perf_meas * 2 values
@@ -608,7 +626,11 @@ def new_trial_result(
 
 
 def run_trial_source_domain(
-    exp_info, X=None, y=None, feature_types=None, plot_svm_iters=False,
+    exp_info,
+    X=None,
+    y=None,
+    feature_types=None,
+    plot_svm_iters=False,
 ):
     """
     Runs 1 trial to learn weights in the source domain.
@@ -656,19 +678,18 @@ def run_trial_source_domain(
 
     """
     weight_adjusts_list = exp_info["WEIGHT_ADJUSTS_LIST"]
-    
+
     # Initiate objectives
     objectives = []
-    for obj_name in exp_info['FEAT_EXP_OBJECTIVE_NAMES']:
+    for obj_name in exp_info["FEAT_EXP_OBJECTIVE_NAMES"]:
         objectives.append(OBJ_LOOKUP_BY_NAME[obj_name]())
     feat_obj_set = ObjectiveSet(objectives)
     del objectives
     # Reset the objective set since they get fitted in each trial run
     feat_obj_set.reset()
 
-
     objectives = []
-    for obj_name in exp_info['PERF_MEAS_OBJECTIVE_NAMES']:
+    for obj_name in exp_info["PERF_MEAS_OBJECTIVE_NAMES"]:
         objectives.append(OBJ_LOOKUP_BY_NAME[obj_name]())
     perf_obj_set = ObjectiveSet(objectives)
     del objectives
@@ -676,7 +697,7 @@ def run_trial_source_domain(
     perf_obj_set.reset()
 
     # Set observability level
-    if 'FO' in exp_info['IRL_METHOD']:
+    if "FO" in exp_info["IRL_METHOD"]:
         CAN_OBSERVE_Y = True
     else:
         CAN_OBSERVE_Y = False
@@ -684,11 +705,11 @@ def run_trial_source_domain(
     # Read in dataset
     if X is None or y is None or feature_types is None:
         X, y, feature_types = generate_dataset(
-            exp_info['DATASET'],
-            n_samples=exp_info['N_DATASET_SAMPLES'],
+            exp_info["DATASET"],
+            n_samples=exp_info["N_DATASET_SAMPLES"],
         )
-    
-    bias_types = exp_info['BIAS_TYPES']
+
+    bias_types = exp_info["BIAS_TYPES"]
 
     # These are the feature types that will be used as inputs for the expert
     # classifier.
@@ -711,7 +732,7 @@ def run_trial_source_domain(
     # holdout, otherwise it messes up interpretations.
     #
     split_is_okay = False
-    max_muE_cosine_dist_split = .001
+    max_muE_cosine_dist_split = 0.001
 
     # TODO: just generally check this code against the original,
     # I'm not convinced that it's all correct
@@ -719,46 +740,49 @@ def run_trial_source_domain(
         exp_info,
         X=X,
         y=y,
-        clf=expert_algo_lookup[exp_info['EXPERT_ALGO']],
+        clf=expert_algo_lookup[exp_info["EXPERT_ALGO"]],
         obj_set=feat_obj_set,
-        n_demos=exp_info['N_EXPERT_DEMOS'],
-        bias_types=[]
+        n_demos=exp_info["N_EXPERT_DEMOS"],
+        bias_types=[],
     )
 
     while not split_is_okay:
-        X_demo, X_hold, y_demo, y_hold = train_test_split(X, y, test_size=.2)
+        X_demo, X_hold, y_demo, y_hold = train_test_split(X, y, test_size=0.2)
 
         # Generate expert demonstrations to learn from
         muE, demosE = generate_demos_k_folds(
             exp_info,
             X=X_demo,
             y=y_demo,
-            clf=expert_algo_lookup[exp_info['EXPERT_ALGO']],
+            clf=expert_algo_lookup[exp_info["EXPERT_ALGO"]],
             obj_set=feat_obj_set,
-            n_demos=exp_info['N_EXPERT_DEMOS'],
-            bias_types=bias_types
+            n_demos=exp_info["N_EXPERT_DEMOS"],
+            bias_types=bias_types,
         )
 
         muE_hold_test, _ = generate_demos_k_folds(
             exp_info,
             X=X_hold,
             y=y_hold,
-            clf=expert_algo_lookup[exp_info['EXPERT_ALGO']],
+            clf=expert_algo_lookup[exp_info["EXPERT_ALGO"]],
             obj_set=feat_obj_set,
-            n_demos=exp_info['N_EXPERT_DEMOS'],
-            bias_types=bias_types
+            n_demos=exp_info["N_EXPERT_DEMOS"],
+            bias_types=bias_types,
         )
 
         # Fit expert on entire training dataset. This is used when computing demos
         # on the holdout set for performance measurement.
-        expert_hold_clf = expert_algo_lookup[exp_info['EXPERT_ALGO']]
+        expert_hold_clf = expert_algo_lookup[exp_info["EXPERT_ALGO"]]
         expert_hold_clf.fit(X_demo, y_demo)
         demoE_hold = generate_demo(
-            clf=expert_hold_clf, X_test=X_demo,
+            clf=expert_hold_clf,
+            X_test=X_demo,
             y_test=y_demo,
             can_observe_y=CAN_OBSERVE_Y,
         )
-        muE_hold = np.array([feat_obj_set.compute_demo_feature_exp(demoE_hold)]) # TODO: Maybe replace this with muE_hold_test???
+        muE_hold = np.array(
+            [feat_obj_set.compute_demo_feature_exp(demoE_hold)]
+        )  # TODO: Maybe replace this with muE_hold_test???
         muE_perf_hold = np.array([perf_obj_set.compute_demo_feature_exp(demoE_hold)])
 
         for demo_i, _ in enumerate(muE):
@@ -786,11 +810,11 @@ def run_trial_source_domain(
 
     # Initiate variables needed to run IRL Loop
     x_cols = (
-        irl_loop_feature_types['boolean']
-        + irl_loop_feature_types['categoric']
-        + irl_loop_feature_types['continuous']
+        irl_loop_feature_types["boolean"]
+        + irl_loop_feature_types["categoric"]
+        + irl_loop_feature_types["continuous"]
     )
-    x_cols.remove('z')
+    x_cols.remove("z")
     feat_obj_set_cols = [obj.name for obj in feat_obj_set.objectives]
     perf_obj_set_cols = [obj.name for obj in perf_obj_set.objectives]
 
@@ -813,7 +837,7 @@ def run_trial_source_domain(
     # Generate initial learned policies to serve as negative training examples
     # for the SVM IRL classifier.
     mu = []
-    for non_expert_algo in exp_info['NON_EXPERT_ALGOS']:
+    for non_expert_algo in exp_info["NON_EXPERT_ALGOS"]:
         # Demo set
         _mu, _demos = generate_demos_k_folds(
             exp_info,
@@ -822,7 +846,7 @@ def run_trial_source_domain(
             clf=expert_algo_lookup[non_expert_algo],
             obj_set=feat_obj_set,
             n_demos=1,
-            bias_types=bias_types
+            bias_types=bias_types,
         )
         mu.append(_mu[0])
 
@@ -834,9 +858,9 @@ def run_trial_source_domain(
             clf=expert_algo_lookup[non_expert_algo],
             obj_set=feat_obj_set,
             n_demos=1,
-            bias_types=bias_types
+            bias_types=bias_types,
         )
-        mu_deltas_hold = _mu_hold -  muE_hold
+        mu_deltas_hold = _mu_hold - muE_hold
         mu_deltas_hold_l2norm = np.linalg.norm(mu_deltas_hold, ord=2)
         mu_delta_l2norm_hold_hist.append(mu_deltas_hold_l2norm)
 
@@ -846,13 +870,13 @@ def run_trial_source_domain(
     logging.info(f"muL:\n{mu}")
     # X_biased_exp = pd.DataFrame(muE_unbiased, columns=feat_obj_set_cols)
     X_irl_exp = pd.DataFrame(muE, columns=feat_obj_set_cols)
-    y_irl_exp = pd.Series(np.ones(exp_info['N_EXPERT_DEMOS']), dtype=int)
+    y_irl_exp = pd.Series(np.ones(exp_info["N_EXPERT_DEMOS"]), dtype=int)
     X_irl_learn = pd.DataFrame(mu, columns=feat_obj_set_cols)
     y_irl_learn = pd.Series(np.zeros(len(mu)), dtype=int)
 
     # Start the IRL Loop
-    logging.debug('')
-    logging.debug('Starting IRL Loop ...')
+    logging.debug("")
+    logging.debug("Starting IRL Loop ...")
 
     done = False  # When true, breaks IRL loop
     is_stuck_in_loop = False
@@ -865,17 +889,15 @@ def run_trial_source_domain(
 
                 # Train SVM classifier that distinguishes which demonstrations are
                 # expert and which were generated from this loop.
-                logging.debug('\tFitting SVM classifier...')
-                X_irl = (
-                    pd.concat([X_irl_exp, X_irl_learn], axis=0)
-                    .reset_index(drop=True)
+                logging.debug("\tFitting SVM classifier...")
+                X_irl = pd.concat([X_irl_exp, X_irl_learn], axis=0).reset_index(
+                    drop=True
                 )
-                y_irl = (
-                    pd.concat([y_irl_exp, y_irl_learn], axis=0)
-                    .reset_index(drop=True)
+                y_irl = pd.concat([y_irl_exp, y_irl_learn], axis=0).reset_index(
+                    drop=True
                 )
                 try:
-                    allow_pos_weights = not exp_info['ALLOW_NEG_WEIGHTS']
+                    allow_pos_weights = not exp_info["ALLOW_NEG_WEIGHTS"]
                     randomly_simluate_stuck = np.random.rand()
                     # if randomly_simluate_stuck < 0 or is_stuck_in_loop:
                     #     is_stuck_in_loop = False
@@ -895,12 +917,12 @@ def run_trial_source_domain(
                     #     _y_irl = y_irl
                     svm = SVM(positive_weights_only=allow_pos_weights).fit(X_irl, y_irl)
                 except ValueError as e:
-                    if e.args[0] != 'No support vectors found.':
-                        raise(e)
-                    logging.info('\t\tAllowing negative weights.')
+                    if e.args[0] != "No support vectors found.":
+                        raise (e)
+                    logging.info("\t\tAllowing negative weights.")
                     svm = SVM(positive_weights_only=False).fit(X_irl, y_irl)
 
-                wi = svm.weights(norm='l1')
+                wi = svm.weights(norm="l1")
 
                 # New as of 01/07/2024
                 # If weights have any negative values, renormalize the set to be
@@ -916,7 +938,7 @@ def run_trial_source_domain(
 
                 # Fit a classifier that predicts `y` from `X`.
                 # TODO 12/16/2023: remove this. we no longer use it.
-                logging.debug('\tFitting `y|x` predictor for clf policy...')
+                logging.debug("\tFitting `y|x` predictor for clf policy...")
                 clf = sklearn_clf_pipeline(
                     feature_types=irl_loop_feature_types,
                     clf_inst=RandomForestClassifier(),
@@ -932,7 +954,7 @@ def run_trial_source_domain(
                 # giving weights [0, 1, 0] into the run_trial_source_domain and
                 # noticing that the ouptput had poor demographic parity.
                 #
-                demo_df['y'] = y_demo
+                demo_df["y"] = y_demo
             else:
                 # Reset IRL loop history vars
                 t = []  # Errors for each iteration
@@ -950,7 +972,7 @@ def run_trial_source_domain(
                 mu_best_hold_history = []
                 mu_perf_best_hold_history = []
                 X_irl_exp = pd.DataFrame(muE, columns=feat_obj_set_cols)
-                y_irl_exp = pd.Series(np.ones(exp_info['N_EXPERT_DEMOS']), dtype=int)
+                y_irl_exp = pd.Series(np.ones(exp_info["N_EXPERT_DEMOS"]), dtype=int)
                 X_irl_learn = pd.DataFrame(mu, columns=feat_obj_set_cols)
                 y_irl_learn = pd.Series(np.zeros(len(mu)), dtype=int)
                 wi = best_weight
@@ -962,7 +984,9 @@ def run_trial_source_domain(
             # logging.debug('\tComputing the optimal policy given reward weights and `y|x` classifier...')
             weights.append(wi)
 
-            reward_weights = { obj.name: wi[j] for j, obj in enumerate(feat_obj_set.objectives) }
+            reward_weights = {
+                obj.name: wi[j] for j, obj in enumerate(feat_obj_set.objectives)
+            }
             clf_pol = compute_optimal_policy(
                 clf_df=demo_df,  # NOT the dataset used to train the C_{Y_Z,X} clf
                 clf=clf,
@@ -970,9 +994,9 @@ def run_trial_source_domain(
                 obj_set=feat_obj_set,
                 reward_weights=reward_weights,
                 skip_error_terms=True,
-                method=exp_info['METHOD'],
-                min_freq_fill_pct=exp_info['MIN_FREQ_FILL_PCT'],
-                restrict_y=exp_info['RESTRICT_Y_ACTION'],
+                method=exp_info["METHOD"],
+                min_freq_fill_pct=exp_info["MIN_FREQ_FILL_PCT"],
+                restrict_y=exp_info["RESTRICT_Y_ACTION"],
             )
 
             ##
@@ -981,7 +1005,7 @@ def run_trial_source_domain(
             ##
 
             # Compute feature expectations of the learned policy
-            logging.debug('\tGenerating learned demostration...')
+            logging.debug("\tGenerating learned demostration...")
             demo = generate_demo(clf_pol, X_demo, y_demo, can_observe_y=CAN_OBSERVE_Y)
             demo_hold = generate_demo(clf_pol, X_hold, y_hold, can_observe_y=False)
             demo_history.append(demo)
@@ -992,7 +1016,9 @@ def run_trial_source_domain(
             mu_history.append(muj)
             mu_hold_history.append(muj_hold)
             mu_perf_hold_history.append(muj_perf_hold)
-            logging.info(f"\t\t muL[{i}] \t\t= {str(np.round(muj, 2)).replace('0.', '.')}")
+            logging.info(
+                f"\t\t muL[{i}] \t\t= {str(np.round(muj, 2)).replace('0.', '.')}"
+            )
             logging.debug(f"\t\t muL_hold[{i}] = {np.round(muj_hold, 2)}")
 
             # Append policy's feature expectations to irl clf dataset
@@ -1007,7 +1033,7 @@ def run_trial_source_domain(
                 wi,
                 muE,
                 mu_history,
-                dot_weights_feat_exp=exp_info['DOT_WEIGHTS_FEAT_EXP'],
+                dot_weights_feat_exp=exp_info["DOT_WEIGHTS_FEAT_EXP"],
                 svm_margin=svm.margin(),
             )
             # Do it for the hold-out set as well.
@@ -1015,7 +1041,7 @@ def run_trial_source_domain(
                 wi,
                 muE_hold,
                 mu_hold_history,
-                dot_weights_feat_exp=exp_info['DOT_WEIGHTS_FEAT_EXP'],
+                dot_weights_feat_exp=exp_info["DOT_WEIGHTS_FEAT_EXP"],
                 svm_margin=svm.margin(),
             )
             mu_best_history.append(mu_history[best_j])
@@ -1025,29 +1051,35 @@ def run_trial_source_domain(
             t_hold.append(ti_hold)
             mu_delta_l2norm_hist.append(mu_delta_l2norm)
             mu_delta_l2norm_hold_hist.append(mu_delta_l2norm_hold)
-            logging.info(f"\t\t Best mu_delta[{i}] \t= {str(np.round(mu_delta, 2)).replace('0.', '.')}")
-            logging.info(f"\t\t Best mu_delta_hold[i] \t= {str(np.round(mu_delta_hold, 2)).replace('0.', '.')}")
+            logging.info(
+                f"\t\t Best mu_delta[{i}] \t= {str(np.round(mu_delta, 2)).replace('0.', '.')}"
+            )
+            logging.info(
+                f"\t\t Best mu_delta_hold[i] \t= {str(np.round(mu_delta_hold, 2)).replace('0.', '.')}"
+            )
             logging.info(f"\t\t t[{i}] \t\t= {t[i]:.5f}")
             logging.info(f"\t\t t_hold[i] \t= {t_hold[i]:.5f}")
-            logging.info(f"\t\t weights[{i}] \t= {str(np.round(weights[i], 2)).replace('0.', '.')}")
+            logging.info(
+                f"\t\t weights[{i}] \t= {str(np.round(weights[i], 2)).replace('0.', '.')}"
+            )
 
             # If reached maximum iterations
-            if i >= exp_info['MAX_ITER'] - 1:
+            if i >= exp_info["MAX_ITER"] - 1:
                 logging.info(f"\nReached max iters.")
                 done = True
                 break
 
             # If haven't reached max iterations but error is below epsilon
-            elif ti < exp_info['EPSILON'] and ti <= min(t):
+            elif ti < exp_info["EPSILON"] and ti <= min(t):
                 # Check if accuracy weight is zero
                 # TODO: remove this
                 if np.allclose(weights[i][0], 0, atol=1e-5):
-                    logging.info('\t\tAccuracy weight is zero, continuing')
+                    logging.info("\t\tAccuracy weight is zero, continuing")
                     i += 1
                     continue
 
                 # If non-neg weights allowed or all weights non-neg
-                if (exp_info['ALLOW_NEG_WEIGHTS'] or np.all(wi > -1e-5)):
+                if exp_info["ALLOW_NEG_WEIGHTS"] or np.all(wi > -1e-5):
                     done = True
                     break
 
@@ -1059,15 +1091,18 @@ def run_trial_source_domain(
             # Check if a new best error has been found in last i/2 iterations. This
             # is essentially a "smart" convervence to not waste time on more
             # iterations if it's not improving.
-            elif (i - np.argsort(t)[0]) > exp_info['EARLY_STOP_NO_NEW_BEST_ITERS']:
-                logging.info(f"\n\t\tNo new best in last {exp_info['EARLY_STOP_NO_NEW_BEST_ITERS']} iterations, so stopping early.")
+            elif (i - np.argsort(t)[0]) > exp_info["EARLY_STOP_NO_NEW_BEST_ITERS"]:
+                logging.info(
+                    f"\n\t\tNo new best in last {exp_info['EARLY_STOP_NO_NEW_BEST_ITERS']} iterations, so stopping early."
+                )
                 done = True
                 break
             # Check if loop is stuck in local optimum by checking if error and
             # weights are the same as previous iteration.
             elif (
-                i > 0 and abs(t[i] - t[i-1]) < 1e-3
-                and np.allclose(weights[i], weights[i-1], atol=1e-3)
+                i > 0
+                and abs(t[i] - t[i - 1]) < 1e-3
+                and np.allclose(weights[i], weights[i - 1], atol=1e-3)
             ):
                 logging.info("\t\tStuck in loop")
                 is_stuck_in_loop = True
@@ -1084,19 +1119,18 @@ def run_trial_source_domain(
             # End IRL Loop
         done = False
 
-        irl_loop_runtime = (
-        datetime.datetime.now() - irl_loop_start
-        ).total_seconds()
+        irl_loop_runtime = (datetime.datetime.now() - irl_loop_start).total_seconds()
 
         # If solution not sufficient for use, exit early
         # if min(t) > exp_info['IGNORE_RESULTS_EPSILON']:
-        if min(mu_delta_l2norm_hist) > exp_info['IGNORE_RESULTS_EPSILON']:
+        if min(mu_delta_l2norm_hist) > exp_info["IGNORE_RESULTS_EPSILON"]:
             # logging.info(f"IGNORING RESULTS BECAUSE BEST ERROR {min(t):.3f} > {exp_info['IGNORE_RESULTS_EPSILON']:.3f}")
-            logging.info(f"IGNORING RESULTS BECAUSE BEST ERROR {min(mu_delta_l2norm_hist):.3f} > {exp_info['IGNORE_RESULTS_EPSILON']:.3f}")
+            logging.info(
+                f"IGNORING RESULTS BECAUSE BEST ERROR {min(mu_delta_l2norm_hist):.3f} > {exp_info['IGNORE_RESULTS_EPSILON']:.3f}"
+            )
             return_val = (False, None, None, None, None, None, None, None, None)
             return_vals.append(return_val)
             return return_vals
-
 
         # Find best weights based on smallest error (with nonnegative weights)
         t_arg_smallest_to_largest = np.argsort(t)
@@ -1104,7 +1138,7 @@ def run_trial_source_domain(
         # best_iter = t_arg_smallest_to_largest[0]
         best_iter = mu_delta_l2_norm_arg_smallest_to_largest[0]
         # print('best_iter', best_iter)
-        if not exp_info['ALLOW_NEG_WEIGHTS']:
+        if not exp_info["ALLOW_NEG_WEIGHTS"]:
             best_t = None
             best_t_i = 0
             best_t_done = False
@@ -1112,11 +1146,15 @@ def run_trial_source_domain(
                 if best_t_i >= len(t):
                     np.info(f"best_weight:\t {np.round(weights[best_iter], 3)}")
                     # display(weights)
-                    raise ValueError('Only negative weights learned')
+                    raise ValueError("Only negative weights learned")
                 best_iter = t_arg_smallest_to_largest[best_t_i]
                 best_t = t[best_iter]
                 # if np.all(weights[best_iter] > -1e-5) and best_t <= exp_info['IGNORE_RESULTS_EPSILON']:
-                if np.all(weights[best_iter] > -1e-5) and mu_delta_l2norm_hist[best_iter] <= exp_info['IGNORE_RESULTS_EPSILON']:
+                if (
+                    np.all(weights[best_iter] > -1e-5)
+                    and mu_delta_l2norm_hist[best_iter]
+                    <= exp_info["IGNORE_RESULTS_EPSILON"]
+                ):
                     best_t_done = True
                 best_t_i += 1
 
@@ -1127,84 +1165,89 @@ def run_trial_source_domain(
         # Compare the best learned policy with the expert demonstrations
         best_demo = demo_history[best_iter]
         best_weight = weights[best_iter]
-        logging.debug('Best iteration: ' + str(best_iter))
-        logging.info(f"Best Learned Policy yhat (not real yhat since doesn't factor mu0): {best_demo['yhat'].mean():.3f}")
+        logging.debug("Best iteration: " + str(best_iter))
+        logging.info(
+            f"Best Learned Policy yhat (not real yhat since doesn't factor mu0): {best_demo['yhat'].mean():.3f}"
+        )
         logging.info(f"best weight:\t {np.round(best_weight, 3)}")
 
         # Generate a dataframe for results gathering.
         X_irl = pd.concat([X_irl_exp, X_irl_learn], axis=0).reset_index(drop=True)
         y_irl = pd.concat([y_irl_exp, y_irl_learn], axis=0).reset_index(drop=True)
         df_irl = X_irl.copy()
-        df_irl['is_expert'] = y_irl.copy()
+        df_irl["is_expert"] = y_irl.copy()
         for i, col in enumerate(feat_obj_set_cols):
             df_irl[f"muL_best_{col}"] = (
                 np.zeros(
-                    exp_info['N_EXPERT_DEMOS'] + exp_info['N_INIT_POLICIES']
-                ).tolist() + np.array(mu_best_history)[:, i].tolist()
+                    exp_info["N_EXPERT_DEMOS"] + exp_info["N_INIT_POLICIES"]
+                ).tolist()
+                + np.array(mu_best_history)[:, i].tolist()
             )
             df_irl[f"muL_hold_{col}"] = (
                 np.zeros(
-                    exp_info['N_EXPERT_DEMOS'] + +exp_info['N_INIT_POLICIES']
-                ).tolist() + np.array(mu_hold_history)[:, i].tolist()
+                    exp_info["N_EXPERT_DEMOS"] + +exp_info["N_INIT_POLICIES"]
+                ).tolist()
+                + np.array(mu_hold_history)[:, i].tolist()
             )
             df_irl[f"muL_best_hold_{col}"] = (
                 np.zeros(
-                    exp_info['N_EXPERT_DEMOS'] + exp_info['N_INIT_POLICIES']
-                ).tolist() + np.array(mu_best_hold_history)[:, i].tolist()
+                    exp_info["N_EXPERT_DEMOS"] + exp_info["N_INIT_POLICIES"]
+                ).tolist()
+                + np.array(mu_best_hold_history)[:, i].tolist()
             )
         for i, col in enumerate(perf_obj_set_cols):
             df_irl[f"muL_perf_best_hold_{col}"] = (
                 np.zeros(
-                    exp_info['N_EXPERT_DEMOS'] + exp_info['N_INIT_POLICIES']
-                ).tolist() + np.array(mu_perf_best_hold_history)[:, i].tolist()
+                    exp_info["N_EXPERT_DEMOS"] + exp_info["N_INIT_POLICIES"]
+                ).tolist()
+                + np.array(mu_perf_best_hold_history)[:, i].tolist()
             )
-        df_irl['is_init_policy'] = (
-            np.zeros(exp_info['N_EXPERT_DEMOS']).tolist()
-            + np.ones(exp_info['N_INIT_POLICIES']).tolist()
+        df_irl["is_init_policy"] = (
+            np.zeros(exp_info["N_EXPERT_DEMOS"]).tolist()
+            + np.ones(exp_info["N_INIT_POLICIES"]).tolist()
             + np.zeros(len(t)).tolist()
         )
-        df_irl['learn_idx'] = (
-            list(-1*np.ones(exp_info['N_EXPERT_DEMOS']))
-            + list(np.arange(exp_info['N_INIT_POLICIES'] + len(t)))
+        df_irl["learn_idx"] = list(-1 * np.ones(exp_info["N_EXPERT_DEMOS"])) + list(
+            np.arange(exp_info["N_INIT_POLICIES"] + len(t))
         )
         for i, col in enumerate(feat_obj_set_cols):
-            df_irl[f"{col}_weight"] = (
-                np.zeros(
-                    exp_info['N_EXPERT_DEMOS']+exp_info['N_INIT_POLICIES']
-                ).tolist() + [w[i] for w in weights]
+            df_irl[f"{col}_weight"] = np.zeros(
+                exp_info["N_EXPERT_DEMOS"] + exp_info["N_INIT_POLICIES"]
+            ).tolist() + [w[i] for w in weights]
+        df_irl["t"] = (
+            list(
+                np.inf
+                * (np.ones(exp_info["N_EXPERT_DEMOS"] + exp_info["N_INIT_POLICIES"]))
             )
-        df_irl['t'] = (
+            + t
+        )
+        df_irl["t_hold"] = (
             list(
-                np.inf*(
-                    np.ones(exp_info['N_EXPERT_DEMOS']+exp_info['N_INIT_POLICIES'])
-                )
-            ) + t
+                np.inf
+                * (np.ones(exp_info["N_EXPERT_DEMOS"] + exp_info["N_INIT_POLICIES"]))
+            )
+            + t_hold
         )
-        df_irl['t_hold'] = (
-            list(
-                np.inf*(
-                    np.ones(exp_info['N_EXPERT_DEMOS']+exp_info['N_INIT_POLICIES'])
-                )
-            ) + t_hold
-        )
-        df_irl['mu_delta_l2norm'] = (
-            (np.inf * np.ones(exp_info['N_EXPERT_DEMOS']+exp_info['N_INIT_POLICIES'], dtype=float))
-            .tolist() + mu_delta_l2norm_hist
-        )
-        df_irl['mu_delta_l2norm_hold'] = (
-            (np.inf * np.ones(exp_info['N_EXPERT_DEMOS'], dtype=float)).tolist()
+        df_irl["mu_delta_l2norm"] = (
+            np.inf
+            * np.ones(
+                exp_info["N_EXPERT_DEMOS"] + exp_info["N_INIT_POLICIES"], dtype=float
+            )
+        ).tolist() + mu_delta_l2norm_hist
+        df_irl["mu_delta_l2norm_hold"] = (
+            (np.inf * np.ones(exp_info["N_EXPERT_DEMOS"], dtype=float)).tolist()
             # 01/21/2024: Started recording mu_delta_l2norm_hold_hist for the
             # initial policies since I am plotting this now for our paper.
             # +exp_info['N_INIT_POLICIES']).tolist()
             + mu_delta_l2norm_hold_hist
         )
-        logging.debug('Experiment Summary')
+        logging.debug("Experiment Summary")
         # display(df_irl.round(3))
 
         best_t = (
-            df_irl.query('(is_expert == 0) and (is_init_policy == 0)')
-            .sort_values('t')
-            ['t'].values[0]
+            df_irl.query("(is_expert == 0) and (is_init_policy == 0)")
+            .sort_values("t")["t"]
+            .values[0]
         )
         if (
             len(
@@ -1219,29 +1262,43 @@ def run_trial_source_domain(
             pass
 
         # End regular IRL trial
-        return_val = (True, muE_unbiased, muE, muE_hold, muE_perf_hold, df_irl, weights, t_hold, clf_pol, irl_loop_runtime)
+        return_val = (
+            True,
+            muE_unbiased,
+            muE,
+            muE_hold,
+            muE_perf_hold,
+            df_irl,
+            weights,
+            t_hold,
+            clf_pol,
+            irl_loop_runtime,
+        )
         return_vals.append(return_val)
     return return_vals
 
 
 def run_behavioral_cloning_trial_source_domain(
-    exp_info, X=None, y=None, feature_types=None, plot_svm_iters=False,
+    exp_info,
+    X=None,
+    y=None,
+    feature_types=None,
+    plot_svm_iters=False,
 ):
     """
     The behavioral cloning equivalent of `run_trial_source_domain()`.
     """
     # Initiate objectives
     objectives = []
-    for obj_name in exp_info['FEAT_EXP_OBJECTIVE_NAMES']:
+    for obj_name in exp_info["FEAT_EXP_OBJECTIVE_NAMES"]:
         objectives.append(OBJ_LOOKUP_BY_NAME[obj_name]())
     feat_obj_set = ObjectiveSet(objectives)
     del objectives
     # Reset the objective set since they get fitted in each trial run
     feat_obj_set.reset()
 
-
     objectives = []
-    for obj_name in exp_info['PERF_MEAS_OBJECTIVE_NAMES']:
+    for obj_name in exp_info["PERF_MEAS_OBJECTIVE_NAMES"]:
         objectives.append(OBJ_LOOKUP_BY_NAME[obj_name]())
     perf_obj_set = ObjectiveSet(objectives)
     del objectives
@@ -1251,8 +1308,8 @@ def run_behavioral_cloning_trial_source_domain(
     # Read in dataset
     if X is None or y is None or feature_types is None:
         X, y, feature_types = generate_dataset(
-            exp_info['DATASET'],
-            n_samples=exp_info['N_DATASET_SAMPLES'],
+            exp_info["DATASET"],
+            n_samples=exp_info["N_DATASET_SAMPLES"],
         )
 
     # These are the feature types that will be used as inputs for the expert
@@ -1264,17 +1321,17 @@ def run_behavioral_cloning_trial_source_domain(
     # Split data into 3 sets.
     #     1. Demo: for computing expert demos AND learning muL - muE diffs
     #     2. Hold – computes the unbiased values for muL and t (dataset is
-    #.       never shown to the IRL learning algo.)
-    X_demo, X_hold, y_demo, y_hold = train_test_split(X, y, test_size=.2)
+    # .       never shown to the IRL learning algo.)
+    X_demo, X_hold, y_demo, y_hold = train_test_split(X, y, test_size=0.2)
 
     # Generate expert demonstrations to learn from
     muE, demosE = generate_demos_k_folds(
         exp_info,
         X=X_demo,
         y=y_demo,
-        clf=expert_algo_lookup[exp_info['EXPERT_ALGO']],
+        clf=expert_algo_lookup[exp_info["EXPERT_ALGO"]],
         obj_set=feat_obj_set,
-        n_demos=exp_info['N_EXPERT_DEMOS'],
+        n_demos=exp_info["N_EXPERT_DEMOS"],
     )
     logging.info(f"muE:\n{muE}")
 
@@ -1285,21 +1342,20 @@ def run_behavioral_cloning_trial_source_domain(
         exp_info,
         X=X_hold,
         y=y_hold,
-        clf=expert_algo_lookup[exp_info['EXPERT_ALGO']],
+        clf=expert_algo_lookup[exp_info["EXPERT_ALGO"]],
         obj_set=feat_obj_set,
         n_demos=1,
     )
     logging.info(f"muE_hold:\n{muE_hold}")
 
     # Generate expert demonstrations for performance measures.
-    muE_perf_hold = np.array([
-        perf_obj_set.compute_demo_feature_exp(demo) for demo in demosE_hold
-    ])
+    muE_perf_hold = np.array(
+        [perf_obj_set.compute_demo_feature_exp(demo) for demo in demosE_hold]
+    )
     logging.info(f"muE_perf_hold:\n{muE_perf_hold}")
 
     feat_obj_set_cols = [obj.name for obj in feat_obj_set.objectives]
     perf_obj_set_cols = [obj.name for obj in perf_obj_set.objectives]
-
 
     clf = sklearn_clf_pipeline(
         feature_types,
@@ -1308,7 +1364,7 @@ def run_behavioral_cloning_trial_source_domain(
         XGBClassifier(),
     )
     expert_demo_concat = pd.concat(demosE)
-    clf.fit(expert_demo_concat, expert_demo_concat['yhat'])
+    clf.fit(expert_demo_concat, expert_demo_concat["yhat"])
 
     feat_obj_set_cols = [obj.name for obj in feat_obj_set.objectives]
     perf_obj_set_cols = [obj.name for obj in perf_obj_set.objectives]
@@ -1316,7 +1372,7 @@ def run_behavioral_cloning_trial_source_domain(
     # Generate initial learned policies to serve as negative training examples
     # for the SVM IRL classifier.
     mu = []
-    for non_expert_algo in exp_info['NON_EXPERT_ALGOS']:
+    for non_expert_algo in exp_info["NON_EXPERT_ALGOS"]:
         _mu, _demos = generate_demos_k_folds(
             exp_info,
             X=X_demo,
@@ -1330,7 +1386,7 @@ def run_behavioral_cloning_trial_source_domain(
     mu = np.array(mu)
     logging.info(f"muL:\n{mu}")
     X_irl_exp = pd.DataFrame(muE, columns=feat_obj_set_cols)
-    y_irl_exp = pd.Series(np.ones(exp_info['N_EXPERT_DEMOS']), dtype=int)
+    y_irl_exp = pd.Series(np.ones(exp_info["N_EXPERT_DEMOS"]), dtype=int)
     X_irl_learn = pd.DataFrame(mu, columns=feat_obj_set_cols)
     y_irl_learn = pd.Series(np.zeros(len(mu)), dtype=int)
 
@@ -1350,8 +1406,8 @@ def run_behavioral_cloning_trial_source_domain(
     mu_perf_best_hold_history = []
 
     # Start the IRL Loop
-    logging.debug('')
-    logging.debug('Starting IRL Loop ...')
+    logging.debug("")
+    logging.debug("Starting IRL Loop ...")
 
     done = False  # When true, breaks IRL loop
     is_stuck_in_loop = False
@@ -1397,75 +1453,70 @@ def run_behavioral_cloning_trial_source_domain(
     X_irl = pd.concat([X_irl_exp, X_irl_learn], axis=0).reset_index(drop=True)
     y_irl = pd.concat([y_irl_exp, y_irl_learn], axis=0).reset_index(drop=True)
     df_irl = X_irl.copy()
-    df_irl['is_expert'] = y_irl.copy()
+    df_irl["is_expert"] = y_irl.copy()
 
     for i, col in enumerate(feat_obj_set_cols):
         df_irl[f"muL_best_{col}"] = (
-            np.zeros(
-                exp_info['N_EXPERT_DEMOS'] + exp_info['N_INIT_POLICIES']
-            ).tolist() + np.array(mu_best_history)[:, i].tolist()
+            np.zeros(exp_info["N_EXPERT_DEMOS"] + exp_info["N_INIT_POLICIES"]).tolist()
+            + np.array(mu_best_history)[:, i].tolist()
         )
         df_irl[f"muL_hold_{col}"] = (
-            np.zeros(
-                exp_info['N_EXPERT_DEMOS'] + +exp_info['N_INIT_POLICIES']
-            ).tolist() + np.array(mu_hold_history)[:, i].tolist()
+            np.zeros(exp_info["N_EXPERT_DEMOS"] + +exp_info["N_INIT_POLICIES"]).tolist()
+            + np.array(mu_hold_history)[:, i].tolist()
         )
         df_irl[f"muL_best_hold_{col}"] = (
-            np.zeros(
-                exp_info['N_EXPERT_DEMOS'] + exp_info['N_INIT_POLICIES']
-            ).tolist() + np.array(mu_best_hold_history)[:, i].tolist()
+            np.zeros(exp_info["N_EXPERT_DEMOS"] + exp_info["N_INIT_POLICIES"]).tolist()
+            + np.array(mu_best_hold_history)[:, i].tolist()
         )
     for i, col in enumerate(perf_obj_set_cols):
         df_irl[f"muL_perf_best_hold_{col}"] = (
-            np.zeros(
-                exp_info['N_EXPERT_DEMOS'] + exp_info['N_INIT_POLICIES']
-            ).tolist() + np.array(mu_perf_best_hold_history)[:, i].tolist()
+            np.zeros(exp_info["N_EXPERT_DEMOS"] + exp_info["N_INIT_POLICIES"]).tolist()
+            + np.array(mu_perf_best_hold_history)[:, i].tolist()
         )
-    df_irl['is_init_policy'] = (
-        np.zeros(exp_info['N_EXPERT_DEMOS']).tolist()
-        + np.ones(exp_info['N_INIT_POLICIES']).tolist()
+    df_irl["is_init_policy"] = (
+        np.zeros(exp_info["N_EXPERT_DEMOS"]).tolist()
+        + np.ones(exp_info["N_INIT_POLICIES"]).tolist()
         + np.zeros(len(t)).tolist()
     )
-    df_irl['learn_idx'] = (
-        list(-1*np.ones(exp_info['N_EXPERT_DEMOS']))
-        + list(np.arange(exp_info['N_INIT_POLICIES'] + len(t)))
+    df_irl["learn_idx"] = list(-1 * np.ones(exp_info["N_EXPERT_DEMOS"])) + list(
+        np.arange(exp_info["N_INIT_POLICIES"] + len(t))
     )
     for i, col in enumerate(feat_obj_set_cols):
-        df_irl[f"{col}_weight"] = (
-            np.zeros(
-                exp_info['N_EXPERT_DEMOS']+exp_info['N_INIT_POLICIES']
-            ).tolist() + [w[i] for w in weights]
+        df_irl[f"{col}_weight"] = np.zeros(
+            exp_info["N_EXPERT_DEMOS"] + exp_info["N_INIT_POLICIES"]
+        ).tolist() + [w[i] for w in weights]
+    df_irl["t"] = (
+        list(
+            np.inf * (np.ones(exp_info["N_EXPERT_DEMOS"] + exp_info["N_INIT_POLICIES"]))
         )
-    df_irl['t'] = (
+        + t
+    )
+    df_irl["t_hold"] = (
         list(
-            np.inf*(
-                np.ones(exp_info['N_EXPERT_DEMOS']+exp_info['N_INIT_POLICIES'])
-            )
-        ) + t
+            np.inf * (np.ones(exp_info["N_EXPERT_DEMOS"] + exp_info["N_INIT_POLICIES"]))
+        )
+        + t_hold
     )
-    df_irl['t_hold'] = (
-        list(
-            np.inf*(
-                np.ones(exp_info['N_EXPERT_DEMOS']+exp_info['N_INIT_POLICIES'])
-            )
-        ) + t_hold
+    df_irl["mu_delta_l2norm"] = (
+        np.zeros(exp_info["N_EXPERT_DEMOS"] + exp_info["N_INIT_POLICIES"]).tolist()
+        + mu_delta_l2norm_hist
     )
-    df_irl['mu_delta_l2norm'] = (
-        np.zeros(exp_info['N_EXPERT_DEMOS']+exp_info['N_INIT_POLICIES'])
-        .tolist() + mu_delta_l2norm_hist
+    df_irl["mu_delta_l2norm_hold"] = (
+        np.zeros(exp_info["N_EXPERT_DEMOS"] + exp_info["N_INIT_POLICIES"]).tolist()
+        + mu_delta_l2norm_hold_hist
     )
-    df_irl['mu_delta_l2norm_hold'] = (
-        np.zeros(exp_info['N_EXPERT_DEMOS']+exp_info['N_INIT_POLICIES'])
-        .tolist() + mu_delta_l2norm_hold_hist
-    )
-    logging.debug('Experiment Summary')
+    logging.debug("Experiment Summary")
     # display(df_irl.round(3))
 
     return True, muE, muE_hold, muE_perf_hold, df_irl, weights, t_hold, clf
 
 
 def run_behavior_cloning_trial_target_domain(
-        exp_info, source_clf, X=None, y=None, feature_types=None,
+    exp_info,
+    source_clf,
+    X=None,
+    y=None,
+    feature_types=None,
 ):
     """
     Runs 1 trial to learn a policy in a new domain using the policy computed in
@@ -1503,20 +1554,20 @@ def run_behavior_cloning_trial_target_domain(
         The feature expectations of running the expert algo on the target
         domain holdout set.
     """
-    if 'FO' in exp_info['IRL_METHOD']:
+    if "FO" in exp_info["IRL_METHOD"]:
         CAN_OBSERVE_Y = True
     else:
         CAN_OBSERVE_Y = False
 
     objectives = []
-    for obj_name in exp_info['FEAT_EXP_OBJECTIVE_NAMES']:
+    for obj_name in exp_info["FEAT_EXP_OBJECTIVE_NAMES"]:
         objectives.append(OBJ_LOOKUP_BY_NAME[obj_name]())
     feat_obj_set = ObjectiveSet(objectives)
     del objectives
     feat_obj_set_cols = [obj.name for obj in feat_obj_set.objectives]
 
     objectives = []
-    for obj_name in exp_info['PERF_MEAS_OBJECTIVE_NAMES']:
+    for obj_name in exp_info["PERF_MEAS_OBJECTIVE_NAMES"]:
         objectives.append(OBJ_LOOKUP_BY_NAME[obj_name]())
     perf_obj_set = ObjectiveSet(objectives)
     del objectives
@@ -1525,16 +1576,16 @@ def run_behavior_cloning_trial_target_domain(
     # Read in target domain dataset
     if X is None or y is None or feature_types is None:
         X, y, feature_types = generate_dataset(
-            exp_info['TARGET_DATASET'],
-            n_samples=exp_info['N_DATASET_SAMPLES'],
+            exp_info["TARGET_DATASET"],
+            n_samples=exp_info["N_DATASET_SAMPLES"],
         )
 
     x_cols = (
-        feature_types['boolean']
-        + feature_types['categoric']
-        + feature_types['continuous']
+        feature_types["boolean"]
+        + feature_types["categoric"]
+        + feature_types["continuous"]
     )
-    x_cols.remove('z')
+    x_cols.remove("z")
 
     # These are the feature type sthat will be used as inputs for the expert
     # classifier.
@@ -1550,20 +1601,20 @@ def run_behavior_cloning_trial_target_domain(
     # Split data into 3 sets.
     #     1. Demo: for computing expert demos AND learning muL - muE diffs
     #     2. Hold – computes the unbiased values for muL and t (dataset is
-    #.       never shown to the IRL learning algo.)
-    X_demo, X_hold, y_demo, y_hold = train_test_split(X, y, test_size=.5)
+    # .       never shown to the IRL learning algo.)
+    X_demo, X_hold, y_demo, y_hold = train_test_split(X, y, test_size=0.5)
 
     # Check if expert works on target domain.
-    if not exp_info['EXPERT_CANNOT_PREDICT_IN_TARGET']:
+    if not exp_info["EXPERT_CANNOT_PREDICT_IN_TARGET"]:
 
         # Generate expert demonstrations to compare against.
         muE_target, _ = generate_demos_k_folds(
             exp_info,
             X=X_demo,
             y=y_demo,
-            clf=expert_algo_lookup[exp_info['EXPERT_ALGO']],
+            clf=expert_algo_lookup[exp_info["EXPERT_ALGO"]],
             obj_set=feat_obj_set,
-            n_demos=exp_info['N_EXPERT_DEMOS'],
+            n_demos=exp_info["N_EXPERT_DEMOS"],
         )
 
         # Generate expert demonstrations for performance measures.
@@ -1571,25 +1622,29 @@ def run_behavior_cloning_trial_target_domain(
             exp_info,
             X=X_demo,
             y=y_demo,
-            clf=expert_algo_lookup[exp_info['EXPERT_ALGO']],
+            clf=expert_algo_lookup[exp_info["EXPERT_ALGO"]],
             obj_set=perf_obj_set,
-            n_demos=exp_info['N_EXPERT_DEMOS'],
+            n_demos=exp_info["N_EXPERT_DEMOS"],
         )
 
     else:
-        muE_target = np.zeros(shape=(
-            exp_info['N_EXPERT_DEMOS'],
-            len(feat_obj_set_cols),
-        ))
-        muE_perf_target = np.zeros(shape=(
-            exp_info['N_EXPERT_DEMOS'],
-            len(perf_obj_set_cols),
-        ))
+        muE_target = np.zeros(
+            shape=(
+                exp_info["N_EXPERT_DEMOS"],
+                len(feat_obj_set_cols),
+            )
+        )
+        muE_perf_target = np.zeros(
+            shape=(
+                exp_info["N_EXPERT_DEMOS"],
+                len(perf_obj_set_cols),
+            )
+        )
         logging.info(f"muE_target:\n{muE_target}")
         logging.info(f"muE_perf_target:\n{muE_perf_target}")
 
     demo_df = pd.DataFrame(X_demo)
-    demo_df['y'] = y_demo
+    demo_df["y"] = y_demo
 
     # Compute feature expectations of the learned policy
     demo = generate_demo(source_clf, X_demo, y_demo, can_observe_y=CAN_OBSERVE_Y)
@@ -1606,7 +1661,12 @@ def run_behavior_cloning_trial_target_domain(
 
 
 def run_trial_target_domain(
-        exp_info, weights, t_hold, X=None, y=None, feature_types=None,
+    exp_info,
+    weights,
+    t_hold,
+    X=None,
+    y=None,
+    feature_types=None,
 ):
     """
     Runs 1 trial to learn a policy in a new domain using weights learned from
@@ -1649,20 +1709,20 @@ def run_trial_target_domain(
     clf_pol : research.rl.env.clf_mdp.ClassificationMDPPolicy
         The classification MDP optimal policy.
     """
-    if 'FO' in exp_info['IRL_METHOD']:
+    if "FO" in exp_info["IRL_METHOD"]:
         CAN_OBSERVE_Y = True
     else:
         CAN_OBSERVE_Y = False
 
     objectives = []
-    for obj_name in exp_info['FEAT_EXP_OBJECTIVE_NAMES']:
+    for obj_name in exp_info["FEAT_EXP_OBJECTIVE_NAMES"]:
         objectives.append(OBJ_LOOKUP_BY_NAME[obj_name]())
     feat_obj_set = ObjectiveSet(objectives)
     del objectives
     feat_obj_set_cols = [obj.name for obj in feat_obj_set.objectives]
 
     objectives = []
-    for obj_name in exp_info['PERF_MEAS_OBJECTIVE_NAMES']:
+    for obj_name in exp_info["PERF_MEAS_OBJECTIVE_NAMES"]:
         objectives.append(OBJ_LOOKUP_BY_NAME[obj_name]())
     perf_obj_set = ObjectiveSet(objectives)
     del objectives
@@ -1677,16 +1737,16 @@ def run_trial_target_domain(
     # Read in target domain dataset
     if X is None or y is None or feature_types is None:
         X, y, feature_types = generate_dataset(
-            exp_info['TARGET_DATASET'],
-            n_samples=exp_info['N_DATASET_SAMPLES'],
+            exp_info["TARGET_DATASET"],
+            n_samples=exp_info["N_DATASET_SAMPLES"],
         )
 
     x_cols = (
-        feature_types['boolean']
-        + feature_types['categoric']
-        + feature_types['continuous']
+        feature_types["boolean"]
+        + feature_types["categoric"]
+        + feature_types["continuous"]
     )
-    x_cols.remove('z')
+    x_cols.remove("z")
 
     # These are the feature type sthat will be used as inputs for the expert
     # classifier.
@@ -1702,21 +1762,21 @@ def run_trial_target_domain(
     # Split data into 3 sets.
     #     1. Demo: for computing expert demos AND learning muL - muE diffs
     #     2. Hold – computes the unbiased values for muL and t (dataset is
-    #.       never shown to the IRL learning algo.)
-    X_demo, X_hold, y_demo, y_hold = train_test_split(X, y, test_size=.5)
+    # .       never shown to the IRL learning algo.)
+    X_demo, X_hold, y_demo, y_hold = train_test_split(X, y, test_size=0.5)
 
     # Check if expert works on target domain.
-    if not exp_info['EXPERT_CANNOT_PREDICT_IN_TARGET']:
+    if not exp_info["EXPERT_CANNOT_PREDICT_IN_TARGET"]:
 
         # Generate expert demonstrations to compare against.
         muE_target, _ = generate_demos_k_folds(
             exp_info,
             X=X_demo,
             y=y_demo,
-            clf=expert_algo_lookup[exp_info['EXPERT_ALGO']],
+            clf=expert_algo_lookup[exp_info["EXPERT_ALGO"]],
             obj_set=feat_obj_set,
-            n_demos=exp_info['N_EXPERT_DEMOS'],
-            bias_types=[]
+            n_demos=exp_info["N_EXPERT_DEMOS"],
+            bias_types=[],
         )
 
         # Generate expert demonstrations for performance measures.
@@ -1724,21 +1784,25 @@ def run_trial_target_domain(
             exp_info,
             X=X_demo,
             y=y_demo,
-            clf=expert_algo_lookup[exp_info['EXPERT_ALGO']],
+            clf=expert_algo_lookup[exp_info["EXPERT_ALGO"]],
             obj_set=perf_obj_set,
-            n_demos=exp_info['N_EXPERT_DEMOS'],
-            bias_types=[]
+            n_demos=exp_info["N_EXPERT_DEMOS"],
+            bias_types=[],
         )
 
     else:
-        muE_target = np.zeros(shape=(
-            exp_info['N_EXPERT_DEMOS'],
-            len(feat_obj_set_cols),
-        ))
-        muE_perf_target = np.zeros(shape=(
-            exp_info['N_EXPERT_DEMOS'],
-            len(perf_obj_set_cols),
-        ))
+        muE_target = np.zeros(
+            shape=(
+                exp_info["N_EXPERT_DEMOS"],
+                len(feat_obj_set_cols),
+            )
+        )
+        muE_perf_target = np.zeros(
+            shape=(
+                exp_info["N_EXPERT_DEMOS"],
+                len(perf_obj_set_cols),
+            )
+        )
         logging.info(f"muE_target:\n{muE_target}")
         logging.info(f"muE_perf_target:\n{muE_perf_target}")
 
@@ -1766,7 +1830,7 @@ def run_trial_target_domain(
     # giving weights [0, 1, 0] into the run_trial_source_domain and
     # noticing that the ouptput had poor demographic parity.
     #
-    demo_df['y'] = y_demo
+    demo_df["y"] = y_demo
     clf_pol = compute_optimal_policy(
         clf_df=demo_df,  # NOT the dataset used to train the C_{Y_Z,X} clf
         clf=clf,
@@ -1774,9 +1838,9 @@ def run_trial_target_domain(
         obj_set=feat_obj_set,
         reward_weights=reward_weights,
         skip_error_terms=True,
-        method=exp_info['METHOD'],
-        min_freq_fill_pct=exp_info['MIN_FREQ_FILL_PCT'],
-        restrict_y=exp_info['RESTRICT_Y_ACTION'],
+        method=exp_info["METHOD"],
+        min_freq_fill_pct=exp_info["MIN_FREQ_FILL_PCT"],
+        restrict_y=exp_info["RESTRICT_Y_ACTION"],
     )
 
     # Compute feature expectations of the learned policy
@@ -1794,14 +1858,13 @@ def run_trial_target_domain(
 
 
 def compute_feat_exp(
-        all_objs, exp_info, X=None, y=None, feature_types=None, unfairness_types=[]
+    all_objs, exp_info, X=None, y=None, feature_types=None, unfairness_types=[]
 ):
     objectives = []
     for obj_name in all_objs:
         objectives.append(OBJ_LOOKUP_BY_NAME[obj_name]())
     feat_obj_set = ObjectiveSet(objectives)
     del objectives
-
 
     # These are the feature type sthat will be used as inputs for the expert
     # classifier.
@@ -1816,26 +1879,27 @@ def compute_feat_exp(
     # Split data into 3 sets.
     #     1. Demo: for computing expert demos AND learning muL - muE diffs
     #     2. Hold – computes the unbiased values for muL and t (dataset is
-    #.       never shown to the IRL learning algo.)
+    # .       never shown to the IRL learning algo.)
     # X_demo, X_hold, y_demo, y_hold = train_test_split(X, y, test_size=.5)
 
     # Check if expert works on target domain.
     # if not exp_info['EXPERT_CANNOT_PREDICT_IN_TARGET']:
 
-        # Generate expert demonstrations to compare against.
+    # Generate expert demonstrations to compare against.
     muE_all, _ = generate_demos_k_folds(
         exp_info,
         X=X,
         y=y,
-        clf=expert_algo_lookup[exp_info['EXPERT_ALGO']],
+        clf=expert_algo_lookup[exp_info["EXPERT_ALGO"]],
         obj_set=feat_obj_set,
-        n_demos=exp_info['N_EXPERT_DEMOS'],
-        bias_types=unfairness_types
+        n_demos=exp_info["N_EXPERT_DEMOS"],
+        bias_types=unfairness_types,
     )
     return muE_all
 
+
 def run_bias_experiment(
-        exp_info, source_X=None, source_y=None, source_feature_types=None
+    exp_info, source_X=None, source_y=None, source_feature_types=None
 ):
     """
     Runs experiment for source domain and optionally target domain based on
@@ -1881,17 +1945,17 @@ def run_bias_experiment(
     """
     logging.info(f"exp_info: {exp_info}")
 
-    timestamp = datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+    timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     logging.info(f"Experiment timestamp: {timestamp}")
 
     objectives = []
-    for obj_name in exp_info['FEAT_EXP_OBJECTIVE_NAMES']:
+    for obj_name in exp_info["FEAT_EXP_OBJECTIVE_NAMES"]:
         objectives.append(OBJ_LOOKUP_BY_NAME[obj_name]())
     feat_obj_set = ObjectiveSet(objectives)
     del objectives
 
     objectives = []
-    for obj_name in exp_info['PERF_MEAS_OBJECTIVE_NAMES']:
+    for obj_name in exp_info["PERF_MEAS_OBJECTIVE_NAMES"]:
         objectives.append(OBJ_LOOKUP_BY_NAME[obj_name]())
     perf_obj_set = ObjectiveSet(objectives)
     del objectives
@@ -1903,7 +1967,7 @@ def run_bias_experiment(
         weight_adjust_names.append("".join(weight_adjusts))
     trial_i = 0
 
-    while trial_i < exp_info['N_TRIALS']:
+    while trial_i < exp_info["N_TRIALS"]:
         # logging.info(f"\n\nTRIAL {trial_i}\n")
 
         source_trial_start = datetime.datetime.now()
@@ -1915,17 +1979,29 @@ def run_bias_experiment(
             y=source_y,
             feature_types=source_feature_types,
         )
-        for i, (weight_adjusts, return_val) in enumerate(zip(exp_info["WEIGHT_ADJUSTS_LIST"], return_vals)):
-            did_converge, muE_unbiased, muE, muE_feat_hold, muE_perf_hold, df_irl, weights, t_hold, source_clf_pol, source_irl_loop_runtime = return_val
+        for i, (weight_adjusts, return_val) in enumerate(
+            zip(exp_info["WEIGHT_ADJUSTS_LIST"], return_vals)
+        ):
+            (
+                did_converge,
+                muE_unbiased,
+                muE,
+                muE_feat_hold,
+                muE_perf_hold,
+                df_irl,
+                weights,
+                t_hold,
+                source_clf_pol,
+                source_irl_loop_runtime,
+            ) = return_val
 
             source_trial_runtime = (
                 datetime.datetime.now() - source_trial_start
             ).total_seconds()
 
             source_trial_inputsize = None
-            if hasattr(source_clf_pol, 'mdp'):
+            if hasattr(source_clf_pol, "mdp"):
                 source_trial_inputsize = source_clf_pol.mdp.n_states_
-
 
             # If feature expectation error wasn't sufficiently small, skip.
             if not did_converge:
@@ -1944,9 +2020,11 @@ def run_bias_experiment(
                 df_irl,
                 source_trial_runtime,
                 source_irl_loop_runtime,
-                source_trial_inputsize
+                source_trial_inputsize,
             )
-            results[i].append(_result) # each "i" list should contain one result for each trial
+            results[i].append(
+                _result
+            )  # each "i" list should contain one result for each trial
 
             # Persist the irl loop details so we can look at convergence
             df_irl.to_csv(
@@ -1969,15 +2047,20 @@ def run_bias_experiment(
         )
 
         # Persist trial info
-        exp_info['timestamp'] = timestamp
+        exp_info["timestamp"] = timestamp
         exp_info["WEIGHT_ADJUSTS"] = weight_adjusts
         fp = f"./../../data/experiment_output/fair_irl/exp_info/{timestamp}_{weight_adjust_names[i]}.json"
-        json.dump(exp_info, open(fp, 'w'))
+        json.dump(exp_info, open(fp, "w"))
 
 
 def run_experiment(
-        exp_info, source_X=None, source_y=None, source_feature_types=None,
-        target_X=None, target_y=None, target_feature_types=None,
+    exp_info,
+    source_X=None,
+    source_y=None,
+    source_feature_types=None,
+    target_X=None,
+    target_y=None,
+    target_feature_types=None,
 ):
     """
     Runs experiment for source domain and optionally target domain based on
@@ -2023,17 +2106,17 @@ def run_experiment(
     """
     logging.info(f"exp_info: {exp_info}")
 
-    timestamp = datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+    timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     logging.info(f"Experiment timestamp: {timestamp}")
 
     objectives = []
-    for obj_name in exp_info['FEAT_EXP_OBJECTIVE_NAMES']:
+    for obj_name in exp_info["FEAT_EXP_OBJECTIVE_NAMES"]:
         objectives.append(OBJ_LOOKUP_BY_NAME[obj_name]())
     feat_obj_set = ObjectiveSet(objectives)
     del objectives
 
     objectives = []
-    for obj_name in exp_info['PERF_MEAS_OBJECTIVE_NAMES']:
+    for obj_name in exp_info["PERF_MEAS_OBJECTIVE_NAMES"]:
         objectives.append(OBJ_LOOKUP_BY_NAME[obj_name]())
     perf_obj_set = ObjectiveSet(objectives)
     del objectives
@@ -2042,13 +2125,23 @@ def run_experiment(
     trial_i = 0
     target_clf_pol = None
 
-    while trial_i < exp_info['N_TRIALS']:
+    while trial_i < exp_info["N_TRIALS"]:
         logging.info(f"\n\nTRIAL {trial_i}\n")
 
         source_trial_start = datetime.datetime.now()
 
         # Run trials to learn weights on source domain
-        did_converge, muE, muE_feat_hold, muE_perf_hold, df_irl, weights, t_hold, source_clf_pol, source_irl_loop_runtime = run_trial_source_domain(
+        (
+            did_converge,
+            muE,
+            muE_feat_hold,
+            muE_perf_hold,
+            df_irl,
+            weights,
+            t_hold,
+            source_clf_pol,
+            source_irl_loop_runtime,
+        ) = run_trial_source_domain(
             exp_info,
             X=source_X,
             y=source_y,
@@ -2060,9 +2153,8 @@ def run_experiment(
         ).total_seconds()
 
         source_trial_inputsize = None
-        if hasattr(source_clf_pol, 'mdp'):
+        if hasattr(source_clf_pol, "mdp"):
             source_trial_inputsize = source_clf_pol.mdp.n_states_
-
 
         # If feature expectation error wasn't sufficiently small, skip.
         if not did_converge:
@@ -2074,8 +2166,14 @@ def run_experiment(
         muE_target_mean = None
         muL_target_hold = None
 
-        if exp_info['TARGET_DATASET'] is not None:
-            muE_target, muE_perf_target, muL_target_hold, muL_perf_target_hold, target_clf_pol = run_trial_target_domain(
+        if exp_info["TARGET_DATASET"] is not None:
+            (
+                muE_target,
+                muE_perf_target,
+                muL_target_hold,
+                muL_perf_target_hold,
+                target_clf_pol,
+            ) = run_trial_target_domain(
                 exp_info,
                 weights,
                 t_hold,
@@ -2124,29 +2222,33 @@ def run_experiment(
     )
 
     # Persist trial info
-    exp_info['timestamp'] = timestamp
+    exp_info["timestamp"] = timestamp
     fp = f"./../../data/experiment_output/fair_irl/exp_info/{timestamp}.json"
-    json.dump(exp_info, open(fp, 'w'))
+    json.dump(exp_info, open(fp, "w"))
 
     return source_clf_pol, target_clf_pol
 
 
 def run_behavior_clone_experiment(
-        exp_info,
-        source_X=None, source_y=None, source_feature_types=None,
-        target_X=None, target_y=None, target_feature_types=None,
+    exp_info,
+    source_X=None,
+    source_y=None,
+    source_feature_types=None,
+    target_X=None,
+    target_y=None,
+    target_feature_types=None,
 ):
     """
     Behavior cloning equivalent to run-experiment().
     """
     objectives = []
-    for obj_name in exp_info['FEAT_EXP_OBJECTIVE_NAMES']:
+    for obj_name in exp_info["FEAT_EXP_OBJECTIVE_NAMES"]:
         objectives.append(OBJ_LOOKUP_BY_NAME[obj_name]())
     feat_obj_set = ObjectiveSet(objectives)
     del objectives
 
     objectives = []
-    for obj_name in exp_info['PERF_MEAS_OBJECTIVE_NAMES']:
+    for obj_name in exp_info["PERF_MEAS_OBJECTIVE_NAMES"]:
         objectives.append(OBJ_LOOKUP_BY_NAME[obj_name]())
     perf_obj_set = ObjectiveSet(objectives)
     del objectives
@@ -2155,20 +2257,21 @@ def run_behavior_clone_experiment(
     trial_i = 0
 
     exp_info = dict(exp_info)
-    exp_info['IRL_METHOD'] = 'Beh Clone'
+    exp_info["IRL_METHOD"] = "Beh Clone"
 
-    while trial_i < exp_info['N_TRIALS']:
+    while trial_i < exp_info["N_TRIALS"]:
         logging.info(f"\n\nBEHAVIOR CLONING TRIAL {trial_i}\n")
 
         source_trial_start = datetime.datetime.now()
 
-        _, muE, muE_feat_hold, muE_perf_hold, df_irl, weights, t_hold, clf = \
+        _, muE, muE_feat_hold, muE_perf_hold, df_irl, weights, t_hold, clf = (
             run_behavioral_cloning_trial_source_domain(
                 exp_info,
                 X=source_X,
                 y=source_y,
                 feature_types=source_feature_types,
             )
+        )
 
         source_trial_runtime = (
             datetime.datetime.now() - source_trial_start
@@ -2177,29 +2280,34 @@ def run_behavior_clone_experiment(
         source_trial_inputsize = None
 
         if (
-             'ACSIncome__' in exp_info['DATASET'] and
-             'ACSIncome__' in exp_info['TARGET_DATASET']
+            "ACSIncome__" in exp_info["DATASET"]
+            and "ACSIncome__" in exp_info["TARGET_DATASET"]
         ):
-            muE_target, muE_perf_target, muL_target_hold, muL_perf_target_hold, _ = \
+            muE_target, muE_perf_target, muL_target_hold, muL_perf_target_hold, _ = (
                 run_behavior_cloning_trial_target_domain(
                     exp_info,
                     clf,
                     X=target_X,
                     y=target_y,
                     feature_types=target_feature_types,
+                )
             )
             muE_target_mean = muE_target.mean(axis=0)
             muE_perf_target_mean = muE_perf_target.mean(axis=0)
         else:
-            muE_target_mean = np.zeros(shape=(
-                exp_info['N_EXPERT_DEMOS'],
-                len(feat_obj_set.objectives),
-            )).mean(axis=0)
+            muE_target_mean = np.zeros(
+                shape=(
+                    exp_info["N_EXPERT_DEMOS"],
+                    len(feat_obj_set.objectives),
+                )
+            ).mean(axis=0)
             muL_target_hold = np.array(muE_target_mean)
-            muE_perf_target_mean = np.zeros(shape=(
-                exp_info['N_EXPERT_DEMOS'],
-                len(perf_obj_set.objectives),
-            )).mean(axis=0)
+            muE_perf_target_mean = np.zeros(
+                shape=(
+                    exp_info["N_EXPERT_DEMOS"],
+                    len(perf_obj_set.objectives),
+                )
+            ).mean(axis=0)
             muL_perf_target_hold = np.array(muE_perf_target_mean)
 
         # Aggregate trial results
@@ -2228,16 +2336,16 @@ def run_behavior_clone_experiment(
         perf_obj_set,
         results,
     )
-    timestamp = datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+    timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     exp_df.to_csv(
         f"./../../data/experiment_output/fair_irl/exp_results/{timestamp}.csv",
         index=None,
     )
 
     # Persist trial info
-    exp_info['timestamp'] = timestamp
+    exp_info["timestamp"] = timestamp
     fp = f"./../../data/experiment_output/fair_irl/exp_info/{timestamp}.json"
-    json.dump(exp_info, open(fp, 'w'))
+    json.dump(exp_info, open(fp, "w"))
 
     return clf
 
@@ -2250,37 +2358,37 @@ def plot_results_source_domain_only(
     extra_skip_conditions=(lambda info: False),
     extra_title=None,
     figsize=(12, 4),
-    irl_methods_to_exclude=['FairIRLDeNormed', 'FairIRLFODeNormed', 'FairIRLNorm2'],
+    irl_methods_to_exclude=["FairIRLDeNormed", "FairIRLFODeNormed", "FairIRLNorm2"],
     max_exp_timestamp=None,
     max_mu_value=None,
     min_exp_timestamp=None,
     min_mu_value=None,
     min_perf_value=None,
     min_w_value=None,
-    mu_hue_order=['muE', 'muL (FairIRL)', 'muL (FairIRLFO)'],
+    mu_hue_order=["muE", "muL (FairIRL)", "muL (FairIRLFO)"],
     mu_leg_ax=0,
     mu_noise_factor=0,
     mu_whis=[5, 95],
     mu_ylim=(0, 1.05),
-    mu_yticks=[.4, .5, .6, .7, .8, .9, 1],
+    mu_yticks=[0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1],
     palette=cp,
-    perf_hue_order=['Expert', 'Learned (FairIRL)', 'Learned (Beh Clone)'],
+    perf_hue_order=["Expert", "Learned (FairIRL)", "Learned (Beh Clone)"],
     perf_leg_ax=0,
     perf_noise_factor=0,
     perf_whis=[5, 95],
     perf_ylim=(0, 1.05),
-    perf_yticks=[.4, .5, .6, .7, .8, .9, 1],
-    plot_type='boxplot',
+    perf_yticks=[0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1],
+    plot_type="boxplot",
     size_mult=1,
-    w_hue_order=[None, 'wL (FairIRL)', 'wL (FairIRLFO)'],
+    w_hue_order=[None, "wL (FairIRL)", "wL (FairIRLFO)"],
     w_leg_ax=0,
     w_noise_factor=0,
     w_palette=cp,
     w_whis=[5, 95],
-    w_ylim=(-.5, 1.05),
-    w_yticks=[-.2, 0, .2, .4, .6, .8, 1],
+    w_ylim=(-0.5, 1.05),
+    w_yticks=[-0.2, 0, 0.2, 0.4, 0.6, 0.8, 1],
 ):
-    path_prefix = './../../data/experiment_output/fair_irl/'
+    path_prefix = "./../../data/experiment_output/fair_irl/"
     exp_results_files = sorted(os.listdir(f"{path_prefix}/exp_results/"))
     exp_info_files = sorted(os.listdir(f"{path_prefix}/exp_info/"))
 
@@ -2290,7 +2398,7 @@ def plot_results_source_domain_only(
         3,
         n_exp,
         figsize=figsize,
-        height_ratios=[1,2.5,1.5],
+        height_ratios=[1, 2.5, 1.5],
     )
 
     mu_dfs = []
@@ -2309,16 +2417,16 @@ def plot_results_source_domain_only(
             ax3 = axes[2][exp_i]
 
         # Construct a pivot table so we can do a seaborn boxplot
-        mu_cols = ['Value', 'Demo Producer', 'Feature Expectation']
+        mu_cols = ["Value", "Demo Producer", "Feature Expectation"]
         mu_rows = []
-        perf_cols = ['Value', 'Demo Producer', 'Performance Measures']
+        perf_cols = ["Value", "Demo Producer", "Performance Measures"]
         perf_rows = []
-        w_cols = ['Value', 'IRL Method', 'Weight']
+        w_cols = ["Value", "IRL Method", "Weight"]
         w_rows = []
 
         # For each experiment...
-        for (result_file, info_file) in zip(exp_results_files, exp_info_files):
-            if result_file.replace('csv', '') != info_file.replace('json', ''):
+        for result_file, info_file in zip(exp_results_files, exp_info_files):
+            if result_file.replace("csv", "") != info_file.replace("json", ""):
                 raise ValueError(
                     f"Mismatched number of results and info files. "
                     f"{result_file}, {info_file}"
@@ -2338,157 +2446,161 @@ def plot_results_source_domain_only(
 
             # Filter to only experiments for the input `expert_algo`
             if (
-                info['EXPERT_ALGO'] != expert_algo
-                or (dataset is not None and info['DATASET'] != dataset)
-                or set(info['FEAT_EXP_OBJECTIVE_NAMES']) != set(feat_objective_set_names)
-                or not set(perf_objective_set_names).issubset(set(info['PERF_MEAS_OBJECTIVE_NAMES']))
-                or info['IRL_METHOD'] in irl_methods_to_exclude
-                    or extra_skip_conditions(info)
+                info["EXPERT_ALGO"] != expert_algo
+                or (dataset is not None and info["DATASET"] != dataset)
+                or set(info["FEAT_EXP_OBJECTIVE_NAMES"])
+                != set(feat_objective_set_names)
+                or not set(perf_objective_set_names).issubset(
+                    set(info["PERF_MEAS_OBJECTIVE_NAMES"])
+                )
+                or info["IRL_METHOD"] in irl_methods_to_exclude
+                or extra_skip_conditions(info)
             ):
                 continue
 
             for idx, row in result.iterrows():
                 # Append muE and muL results
-                for obj_name in info['FEAT_EXP_OBJECTIVE_NAMES']:
-                    mu_rows.append([
-                        row[f"muE_hold_{obj_name}_mean"],
-                        'muE',
-                        obj_name,
-                    ])
-                for obj_name in info['FEAT_EXP_OBJECTIVE_NAMES']:
-                    mu_rows.append([
-                        row[f"muL_best_hold_{obj_name}"],
-                        f"muL ({info['IRL_METHOD']})",
-                        obj_name,
-                    ])
-                for obj_name in info['PERF_MEAS_OBJECTIVE_NAMES']:
-                    perf_rows.append([
-                        row[f"muE_perf_hold_{obj_name}"],
-                        f"muE",
-                        obj_name,
-                    ])
-                for obj_name in info['PERF_MEAS_OBJECTIVE_NAMES']:
-                    perf_rows.append([
-                        row[f"muL_perf_best_hold_{obj_name}"],
-                        f"muL ({info['IRL_METHOD']})",
-                        obj_name,
-                    ])
-                for obj_name in info['FEAT_EXP_OBJECTIVE_NAMES']:
-                    w_rows.append([
-                        row[f"wL_{obj_name}"],
-                        f"wL ({info['IRL_METHOD']})",
-                        obj_name,
-                    ])
+                for obj_name in info["FEAT_EXP_OBJECTIVE_NAMES"]:
+                    mu_rows.append(
+                        [
+                            row[f"muE_hold_{obj_name}_mean"],
+                            "muE",
+                            obj_name,
+                        ]
+                    )
+                for obj_name in info["FEAT_EXP_OBJECTIVE_NAMES"]:
+                    mu_rows.append(
+                        [
+                            row[f"muL_best_hold_{obj_name}"],
+                            f"muL ({info['IRL_METHOD']})",
+                            obj_name,
+                        ]
+                    )
+                for obj_name in info["PERF_MEAS_OBJECTIVE_NAMES"]:
+                    perf_rows.append(
+                        [
+                            row[f"muE_perf_hold_{obj_name}"],
+                            f"muE",
+                            obj_name,
+                        ]
+                    )
+                for obj_name in info["PERF_MEAS_OBJECTIVE_NAMES"]:
+                    perf_rows.append(
+                        [
+                            row[f"muL_perf_best_hold_{obj_name}"],
+                            f"muL ({info['IRL_METHOD']})",
+                            obj_name,
+                        ]
+                    )
+                for obj_name in info["FEAT_EXP_OBJECTIVE_NAMES"]:
+                    w_rows.append(
+                        [
+                            row[f"wL_{obj_name}"],
+                            f"wL ({info['IRL_METHOD']})",
+                            obj_name,
+                        ]
+                    )
 
         if len(mu_rows) == 0:
             raise ValueError(f"No results for provided config.")
 
         mu_df = pd.DataFrame(mu_rows, columns=mu_cols)
-        mu_df['Value'] += mu_noise_factor*(np.random.rand(len(mu_df)) - .5)
-        mu_df['Value'] = mu_df['Value'].clip(0, 1)
+        mu_df["Value"] += mu_noise_factor * (np.random.rand(len(mu_df)) - 0.5)
+        mu_df["Value"] = mu_df["Value"].clip(0, 1)
         perf_df = pd.DataFrame(perf_rows, columns=perf_cols)
-        perf_df['Value'] += perf_noise_factor*(np.random.rand(len(perf_df)) - .5)
-        perf_df['Value'] = perf_df['Value'].clip(0, 1)
+        perf_df["Value"] += perf_noise_factor * (np.random.rand(len(perf_df)) - 0.5)
+        perf_df["Value"] = perf_df["Value"].clip(0, 1)
         w_df = pd.DataFrame(w_rows, columns=w_cols)
-        w_df['Value'] += w_noise_factor*(np.random.rand(len(w_df)) - .5)
+        w_df["Value"] += w_noise_factor * (np.random.rand(len(w_df)) - 0.5)
 
         mu_dfs.append(mu_df.copy())
         perf_dfs.append(perf_df.copy())
         w_dfs.append(w_df.copy())
 
+        mu_df["Demo Producer"] = mu_df["Demo Producer"].str.replace("muE", r"$\mu^E$")
+        mu_df["Demo Producer"] = mu_df["Demo Producer"].str.replace("muL", r"$\mu^L$")
+        perf_df["Demo Producer"] = perf_df["Demo Producer"].str.replace("muE", "Expert")
+        perf_df["Demo Producer"] = perf_df["Demo Producer"].str.replace(
+            "muL", "Learned"
+        )
+        w_df["IRL Method"] = w_df["IRL Method"].str.replace("wL", r"$w^L$")
 
-        mu_df['Demo Producer'] = (
-            mu_df['Demo Producer'].str.replace('muE', r'$\mu^E$')
-        )
-        mu_df['Demo Producer'] = (
-            mu_df['Demo Producer'].str.replace('muL', r'$\mu^L$')
-        )
-        perf_df['Demo Producer'] = (
-            perf_df['Demo Producer'].str.replace('muE', 'Expert')
-        )
-        perf_df['Demo Producer'] = (
-            perf_df['Demo Producer'].str.replace('muL', 'Learned')
-        )
-        w_df['IRL Method'] = (
-            w_df['IRL Method'].str.replace('wL', r'$w^L$')
-        )
-
-        mu_hue_order = pd.Series(mu_hue_order).str.replace('muE', r'$\mu^E$')
-        mu_hue_order = pd.Series(mu_hue_order).str.replace('muL', r'$\mu^L$')
-        w_hue_order = pd.Series(w_hue_order).str.replace('wL', r'$w^L$')
-        perf_hue_order = pd.Series(perf_hue_order).str.replace('muE', 'Expert')
-        perf_hue_order = pd.Series(perf_hue_order).str.replace('muL', 'Learned')
+        mu_hue_order = pd.Series(mu_hue_order).str.replace("muE", r"$\mu^E$")
+        mu_hue_order = pd.Series(mu_hue_order).str.replace("muL", r"$\mu^L$")
+        w_hue_order = pd.Series(w_hue_order).str.replace("wL", r"$w^L$")
+        perf_hue_order = pd.Series(perf_hue_order).str.replace("muE", "Expert")
+        perf_hue_order = pd.Series(perf_hue_order).str.replace("muL", "Learned")
 
         if min_mu_value is not None:
-            mu_df = mu_df.query('Value >= @min_mu_value')
+            mu_df = mu_df.query("Value >= @min_mu_value")
         if max_mu_value is not None:
-            mu_df = mu_df.query('Value <= @max_mu_value')
+            mu_df = mu_df.query("Value <= @max_mu_value")
 
         if min_w_value is not None:
-            w_df = w_df.query('Value >= @min_w_value')
+            w_df = w_df.query("Value >= @min_w_value")
 
         if min_perf_value is not None:
-            perf_df = perf_df.query('Value >= @min_perf_value')
+            perf_df = perf_df.query("Value >= @min_perf_value")
 
         # Plot boxplot for feature expectations
-        if plot_type == 'boxplot':
+        if plot_type == "boxplot":
             sns.boxplot(
-                x=mu_df['Feature Expectation'],
-                y=mu_df['Value'],
-                hue=mu_df['Demo Producer'],
+                x=mu_df["Feature Expectation"],
+                y=mu_df["Value"],
+                hue=mu_df["Demo Producer"],
                 hue_order=mu_hue_order,
                 ax=ax2,
                 fliersize=0,  # Remove outliers
                 saturation=1,
-                palette=list(cp[0:3])+ list(cp[6:]),
-                linewidth=.2,
-                medianprops=dict(color="black", alpha=1, linewidth=.8),
+                palette=list(cp[0:3]) + list(cp[6:]),
+                linewidth=0.2,
+                medianprops=dict(color="black", alpha=1, linewidth=0.8),
                 boxprops=dict(alpha=1),
                 whis=mu_whis,
                 dodge=True,
-                width=.75,
-                gap=.1,
+                width=0.75,
+                gap=0.1,
             )
-        elif plot_type == 'boxenplot':
+        elif plot_type == "boxenplot":
             sns.boxenplot(
-                x=mu_df['Feature Expectation'],
-                y=mu_df['Value'],
-                hue=mu_df['Demo Producer'],
+                x=mu_df["Feature Expectation"],
+                y=mu_df["Value"],
+                hue=mu_df["Demo Producer"],
                 hue_order=mu_hue_order,
                 ax=ax2,
                 # fliersize=0,  # Remove outliers
                 saturation=1,
-                palette=list(cp[0:3])+ list(cp[6:]),
-                linewidth=.2,
-                line_kws=dict(linewidth=.8),  # used for median
+                palette=list(cp[0:3]) + list(cp[6:]),
+                linewidth=0.2,
+                line_kws=dict(linewidth=0.8),  # used for median
                 # whis=mu_whis,
                 # size=2,
                 # dodge=True,
-                width_method='linear',
+                width_method="linear",
                 k_depth=4,
-                width=.75,
-                gap=.1,
+                width=0.75,
+                gap=0.1,
                 showfliers=False,
             )
         else:
             raise ValueError(f"Invalid plot type: {plot_type}")
 
         ax2.set_ylabel(None)
-        ax2.set_xlabel('Feature Expectations')
+        ax2.set_xlabel("Feature Expectations")
 
         if exp_i == mu_leg_ax:
             ax2.legend(
                 title=None,
                 ncol=1,
-                loc='best',
-                labelspacing=.1,
-                columnspacing=.1,
+                loc="best",
+                labelspacing=0.1,
+                columnspacing=0.1,
                 # bbox_to_anchor=(-1.7, 0),
             )
         else:
             ax2.get_legend().remove()
 
-        ax2.yaxis.set_major_formatter(FormatStrFormatter('%g'))
+        ax2.yaxis.set_major_formatter(FormatStrFormatter("%g"))
         ax2.set_yticks(mu_yticks)
         ax2.set_ylim(mu_ylim)
 
@@ -2497,65 +2609,64 @@ def plot_results_source_domain_only(
         else:
             ax2.set_yticklabels([])
 
-
         # mu_df = mu_df.sort_values(['Demo Producer', 'Feature Expectation'])
         # perf_df = perf_df.sort_values(['Demo Producer', 'Performance Measures'])
         # w_df = w_df.sort_values(['Weight', 'IRL Method'])
 
         # Plot boxplot for weights
-        if plot_type == 'boxplot':
+        if plot_type == "boxplot":
             sns.boxplot(
-                x=w_df['Weight'],
-                y=w_df['Value'],
-                hue=w_df['IRL Method'],
+                x=w_df["Weight"],
+                y=w_df["Value"],
+                hue=w_df["IRL Method"],
                 hue_order=w_hue_order,
                 ax=ax1,
                 fliersize=0,  # Remove outliers
                 saturation=1,
                 palette=w_palette,
-                linewidth=.2,
-                medianprops=dict(color="black", alpha=1, linewidth=.8),
+                linewidth=0.2,
+                medianprops=dict(color="black", alpha=1, linewidth=0.8),
                 boxprops=dict(alpha=1),
                 whis=w_whis,
                 dodge=True,
-                width=.5,
-                gap=.1,
+                width=0.5,
+                gap=0.1,
             )
-        elif plot_type == 'boxenplot':
+        elif plot_type == "boxenplot":
             sns.boxenplot(
-                x=w_df['Weight'],
-                y=w_df['Value'],
-                hue=w_df['IRL Method'],
+                x=w_df["Weight"],
+                y=w_df["Value"],
+                hue=w_df["IRL Method"],
                 hue_order=w_hue_order,
                 ax=ax1,
                 saturation=1,
                 palette=w_palette,
-                linewidth=.2,
-                line_kws=dict(linewidth=.8),  # used for median
-                width_method='linear',
+                linewidth=0.2,
+                line_kws=dict(linewidth=0.8),  # used for median
+                width_method="linear",
                 k_depth=4,
-                width=.5,
-                gap=.1,
+                width=0.5,
+                gap=0.1,
                 showfliers=False,
             )
         else:
             raise ValueError(f"Invalid plot type: {plot_type}")
 
         ax1.set_ylabel(None)
-        ax1.set_xlabel('Weights')
+        ax1.set_xlabel("Weights")
 
         if exp_i == w_leg_ax:
             ax1.legend(
                 title=None,
                 ncol=2,
-                loc='best',
-                labelspacing=.1,
-                columnspacing=.5,
+                loc="best",
+                labelspacing=0.1,
+                columnspacing=0.5,
             )
         else:
             ax1.get_legend().remove()
 
-        ax1.yaxis.set_major_formatter(FormatStrFormatter('%g'))
+        ax1.yaxis.set_major_formatter(FormatStrFormatter("%g"))
         ax1.set_yticks(w_yticks)
         ax1.set_ylim(w_ylim)
 
@@ -2565,62 +2676,62 @@ def plot_results_source_domain_only(
             ax1.set_yticklabels([])
 
         # Plot boxplot for performance measures
-        if plot_type == 'boxplot':
+        if plot_type == "boxplot":
             sns.boxplot(
-                x=perf_df['Performance Measures'],
-                y=perf_df['Value'],
-                hue=perf_df['Demo Producer'],
+                x=perf_df["Performance Measures"],
+                y=perf_df["Value"],
+                hue=perf_df["Demo Producer"],
                 order=perf_objective_set_names,
                 hue_order=perf_hue_order,
                 ax=ax3,
                 fliersize=0,  # Remove outliers
                 saturation=1,
                 palette=palette,
-                linewidth=.2,
-                medianprops=dict(color="black", alpha=1, linewidth=.8),
+                linewidth=0.2,
+                medianprops=dict(color="black", alpha=1, linewidth=0.8),
                 boxprops=dict(alpha=1),
                 whis=perf_whis,
                 dodge=True,
-                width=.75,
-                gap=.1,
+                width=0.75,
+                gap=0.1,
             )
-        elif plot_type == 'boxenplot':
+        elif plot_type == "boxenplot":
             sns.boxenplot(
-                x=perf_df['Performance Measures'],
-                y=perf_df['Value'],
-                hue=perf_df['Demo Producer'],
+                x=perf_df["Performance Measures"],
+                y=perf_df["Value"],
+                hue=perf_df["Demo Producer"],
                 order=perf_objective_set_names,
                 hue_order=perf_hue_order,
                 ax=ax3,
                 saturation=1,
                 palette=palette,
-                linewidth=.2,
-                line_kws=dict(linewidth=.8),  # used for median
-                width_method='linear',
+                linewidth=0.2,
+                line_kws=dict(linewidth=0.8),  # used for median
+                width_method="linear",
                 k_depth=4,
-                width=.75,
-                gap=.1,
+                width=0.75,
+                gap=0.1,
                 showfliers=False,
             )
         else:
             raise ValueError(f"Invalid plot type: {plot_type}")
 
         ax3.set_ylabel(None)
-        ax3.set_xlabel('Fairness Measures')
+        ax3.set_xlabel("Fairness Measures")
 
         if exp_i == perf_leg_ax:
             ax3.legend(
                 title=None,
                 ncol=2,
-                loc='best',
-                labelspacing=.3,
-                columnspacing=.5,
+                loc="best",
+                labelspacing=0.3,
+                columnspacing=0.5,
                 # bbox_to_anchor=(-2.08, -.48),
             )
         else:
             ax3.get_legend().remove()
 
-        ax3.yaxis.set_major_formatter(FormatStrFormatter('%g'))
+        ax3.yaxis.set_major_formatter(FormatStrFormatter("%g"))
         ax3.set_yticks(perf_yticks)
         ax3.set_ylim(perf_ylim)
 
@@ -2628,8 +2739,6 @@ def plot_results_source_domain_only(
             ax3.set_yticklabels(perf_yticks)
         else:
             ax3.set_yticklabels([])
-
-
 
         # Set title on top of fig 1
         title = f"Expert: {expert_algo}"
@@ -2641,7 +2750,7 @@ def plot_results_source_domain_only(
         ax3.set_title(title, fontsize=12)
 
     plt.tight_layout()
-    plt.subplots_adjust(wspace=.03, hspace=1)
+    plt.subplots_adjust(wspace=0.03, hspace=1)
 
     print(f"DATASET: {dataset}")
 
@@ -2658,32 +2767,32 @@ def plot_results_target_domain(
     perf_noise_factor=0,
     w_noise_factor=0,
     mu_hue_order=[
-        'muE',
-        'muL (FairIRL)',
-        'muL (FairIRLFO)',
-        'muE_target',
-        'muL_target',
+        "muE",
+        "muL (FairIRL)",
+        "muL (FairIRLFO)",
+        "muE_target",
+        "muL_target",
     ],
     w_hue_order=[
         None,
-        'wL (FairIRL)',
-        'wL (FairIRLFO)',
+        "wL (FairIRL)",
+        "wL (FairIRLFO)",
         # 'wL (FairIRLNorm)',
         # 'wL (FairIRLNorm2)'
     ],
-    perf_hue_order=['muE', 'muL (FairIRL)', 'muL (FairIRLFO)'],
+    perf_hue_order=["muE", "muL (FairIRL)", "muL (FairIRLFO)"],
     irl_methods_to_exclude=[
-        'FairIRLDeNormed',
-        'FairIRLFODeNormed',
-        'FairIRLNorm2',
+        "FairIRLDeNormed",
+        "FairIRLFODeNormed",
+        "FairIRLNorm2",
     ],
     extra_skip_conditions=(lambda info: False),
     min_exp_timestamp=None,
     max_exp_timestamp=None,
     min_mu_value=None,
     min_perf_value=None,
-    mu_yticks=[.4, .5, .6, .7, .8, .9, 1],
-    perf_yticks=[.4, .5, .6, .7, .8, .9, 1],
+    mu_yticks=[0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1],
+    perf_yticks=[0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1],
     mu_ylim=(0, 1.05),
     mu_whis=[5, 95],
     perf_ylim=(0, 1.05),
@@ -2694,7 +2803,7 @@ def plot_results_target_domain(
     palette=cp,
     perf_leg_ax=0,
 ):
-    path_prefix = './../../data/experiment_output/fair_irl/'
+    path_prefix = "./../../data/experiment_output/fair_irl/"
     exp_results_files = sorted(os.listdir(f"{path_prefix}/exp_results/"))
     exp_info_files = sorted(os.listdir(f"{path_prefix}/exp_info/"))
 
@@ -2723,16 +2832,16 @@ def plot_results_target_domain(
             ax2 = axes[1][exp_i]
 
         # Construct a pivot table so we can do a seaborn boxplot
-        mu_cols = ['Value', 'Demo Producer', 'Feature Expectation']
+        mu_cols = ["Value", "Demo Producer", "Feature Expectation"]
         mu_rows = []
-        perf_cols = ['Value', 'Demo Producer', 'Performance Measures']
+        perf_cols = ["Value", "Demo Producer", "Performance Measures"]
         perf_rows = []
-        w_cols = ['Value', 'IRL Method', 'Weight']
+        w_cols = ["Value", "IRL Method", "Weight"]
         w_rows = []
 
         # For each experiment...
-        for (result_file, info_file) in zip(exp_results_files, exp_info_files):
-            if result_file.replace('csv', '') != info_file.replace('json', ''):
+        for result_file, info_file in zip(exp_results_files, exp_info_files):
+            if result_file.replace("csv", "") != info_file.replace("json", ""):
                 raise ValueError(
                     f"Mismatched number of results and info files. "
                     f"{result_file}, {info_file}"
@@ -2752,84 +2861,109 @@ def plot_results_target_domain(
 
             # Filter to only experiments for the input `expert_algo`
             if (
-                info['EXPERT_ALGO'] != expert_algo
-                or (source_dataset is not None and info['DATASET'] != source_dataset)
-                or (target_dataset is not None and info['TARGET_DATASET'] != target_dataset)
-                or set(info['FEAT_EXP_OBJECTIVE_NAMES']) != set(feat_objective_set_names)
-                or not set(perf_objective_set_names).issubset(set(info['PERF_MEAS_OBJECTIVE_NAMES']))
-                or info['IRL_METHOD'] in irl_methods_to_exclude
+                info["EXPERT_ALGO"] != expert_algo
+                or (source_dataset is not None and info["DATASET"] != source_dataset)
+                or (
+                    target_dataset is not None
+                    and info["TARGET_DATASET"] != target_dataset
+                )
+                or set(info["FEAT_EXP_OBJECTIVE_NAMES"])
+                != set(feat_objective_set_names)
+                or not set(perf_objective_set_names).issubset(
+                    set(info["PERF_MEAS_OBJECTIVE_NAMES"])
+                )
+                or info["IRL_METHOD"] in irl_methods_to_exclude
                 or extra_skip_conditions(info)
             ):
                 continue
 
-            print(result_file, info['EXPERT_ALGO'], info['IRL_METHOD'], f"{len(result)} result rows")
-
+            print(
+                result_file,
+                info["EXPERT_ALGO"],
+                info["IRL_METHOD"],
+                f"{len(result)} result rows",
+            )
 
             for idx, row in result.iterrows():
                 # Append muE and muL results
-                for obj_name in info['FEAT_EXP_OBJECTIVE_NAMES']:
-                    mu_rows.append([
-                        row[f"muE_hold_{obj_name}_mean"],
-                        'muE',
-                        obj_name,
-                    ])
+                for obj_name in info["FEAT_EXP_OBJECTIVE_NAMES"]:
+                    mu_rows.append(
+                        [
+                            row[f"muE_hold_{obj_name}_mean"],
+                            "muE",
+                            obj_name,
+                        ]
+                    )
                     if f"muE_target_{obj_name}" in row:
-                        mu_rows.append([
-                            row[f"muE_target_{obj_name}"],
-                            'muE_target',
+                        mu_rows.append(
+                            [
+                                row[f"muE_target_{obj_name}"],
+                                "muE_target",
+                                obj_name,
+                            ]
+                        )
+                        mu_rows.append(
+                            [
+                                row[f"muL_target_hold_{obj_name}"],
+                                "muL_target" + " " + info["IRL_METHOD"],
+                                obj_name,
+                            ]
+                        )
+                for obj_name in info["FEAT_EXP_OBJECTIVE_NAMES"]:
+                    mu_rows.append(
+                        [
+                            row[f"muL_best_hold_{obj_name}"],
+                            f"muL ({info['IRL_METHOD']})",
                             obj_name,
-                        ])
-                        mu_rows.append([
-                            row[f"muL_target_hold_{obj_name}"],
-                            'muL_target' + ' ' + info['IRL_METHOD'],
+                        ]
+                    )
+                    w_rows.append(
+                        [
+                            row[f"wL_{obj_name}"],
+                            f"wL ({info['IRL_METHOD']})",
                             obj_name,
-                        ])
-                for obj_name in info['FEAT_EXP_OBJECTIVE_NAMES']:
-                    mu_rows.append([
-                        row[f"muL_best_hold_{obj_name}"],
-                        f"muL ({info['IRL_METHOD']})",
-                        obj_name,
-                    ])
-                    w_rows.append([
-                        row[f"wL_{obj_name}"],
-                        f"wL ({info['IRL_METHOD']})",
-                        obj_name,
-                    ])
+                        ]
+                    )
 
-                for obj_name in info['PERF_MEAS_OBJECTIVE_NAMES']:
-                    perf_rows.append([
-                        row[f"muE_perf_hold_{obj_name}"],
-                        f"Expert (source)",
-                        obj_name,
-                    ])
-                for obj_name in info['PERF_MEAS_OBJECTIVE_NAMES']:
-                    perf_rows.append([
-                        row[f"muE_perf_target_{obj_name}"],
-                        f"Expert (target)",
-                        obj_name,
-                    ])
-                for obj_name in info['PERF_MEAS_OBJECTIVE_NAMES']:
-                    perf_rows.append([
-                        row[f"muL_perf_target_best_hold_{obj_name}"],
-                        f"{info['IRL_METHOD']} Learned (target)",
-                        obj_name,
-                    ])
+                for obj_name in info["PERF_MEAS_OBJECTIVE_NAMES"]:
+                    perf_rows.append(
+                        [
+                            row[f"muE_perf_hold_{obj_name}"],
+                            f"Expert (source)",
+                            obj_name,
+                        ]
+                    )
+                for obj_name in info["PERF_MEAS_OBJECTIVE_NAMES"]:
+                    perf_rows.append(
+                        [
+                            row[f"muE_perf_target_{obj_name}"],
+                            f"Expert (target)",
+                            obj_name,
+                        ]
+                    )
+                for obj_name in info["PERF_MEAS_OBJECTIVE_NAMES"]:
+                    perf_rows.append(
+                        [
+                            row[f"muL_perf_target_best_hold_{obj_name}"],
+                            f"{info['IRL_METHOD']} Learned (target)",
+                            obj_name,
+                        ]
+                    )
 
         if len(mu_rows) == 0:
             raise ValueError(f"No experimets with EXPERT_ALGO={expert_algo}")
 
         mu_df = pd.DataFrame(mu_rows, columns=mu_cols)
-        mu_df['Value'] += mu_noise_factor*(np.random.rand(len(mu_df)) - .5)
-        mu_df['Value'] = mu_df['Value'].clip(0, 1)
+        mu_df["Value"] += mu_noise_factor * (np.random.rand(len(mu_df)) - 0.5)
+        mu_df["Value"] = mu_df["Value"].clip(0, 1)
         mu_df = mu_df[
-            mu_df['Demo Producer'].str.contains('muE')
-            | mu_df['Demo Producer'].str.contains('muL_target')
+            mu_df["Demo Producer"].str.contains("muE")
+            | mu_df["Demo Producer"].str.contains("muL_target")
         ]
 
         perf_df = pd.DataFrame(perf_rows, columns=perf_cols)
-        perf_df['Value'] += perf_noise_factor*(np.random.rand(len(perf_df)) - .5)
-        perf_df['Value'] = perf_df['Value'].clip(0, 1)
-
+        perf_df["Value"] += perf_noise_factor * (np.random.rand(len(perf_df)) - 0.5)
+        perf_df["Value"] = perf_df["Value"].clip(0, 1)
 
         w_df = pd.DataFrame(w_rows, columns=w_cols)
 
@@ -2837,30 +2971,24 @@ def plot_results_target_domain(
         perf_dfs.append(perf_df.copy())
         w_dfs.append(w_df.copy())
 
-        mu_df['Demo Producer'] = (
-            mu_df['Demo Producer'].str.replace('muE_target', r'$\mu^E_{TARGET}$')
+        mu_df["Demo Producer"] = mu_df["Demo Producer"].str.replace(
+            "muE_target", r"$\mu^E_{TARGET}$"
         )
-        mu_df['Demo Producer'] = (
-            mu_df['Demo Producer'].str.replace('muE', r'$\mu^E_{SOURCE}$')
+        mu_df["Demo Producer"] = mu_df["Demo Producer"].str.replace(
+            "muE", r"$\mu^E_{SOURCE}$"
         )
-        mu_df['Demo Producer'] = (
-            mu_df['Demo Producer'].str.replace('muL_target', r'$\mu^L_{TARGET}$')
+        mu_df["Demo Producer"] = mu_df["Demo Producer"].str.replace(
+            "muL_target", r"$\mu^L_{TARGET}$"
         )
-        mu_df['Demo Producer'] = (
-            mu_df['Demo Producer'].str.replace('muL', r'$\mu^L$')
+        mu_df["Demo Producer"] = mu_df["Demo Producer"].str.replace("muL", r"$\mu^L$")
+        mu_hue_order = pd.Series(mu_hue_order).str.replace(
+            "muE_target", r"$\mu^E_{TARGET}$"
         )
-        mu_hue_order = (
-            pd.Series(mu_hue_order).str.replace('muE_target', r'$\mu^E_{TARGET}$')
+        mu_hue_order = pd.Series(mu_hue_order).str.replace("muE", r"$\mu^E_{SOURCE}$")
+        mu_hue_order = pd.Series(mu_hue_order).str.replace(
+            "muL_target", r"$\mu^L_{TARGET}$"
         )
-        mu_hue_order = (
-            pd.Series(mu_hue_order).str.replace('muE', r'$\mu^E_{SOURCE}$')
-        )
-        mu_hue_order = (
-            pd.Series(mu_hue_order).str.replace('muL_target', r'$\mu^L_{TARGET}$')
-        )
-        mu_hue_order = (
-            pd.Series(mu_hue_order).str.replace('muL', r'$\mu^L$')
-        )
+        mu_hue_order = pd.Series(mu_hue_order).str.replace("muL", r"$\mu^L$")
 
         # perf_df['Demo Producer'] = (
         #     perf_df['Demo Producer'].str.replace('muE_target', r'$\mu^E_{TARGET}$')
@@ -2887,58 +3015,54 @@ def plot_results_target_domain(
         #     pd.Series(perf_hue_order).str.replace('muL', r'$\mu^L$')
         # )
 
-        w_df['IRL Method'] = (
-            w_df['IRL Method'].str.replace('wL', r'$w^L$')
-        )
-        w_hue_order = (
-            pd.Series(w_hue_order).str.replace('wL', r'$w^L$')
-        )
+        w_df["IRL Method"] = w_df["IRL Method"].str.replace("wL", r"$w^L$")
+        w_hue_order = pd.Series(w_hue_order).str.replace("wL", r"$w^L$")
 
         if min_mu_value is not None:
-            mu_df = mu_df.query('Value >= @min_mu_value')
+            mu_df = mu_df.query("Value >= @min_mu_value")
 
         if min_perf_value is not None:
-            perf_df = perf_df.query('Value >= @min_perf_value')
+            perf_df = perf_df.query("Value >= @min_perf_value")
 
         # mu_df = mu_df.sort_values(['Demo Producer', 'Feature Expectation'])
         # perf_df = perf_df.sort_values(['Demo Producer', 'Performance Measures'])
         # w_df = w_df.sort_values(['Weight', 'IRL Method'])
 
         # Filter out empty arrays that were added when target can't be computed
-        mu_df = mu_df.query('Value != 0')
-        perf_df = perf_df.query('Value != 0')
+        mu_df = mu_df.query("Value != 0")
+        perf_df = perf_df.query("Value != 0")
 
         # Feature Expecations
         sns.boxplot(
-            x=mu_df['Feature Expectation'],
-            y=mu_df['Value'],
-            hue=mu_df['Demo Producer'],
+            x=mu_df["Feature Expectation"],
+            y=mu_df["Value"],
+            hue=mu_df["Demo Producer"],
             hue_order=mu_hue_order,
             ax=ax1,
             fliersize=0,  # Remove outliers
             saturation=1,
-            linewidth=.2,
-            medianprops=dict(color="black", alpha=1, linewidth=.8),
+            linewidth=0.2,
+            medianprops=dict(color="black", alpha=1, linewidth=0.8),
             boxprops=dict(alpha=1),
             whis=mu_whis,
             dodge=True,
-            width=.85,
-            gap=.1,
+            width=0.85,
+            gap=0.1,
             palette=palette,
         )
         ax1.set_xlabel(None)
         ax1.get_legend().remove()
-        if exp_i == len(expert_algos)-1:
+        if exp_i == len(expert_algos) - 1:
             ax1.legend(
                 title=None,
                 ncol=4,
-                loc='lower left',
+                loc="lower left",
                 labelspacing=0,
                 columnspacing=1.5,
             )
 
         ax1.set_ylabel(None)
-        ax1.yaxis.set_major_formatter(FormatStrFormatter('%g'))
+        ax1.yaxis.set_major_formatter(FormatStrFormatter("%g"))
         ax1.set_yticks(mu_yticks)
         ax1.set_ylim(mu_ylim)
 
@@ -2951,22 +3075,22 @@ def plot_results_target_domain(
 
         # Performance measures
         sns.boxplot(
-            x=perf_df['Performance Measures'],
-            y=perf_df['Value'],
-            hue=perf_df['Demo Producer'],
+            x=perf_df["Performance Measures"],
+            y=perf_df["Value"],
+            hue=perf_df["Demo Producer"],
             order=perf_objective_set_names,
             hue_order=perf_hue_order,
             ax=ax2,
             fliersize=0,  # Remove outliers
             saturation=1,
             palette=palette,
-            linewidth=.2,
-            medianprops=dict(color="black", alpha=1, linewidth=.8),
+            linewidth=0.2,
+            medianprops=dict(color="black", alpha=1, linewidth=0.8),
             boxprops=dict(alpha=1),
             whis=perf_whis,
             dodge=True,
-            width=.7,
-            gap=.1,
+            width=0.7,
+            gap=0.1,
         )
         ax2.set_xlabel(None)
         ax2.get_legend().remove()
@@ -2974,14 +3098,14 @@ def plot_results_target_domain(
             ax2.legend(
                 title=None,
                 ncol=2,
-                loc='best',
-                labelspacing=.2,
+                loc="best",
+                labelspacing=0.2,
                 columnspacing=1.5,
                 # bbox_to_anchor=(-1.2, 0),
             )
 
         ax2.set_ylabel(None)
-        ax2.yaxis.set_major_formatter(FormatStrFormatter('%g'))
+        ax2.yaxis.set_major_formatter(FormatStrFormatter("%g"))
         ax2.set_yticks(perf_yticks)
         ax2.set_ylim(perf_ylim)
 
@@ -2993,7 +3117,7 @@ def plot_results_target_domain(
         ax2.set_title(f"Expert: {expert_algo}")
 
     plt.tight_layout()
-    plt.subplots_adjust(wspace=.03, hspace=.7)
+    plt.subplots_adjust(wspace=0.03, hspace=0.7)
 
     print(f"SOURCE DATASET: {source_dataset}")
     print(f"TARGET DATASET: {target_dataset}")
@@ -3006,17 +3130,17 @@ def plot_source_fair_irl_comparisons(
     perf_objective_set_names,
     expert_algos,
     dataset,
-    demo_producers=['muE', 'muL (FairIRL)'],
+    demo_producers=["muE", "muL (FairIRL)"],
     mu_noise_factor=0,
     perf_noise_factor=0,
     w_noise_factor=0,
-    mu_hue_order=['muE', 'muL (FairIRL)', 'muL (FairIRLFO)'],
-    perf_hue_order=['Expert', 'Learned (FairIRL)'],
-    w_hue_order=[None, 'wL (FairIRL)', 'wL (FairIRLFO)'],
+    mu_hue_order=["muE", "muL (FairIRL)", "muL (FairIRLFO)"],
+    perf_hue_order=["Expert", "Learned (FairIRL)"],
+    w_hue_order=[None, "wL (FairIRL)", "wL (FairIRLFO)"],
     irl_methods_to_exclude=[
-        'FairIRLDeNormed',
-        'FairIRLFODeNormed',
-        'FairIRLNorm2',
+        "FairIRLDeNormed",
+        "FairIRLFODeNormed",
+        "FairIRLNorm2",
     ],
     extra_skip_conditions=(lambda info: False),
     extra_title=None,
@@ -3026,12 +3150,12 @@ def plot_source_fair_irl_comparisons(
     max_mu_value=None,
     min_w_value=None,
     min_perf_value=None,
-    mu_yticks=[.4, .5, .6, .7, .8, .9, 1],
-    perf_yticks=[.4, .5, .6, .7, .8, .9, 1],
-    w_yticks = [-.2, 0, .2, .4, .6, .8, 1],
+    mu_yticks=[0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1],
+    perf_yticks=[0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1],
+    w_yticks=[-0.2, 0, 0.2, 0.4, 0.6, 0.8, 1],
     mu_ylim=(0, 1.05),
     perf_ylim=(0, 1.05),
-    w_ylim=(-.5, 1.05),
+    w_ylim=(-0.5, 1.05),
     mu_whis=[5, 95],
     perf_whis=[5, 95],
     w_whis=[5, 95],
@@ -3039,7 +3163,7 @@ def plot_source_fair_irl_comparisons(
     palette=cp,
     figsize=(24, 10),
 ):
-    path_prefix = './../../data/experiment_output/fair_irl/'
+    path_prefix = "./../../data/experiment_output/fair_irl/"
     exp_results_files = sorted(os.listdir(f"{path_prefix}/exp_results/"))
     exp_info_files = sorted(os.listdir(f"{path_prefix}/exp_info/"))
 
@@ -3049,7 +3173,7 @@ def plot_source_fair_irl_comparisons(
         3,
         len(demo_producers),
         figsize=figsize,
-        height_ratios=[1,1,1],
+        height_ratios=[1, 1, 1],
     )
     axcol1 = axes[0]
     axcol2 = axes[1]
@@ -3062,16 +3186,16 @@ def plot_source_fair_irl_comparisons(
     for exp_i, expert_algo in enumerate(expert_algos):
 
         # Construct a pivot table so we can do a seaborn boxplot
-        mu_cols = ['Value', 'Demo Producer', 'Feature Expectation']
+        mu_cols = ["Value", "Demo Producer", "Feature Expectation"]
         mu_rows = []
-        perf_cols = ['Value', 'Demo Producer', 'Performance Measures']
+        perf_cols = ["Value", "Demo Producer", "Performance Measures"]
         perf_rows = []
-        w_cols = ['Value', 'IRL Method', 'Weight']
+        w_cols = ["Value", "IRL Method", "Weight"]
         w_rows = []
 
         # For each experiment...
-        for (result_file, info_file) in zip(exp_results_files, exp_info_files):
-            if result_file.replace('csv', '') != info_file.replace('json', ''):
+        for result_file, info_file in zip(exp_results_files, exp_info_files):
+            if result_file.replace("csv", "") != info_file.replace("json", ""):
                 raise ValueError(
                     f"Mismatched number of results and info files. "
                     f"{result_file}, {info_file}"
@@ -3091,85 +3215,98 @@ def plot_source_fair_irl_comparisons(
 
             # Filter to only experiments for the input `expert_algo`
             if (
-                info['EXPERT_ALGO'] != expert_algo
-                or (dataset is not None and info['DATASET'] != dataset)
-                or set(info['FEAT_EXP_OBJECTIVE_NAMES']) != set(feat_objective_set_names)
-                or not set(perf_objective_set_names).issubset(set(info['PERF_MEAS_OBJECTIVE_NAMES']))
-                or info['IRL_METHOD'] in irl_methods_to_exclude
-                    or extra_skip_conditions(info)
+                info["EXPERT_ALGO"] != expert_algo
+                or (dataset is not None and info["DATASET"] != dataset)
+                or set(info["FEAT_EXP_OBJECTIVE_NAMES"])
+                != set(feat_objective_set_names)
+                or not set(perf_objective_set_names).issubset(
+                    set(info["PERF_MEAS_OBJECTIVE_NAMES"])
+                )
+                or info["IRL_METHOD"] in irl_methods_to_exclude
+                or extra_skip_conditions(info)
             ):
                 continue
 
             for idx, row in result.iterrows():
                 # Append muE and muL results
-                for obj_name in info['FEAT_EXP_OBJECTIVE_NAMES']:
-                    mu_rows.append([
-                        row[f"muE_hold_{obj_name}_mean"],
-                        'muE',
-                        obj_name,
-                    ])
-                for obj_name in info['FEAT_EXP_OBJECTIVE_NAMES']:
-                    mu_rows.append([
-                        row[f"muL_best_hold_{obj_name}"],
-                        f"muL ({info['IRL_METHOD']})",
-                        obj_name,
-                    ])
-                for obj_name in info['PERF_MEAS_OBJECTIVE_NAMES']:
-                    perf_rows.append([
-                        row[f"muE_perf_hold_{obj_name}"],
-                        f"muE",
-                        obj_name,
-                    ])
-                for obj_name in info['PERF_MEAS_OBJECTIVE_NAMES']:
-                    perf_rows.append([
-                        row[f"muL_perf_best_hold_{obj_name}"],
-                        f"muL ({info['IRL_METHOD']})",
-                        obj_name,
-                    ])
-                for obj_name in info['FEAT_EXP_OBJECTIVE_NAMES']:
-                    w_rows.append([
-                        row[f"wL_{obj_name}"],
-                        f"wL ({info['IRL_METHOD']})",
-                        obj_name,
-                    ])
+                for obj_name in info["FEAT_EXP_OBJECTIVE_NAMES"]:
+                    mu_rows.append(
+                        [
+                            row[f"muE_hold_{obj_name}_mean"],
+                            "muE",
+                            obj_name,
+                        ]
+                    )
+                for obj_name in info["FEAT_EXP_OBJECTIVE_NAMES"]:
+                    mu_rows.append(
+                        [
+                            row[f"muL_best_hold_{obj_name}"],
+                            f"muL ({info['IRL_METHOD']})",
+                            obj_name,
+                        ]
+                    )
+                for obj_name in info["PERF_MEAS_OBJECTIVE_NAMES"]:
+                    perf_rows.append(
+                        [
+                            row[f"muE_perf_hold_{obj_name}"],
+                            f"muE",
+                            obj_name,
+                        ]
+                    )
+                for obj_name in info["PERF_MEAS_OBJECTIVE_NAMES"]:
+                    perf_rows.append(
+                        [
+                            row[f"muL_perf_best_hold_{obj_name}"],
+                            f"muL ({info['IRL_METHOD']})",
+                            obj_name,
+                        ]
+                    )
+                for obj_name in info["FEAT_EXP_OBJECTIVE_NAMES"]:
+                    w_rows.append(
+                        [
+                            row[f"wL_{obj_name}"],
+                            f"wL ({info['IRL_METHOD']})",
+                            obj_name,
+                        ]
+                    )
 
         if len(mu_rows) == 0:
             raise ValueError(f"No results for provided config.")
 
         mu_df = pd.DataFrame(mu_rows, columns=mu_cols)
-        mu_df['Value'] += mu_noise_factor*(np.random.rand(len(mu_df)) - .5)
-        mu_df['Value'] = mu_df['Value'].clip(0, 1)
+        mu_df["Value"] += mu_noise_factor * (np.random.rand(len(mu_df)) - 0.5)
+        mu_df["Value"] = mu_df["Value"].clip(0, 1)
         perf_df = pd.DataFrame(perf_rows, columns=perf_cols)
-        perf_df['Value'] += perf_noise_factor*(np.random.rand(len(perf_df)) - .5)
-        perf_df['Value'] = perf_df['Value'].clip(0, 1)
+        perf_df["Value"] += perf_noise_factor * (np.random.rand(len(perf_df)) - 0.5)
+        perf_df["Value"] = perf_df["Value"].clip(0, 1)
         w_df = pd.DataFrame(w_rows, columns=w_cols)
-        w_df['Value'] += w_noise_factor*(np.random.rand(len(w_df)) - .5)
+        w_df["Value"] += w_noise_factor * (np.random.rand(len(w_df)) - 0.5)
 
         if min_mu_value is not None:
-            mu_df = mu_df.query('Value >= @min_mu_value')
+            mu_df = mu_df.query("Value >= @min_mu_value")
         if max_mu_value is not None:
-            mu_df = mu_df.query('Value <= @max_mu_value')
+            mu_df = mu_df.query("Value <= @max_mu_value")
 
         if min_w_value is not None:
-            w_df = w_df.query('Value >= @min_w_value')
+            w_df = w_df.query("Value >= @min_w_value")
 
         if min_perf_value is not None:
-            perf_df = perf_df.query('Value >= @min_perf_value')
+            perf_df = perf_df.query("Value >= @min_perf_value")
 
         # Append to aggregate dfs
-        mu_df['expert_algo'] = expert_algo
+        mu_df["expert_algo"] = expert_algo
         if mu_dfs is None:
             mu_dfs = mu_df
         else:
             mu_dfs = pd.concat([mu_dfs, mu_df])
 
-        perf_df['expert_algo'] = expert_algo
+        perf_df["expert_algo"] = expert_algo
         if perf_dfs is None:
             perf_dfs = perf_df
         else:
             perf_dfs = pd.concat([perf_dfs, perf_df])
 
-        w_df['expert_algo'] = expert_algo
+        w_df["expert_algo"] = expert_algo
         if w_dfs is None:
             w_dfs = w_df
         else:
@@ -3182,9 +3319,9 @@ def plot_source_fair_irl_comparisons(
             ax3 = axcol3[dp_i]
 
         # Filter to either expert or learned
-        _mu_df = mu_dfs[mu_dfs['Demo Producer'] == demo_producer]
-        _perf_df = perf_dfs[perf_dfs['Demo Producer'] == demo_producer]
-        _w_df = w_dfs[w_dfs['IRL Method'] == demo_producer.replace('mu', 'w')]
+        _mu_df = mu_dfs[mu_dfs["Demo Producer"] == demo_producer]
+        _perf_df = perf_dfs[perf_dfs["Demo Producer"] == demo_producer]
+        _w_df = w_dfs[w_dfs["IRL Method"] == demo_producer.replace("mu", "w")]
 
         # Sort
         # _mu_df = _mu_df.sort_values(['expert_algo', 'Feature Expectation'])
@@ -3192,70 +3329,64 @@ def plot_source_fair_irl_comparisons(
         # _w_df = _w_df.sort_values(['Weight', 'IRL Method'])
 
         # Clean up label names for plots
-        _mu_df['Demo Producer'] = (
-            _mu_df['Demo Producer'].str.replace('muE', r'$\mu^E$')
+        _mu_df["Demo Producer"] = _mu_df["Demo Producer"].str.replace("muE", r"$\mu^E$")
+        _mu_df["Demo Producer"] = _mu_df["Demo Producer"].str.replace("muL", r"$\mu^L$")
+        _perf_df["Demo Producer"] = _perf_df["Demo Producer"].str.replace(
+            "muE", "Expert"
         )
-        _mu_df['Demo Producer'] = (
-            _mu_df['Demo Producer'].str.replace('muL', r'$\mu^L$')
+        _perf_df["Demo Producer"] = _perf_df["Demo Producer"].str.replace(
+            "muL", "Learned"
         )
-        _perf_df['Demo Producer'] = (
-            _perf_df['Demo Producer'].str.replace('muE', 'Expert')
-        )
-        _perf_df['Demo Producer'] = (
-            _perf_df['Demo Producer'].str.replace('muL', 'Learned')
-        )
-        _w_df['IRL Method'] = (
-            _w_df['IRL Method'].str.replace('wL', r'$w^L$')
-        )
+        _w_df["IRL Method"] = _w_df["IRL Method"].str.replace("wL", r"$w^L$")
 
         # Feature expectation boxplot
         sns.boxplot(
-            x=_mu_df['Feature Expectation'],
-            y=_mu_df['Value'],
-            hue=_mu_df['expert_algo'],
+            x=_mu_df["Feature Expectation"],
+            y=_mu_df["Value"],
+            hue=_mu_df["expert_algo"],
             order=feat_objective_set_names,
             hue_order=expert_algos,
             ax=ax1,
             fliersize=0,  # Remove outliers
             saturation=1,
             palette=palette,
-            linewidth=.2,
-            medianprops=dict(color="black", alpha=1, linewidth=.8),
+            linewidth=0.2,
+            medianprops=dict(color="black", alpha=1, linewidth=0.8),
             boxprops=dict(alpha=1),
             whis=mu_whis,
-            gap=.2,
-            width=.6,
+            gap=0.2,
+            width=0.6,
         )
         ax1.set_ylabel(None)
         ax1.set_xlabel(None)
-        ax1.legend(loc='best', ncol=len(expert_algos))
-        ax1.yaxis.set_major_formatter(FormatStrFormatter('%g'))
+        ax1.legend(loc="best", ncol=len(expert_algos))
+        ax1.yaxis.set_major_formatter(FormatStrFormatter("%g"))
         ax1.set_yticks(mu_yticks)
         ax1.set_ylim(mu_ylim)
         ax1.set_yticklabels(mu_yticks)
 
         # Plot boxplot for weights
         sns.boxplot(
-            x=_w_df['Weight'],
-            y=_w_df['Value'],
-            hue=_w_df['expert_algo'],
+            x=_w_df["Weight"],
+            y=_w_df["Value"],
+            hue=_w_df["expert_algo"],
             order=feat_objective_set_names,
             hue_order=expert_algos,
             ax=ax2,
             fliersize=0,  # Remove outliers
             saturation=1,
             palette=palette,
-            linewidth=.2,
-            medianprops=dict(color="black", alpha=1, linewidth=.8),
+            linewidth=0.2,
+            medianprops=dict(color="black", alpha=1, linewidth=0.8),
             boxprops=dict(alpha=1),
             whis=w_whis,
-            gap=.2,
-            width=.6,
+            gap=0.2,
+            width=0.6,
         )
         ax2.set_ylabel(None)
         ax2.set_xlabel(None)
-        ax2.legend(loc='upper right', ncol=len(expert_algos))
-        ax2.yaxis.set_major_formatter(FormatStrFormatter('%g'))
+        ax2.legend(loc="upper right", ncol=len(expert_algos))
+        ax2.yaxis.set_major_formatter(FormatStrFormatter("%g"))
         ax2.set_yticks(w_yticks)
         ax2.set_ylim(w_ylim)
         ax2.set_yticklabels(w_yticks)
@@ -3290,12 +3421,11 @@ def plot_source_fair_irl_comparisons(
         # ax3.set_title(f"{demo_producer} Performance Measures")
 
     plt.tight_layout()
-    plt.subplots_adjust(wspace=.08, hspace=.7)
+    plt.subplots_adjust(wspace=0.08, hspace=0.7)
 
     print(f"DATASET: {dataset}")
 
     return fig, axes, mu_dfs, w_dfs, perf_dfs
-
 
 
 def plot_target_fair_irl_comparisons(
@@ -3307,26 +3437,27 @@ def plot_target_fair_irl_comparisons(
         # 'muE',
         # 'muE_target',
         # 'muL_source FairIRL',
-        'muL_target FairIRL',
-    ],perf_demo_producers=[
+        "muL_target FairIRL",
+    ],
+    perf_demo_producers=[
         # 'Expert (source)',
         # 'Expert (target)',
         # 'FairIRL Learned (source)',
-        'FairIRL Learned (target)',
+        "FairIRL Learned (target)",
     ],
     w_demo_producers=[
-      'wL (FairIRL)',
+        "wL (FairIRL)",
     ],
     mu_noise_factor=0,
     perf_noise_factor=0,
     w_noise_factor=0,
-    mu_hue_order=['muE', 'muL (FairIRL)', 'muL (FairIRLFO)'],
-    perf_hue_order=['Expert', 'Learned (FairIRL)'],
-    w_hue_order=[None, 'wL (FairIRL)', 'wL (FairIRLFO)'],
+    mu_hue_order=["muE", "muL (FairIRL)", "muL (FairIRLFO)"],
+    perf_hue_order=["Expert", "Learned (FairIRL)"],
+    w_hue_order=[None, "wL (FairIRL)", "wL (FairIRLFO)"],
     irl_methods_to_exclude=[
-        'FairIRLDeNormed',
-        'FairIRLFODeNormed',
-        'FairIRLNorm2',
+        "FairIRLDeNormed",
+        "FairIRLFODeNormed",
+        "FairIRLNorm2",
     ],
     extra_skip_conditions=(lambda info: False),
     extra_title=None,
@@ -3336,19 +3467,19 @@ def plot_target_fair_irl_comparisons(
     max_mu_value=None,
     min_w_value=None,
     min_perf_value=None,
-    mu_yticks=[.4, .5, .6, .7, .8, .9, 1],
-    perf_yticks=[.4, .5, .6, .7, .8, .9, 1],
-    w_yticks = [-.2, 0, .2, .4, .6, .8, 1],
+    mu_yticks=[0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1],
+    perf_yticks=[0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1],
+    w_yticks=[-0.2, 0, 0.2, 0.4, 0.6, 0.8, 1],
     mu_ylim=(0, 1.05),
     perf_ylim=(0, 1.05),
-    w_ylim=(-.5, 1.05),
+    w_ylim=(-0.5, 1.05),
     mu_whis=[5, 95],
     perf_whis=[5, 95],
     w_whis=[5, 95],
     size_mult=1,
     figsize=(24, 10),
 ):
-    path_prefix = './../../data/experiment_output/fair_irl/'
+    path_prefix = "./../../data/experiment_output/fair_irl/"
     exp_results_files = sorted(os.listdir(f"{path_prefix}/exp_results/"))
     exp_info_files = sorted(os.listdir(f"{path_prefix}/exp_info/"))
 
@@ -3358,7 +3489,7 @@ def plot_target_fair_irl_comparisons(
         3,
         len(feat_demo_producers),
         figsize=figsize,
-        height_ratios=[1,1,1],
+        height_ratios=[1, 1, 1],
     )
     axcol1 = axes[0]
     axcol2 = axes[1]
@@ -3371,16 +3502,16 @@ def plot_target_fair_irl_comparisons(
     for exp_i, expert_algo in enumerate(expert_algos):
 
         # Construct a pivot table so we can do a seaborn boxplot
-        mu_cols = ['Value', 'Demo Producer', 'Feature Expectation']
+        mu_cols = ["Value", "Demo Producer", "Feature Expectation"]
         mu_rows = []
-        perf_cols = ['Value', 'Demo Producer', 'Performance Measures']
+        perf_cols = ["Value", "Demo Producer", "Performance Measures"]
         perf_rows = []
-        w_cols = ['Value', 'IRL Method', 'Weight']
+        w_cols = ["Value", "IRL Method", "Weight"]
         w_rows = []
 
         # For each experiment...
-        for (result_file, info_file) in zip(exp_results_files, exp_info_files):
-            if result_file.replace('csv', '') != info_file.replace('json', ''):
+        for result_file, info_file in zip(exp_results_files, exp_info_files):
+            if result_file.replace("csv", "") != info_file.replace("json", ""):
                 raise ValueError(
                     f"Mismatched number of results and info files. "
                     f"{result_file}, {info_file}"
@@ -3400,113 +3531,132 @@ def plot_target_fair_irl_comparisons(
 
             # Filter to only experiments for the input `expert_algo`
             if (
-                info['EXPERT_ALGO'] != expert_algo
+                info["EXPERT_ALGO"] != expert_algo
                 # or info['DATASET'] != dataset
-                    or set(info['FEAT_EXP_OBJECTIVE_NAMES']) != set(feat_objective_set_names)
-                    or set(info['PERF_MEAS_OBJECTIVE_NAMES']) != set(perf_objective_set_names)
-                or info['IRL_METHOD'] in irl_methods_to_exclude
-                    or extra_skip_conditions(info)
+                or set(info["FEAT_EXP_OBJECTIVE_NAMES"])
+                != set(feat_objective_set_names)
+                or set(info["PERF_MEAS_OBJECTIVE_NAMES"])
+                != set(perf_objective_set_names)
+                or info["IRL_METHOD"] in irl_methods_to_exclude
+                or extra_skip_conditions(info)
             ):
                 continue
 
             for idx, row in result.iterrows():
                 # Append muE and muL results
-                for obj_name in info['FEAT_EXP_OBJECTIVE_NAMES']:
-                    mu_rows.append([
-                        row[f"muE_hold_{obj_name}_mean"],
-                        'muE',
-                        obj_name,
-                    ])
+                for obj_name in info["FEAT_EXP_OBJECTIVE_NAMES"]:
+                    mu_rows.append(
+                        [
+                            row[f"muE_hold_{obj_name}_mean"],
+                            "muE",
+                            obj_name,
+                        ]
+                    )
                     if f"muE_target_{obj_name}" in row:
-                        mu_rows.append([
-                            row[f"muE_target_{obj_name}"],
-                            'muE_target',
+                        mu_rows.append(
+                            [
+                                row[f"muE_target_{obj_name}"],
+                                "muE_target",
+                                obj_name,
+                            ]
+                        )
+                        mu_rows.append(
+                            [
+                                row[f"muL_target_hold_{obj_name}"],
+                                "muL_target" + " " + info["IRL_METHOD"],
+                                obj_name,
+                            ]
+                        )
+                for obj_name in info["FEAT_EXP_OBJECTIVE_NAMES"]:
+                    mu_rows.append(
+                        [
+                            row[f"muL_best_hold_{obj_name}"],
+                            f"muL ({info['IRL_METHOD']})",
                             obj_name,
-                        ])
-                        mu_rows.append([
-                            row[f"muL_target_hold_{obj_name}"],
-                            'muL_target' + ' ' + info['IRL_METHOD'],
+                        ]
+                    )
+                    w_rows.append(
+                        [
+                            row[f"wL_{obj_name}"],
+                            f"wL ({info['IRL_METHOD']})",
                             obj_name,
-                        ])
-                for obj_name in info['FEAT_EXP_OBJECTIVE_NAMES']:
-                    mu_rows.append([
-                        row[f"muL_best_hold_{obj_name}"],
-                        f"muL ({info['IRL_METHOD']})",
-                        obj_name,
-                    ])
-                    w_rows.append([
-                        row[f"wL_{obj_name}"],
-                        f"wL ({info['IRL_METHOD']})",
-                        obj_name,
-                    ])
+                        ]
+                    )
 
-                for obj_name in info['PERF_MEAS_OBJECTIVE_NAMES']:
-                    perf_rows.append([
-                        row[f"muE_perf_hold_{obj_name}"],
-                        f"Expert (source)",
-                        obj_name,
-                    ])
-                for obj_name in info['PERF_MEAS_OBJECTIVE_NAMES']:
-                    perf_rows.append([
-                        row[f"muE_perf_target_{obj_name}"],
-                        f"Expert (target)",
-                        obj_name,
-                    ])
-                for obj_name in info['PERF_MEAS_OBJECTIVE_NAMES']:
-                    perf_rows.append([
-                        row[f"muL_perf_target_best_hold_{obj_name}"],
-                        f"{info['IRL_METHOD']} Learned (target)",
-                        obj_name,
-                    ])
+                for obj_name in info["PERF_MEAS_OBJECTIVE_NAMES"]:
+                    perf_rows.append(
+                        [
+                            row[f"muE_perf_hold_{obj_name}"],
+                            f"Expert (source)",
+                            obj_name,
+                        ]
+                    )
+                for obj_name in info["PERF_MEAS_OBJECTIVE_NAMES"]:
+                    perf_rows.append(
+                        [
+                            row[f"muE_perf_target_{obj_name}"],
+                            f"Expert (target)",
+                            obj_name,
+                        ]
+                    )
+                for obj_name in info["PERF_MEAS_OBJECTIVE_NAMES"]:
+                    perf_rows.append(
+                        [
+                            row[f"muL_perf_target_best_hold_{obj_name}"],
+                            f"{info['IRL_METHOD']} Learned (target)",
+                            obj_name,
+                        ]
+                    )
 
         if len(mu_rows) == 0:
             raise ValueError(f"No results for provided config.")
 
         mu_df = pd.DataFrame(mu_rows, columns=mu_cols)
-        mu_df['Value'] += mu_noise_factor*(np.random.rand(len(mu_df)) - .5)
-        mu_df['Value'] = mu_df['Value'].clip(0, 1)
+        mu_df["Value"] += mu_noise_factor * (np.random.rand(len(mu_df)) - 0.5)
+        mu_df["Value"] = mu_df["Value"].clip(0, 1)
         mu_df = mu_df[
-            mu_df['Demo Producer'].str.contains('muE')
-            | mu_df['Demo Producer'].str.contains('muL_target')
+            mu_df["Demo Producer"].str.contains("muE")
+            | mu_df["Demo Producer"].str.contains("muL_target")
         ]
         perf_df = pd.DataFrame(perf_rows, columns=perf_cols)
-        perf_df['Value'] += perf_noise_factor*(np.random.rand(len(perf_df)) - .5)
-        perf_df['Value'] = perf_df['Value'].clip(0, 1)
+        perf_df["Value"] += perf_noise_factor * (np.random.rand(len(perf_df)) - 0.5)
+        perf_df["Value"] = perf_df["Value"].clip(0, 1)
         w_df = pd.DataFrame(w_rows, columns=w_cols)
-        w_df['Value'] += w_noise_factor*(np.random.rand(len(w_df)) - .5)
+        w_df["Value"] += w_noise_factor * (np.random.rand(len(w_df)) - 0.5)
 
         if min_mu_value is not None:
-            mu_df = mu_df.query('Value >= @min_mu_value')
+            mu_df = mu_df.query("Value >= @min_mu_value")
         if max_mu_value is not None:
-            mu_df = mu_df.query('Value <= @max_mu_value')
+            mu_df = mu_df.query("Value <= @max_mu_value")
 
         if min_w_value is not None:
-            w_df = w_df.query('Value >= @min_w_value')
+            w_df = w_df.query("Value >= @min_w_value")
 
         if min_perf_value is not None:
-            perf_df = perf_df.query('Value >= @min_perf_value')
+            perf_df = perf_df.query("Value >= @min_perf_value")
 
         # Append to aggregate dfs
-        mu_df['expert_algo'] = expert_algo
+        mu_df["expert_algo"] = expert_algo
         if mu_dfs is None:
             mu_dfs = mu_df
         else:
             mu_dfs = pd.concat([mu_dfs, mu_df])
 
-        perf_df['expert_algo'] = expert_algo
+        perf_df["expert_algo"] = expert_algo
         if perf_dfs is None:
             perf_dfs = perf_df
         else:
             perf_dfs = pd.concat([perf_dfs, perf_df])
 
-        w_df['expert_algo'] = expert_algo
+        w_df["expert_algo"] = expert_algo
         if w_dfs is None:
             w_dfs = w_df
         else:
             w_dfs = pd.concat([w_dfs, w_df])
 
-    for dp_i, (feat_demo_producer, perf_demo_producer, w_demo_producer) \
-            in enumerate(zip(feat_demo_producers, perf_demo_producers, w_demo_producers)):
+    for dp_i, (feat_demo_producer, perf_demo_producer, w_demo_producer) in enumerate(
+        zip(feat_demo_producers, perf_demo_producers, w_demo_producers)
+    ):
         if len(feat_demo_producers) > 1:
             ax1 = axcol1[dp_i]
             ax2 = axcol2[dp_i]
@@ -3516,9 +3666,9 @@ def plot_target_fair_irl_comparisons(
             ax2 = axcol2
             ax3 = axcol3
 
-        _mu_df = mu_dfs[mu_dfs['Demo Producer'] == feat_demo_producer]
-        _perf_df = perf_dfs[perf_dfs['Demo Producer'] == perf_demo_producer]
-        _w_df = w_dfs[w_dfs['IRL Method'] == w_demo_producer]
+        _mu_df = mu_dfs[mu_dfs["Demo Producer"] == feat_demo_producer]
+        _perf_df = perf_dfs[perf_dfs["Demo Producer"] == perf_demo_producer]
+        _w_df = w_dfs[w_dfs["IRL Method"] == w_demo_producer]
 
         # Sort
         # _mu_df = _mu_df.sort_values(['expert_algo', 'Feature Expectation'])
@@ -3526,88 +3676,81 @@ def plot_target_fair_irl_comparisons(
         # _w_df = _w_df.sort_values(['Weight', 'IRL Method'])
 
         # Clean up label names for plots
-        _mu_df['Demo Producer'] = (
-            _mu_df['Demo Producer'].str.replace('muE', r'$\mu^E$')
+        _mu_df["Demo Producer"] = _mu_df["Demo Producer"].str.replace("muE", r"$\mu^E$")
+        _mu_df["Demo Producer"] = _mu_df["Demo Producer"].str.replace("muL", r"$\mu^L$")
+        _perf_df["Demo Producer"] = _perf_df["Demo Producer"].str.replace(
+            "muE", "Expert"
         )
-        _mu_df['Demo Producer'] = (
-            _mu_df['Demo Producer'].str.replace('muL', r'$\mu^L$')
+        _perf_df["Demo Producer"] = _perf_df["Demo Producer"].str.replace(
+            "muL", "Learned"
         )
-        _perf_df['Demo Producer'] = (
-            _perf_df['Demo Producer'].str.replace('muE', 'Expert')
-        )
-        _perf_df['Demo Producer'] = (
-            _perf_df['Demo Producer'].str.replace('muL', 'Learned')
-        )
-        _w_df['IRL Method'] = (
-            _w_df['IRL Method'].str.replace('wL', r'$w^L$')
-        )
-
+        _w_df["IRL Method"] = _w_df["IRL Method"].str.replace("wL", r"$w^L$")
 
         # Feature expectation boxplot
         sns.boxplot(
-            x=_mu_df['Feature Expectation'],
-            y=_mu_df['Value'],
-            hue=_mu_df['expert_algo'],
+            x=_mu_df["Feature Expectation"],
+            y=_mu_df["Value"],
+            hue=_mu_df["expert_algo"],
             order=feat_objective_set_names,
             hue_order=expert_algos,
             ax=ax1,
             fliersize=0,  # Remove outliers
             saturation=1,
             palette=cp,
-            linewidth=.5,
+            linewidth=0.5,
             whis=mu_whis,
-            width=.75,
+            width=0.75,
         )
         ax1.set_ylabel(None)
         ax1.set_xlabel(None)
-        ax1.legend(loc='best', ncol=2)
-        ax1.yaxis.set_major_formatter(FormatStrFormatter('%g'))
+        ax1.legend(loc="best", ncol=2)
+        ax1.yaxis.set_major_formatter(FormatStrFormatter("%g"))
         ax1.set_yticks(mu_yticks)
         ax1.set_ylim(mu_ylim)
         ax1.set_yticklabels(mu_yticks)
 
         # Plot boxplot for weights
         sns.boxplot(
-            x=_w_df['Weight'],
-            y=_w_df['Value'],
-            hue=_w_df['expert_algo'],
+            x=_w_df["Weight"],
+            y=_w_df["Value"],
+            hue=_w_df["expert_algo"],
             order=feat_objective_set_names,
             hue_order=expert_algos,
             ax=ax2,
             fliersize=0,  # Remove outliers
             saturation=1,
             palette=cp,
-            linewidth=.5,
+            linewidth=0.5,
             whis=w_whis,
-            width=.75,
+            width=0.75,
         )
         ax2.set_ylabel(None)
         ax2.set_xlabel(None)
-        ax2.legend(loc='best', ncol=2)
-        ax2.yaxis.set_major_formatter(FormatStrFormatter('%g'))
+        ax2.legend(loc="best", ncol=2)
+        ax2.yaxis.set_major_formatter(FormatStrFormatter("%g"))
         ax2.set_yticks(w_yticks)
         ax2.set_ylim(w_ylim)
         ax2.set_yticklabels(w_yticks)
 
         # Plot boxplot for performance measures
         sns.boxplot(
-            x=_perf_df['Performance Measures'],
-            y=_perf_df['Value'],
-            hue=_perf_df['expert_algo'],
+            x=_perf_df["Performance Measures"],
+            y=_perf_df["Value"],
+            hue=_perf_df["expert_algo"],
             order=perf_objective_set_names,
             hue_order=expert_algos,
             ax=ax3,
             fliersize=0,  # Remove outliers
             saturation=1,
             palette=cp,
-            linewidth=.5,
+            linewidth=0.5,
             whis=perf_whis,
-            width=.75,
+            width=0.75,
         )
         ax3.set_ylabel(None)
         ax3.set_xlabel(None)
-        ax3.legend(loc='best', ncol=2)
-        ax3.yaxis.set_major_formatter(FormatStrFormatter('%g'))
+        ax3.legend(loc="best", ncol=2)
+        ax3.yaxis.set_major_formatter(FormatStrFormatter("%g"))
         ax3.set_yticks(perf_yticks)
         ax3.set_ylim(perf_ylim)
         ax3.set_yticklabels(perf_yticks)
@@ -3618,6 +3761,6 @@ def plot_target_fair_irl_comparisons(
         ax3.set_title(f"{perf_demo_producer} Performance Measures")
 
     plt.tight_layout()
-    plt.subplots_adjust(wspace=.03, hspace=.9)
+    plt.subplots_adjust(wspace=0.03, hspace=0.9)
 
     return fig, axes, mu_dfs, w_dfs, perf_dfs

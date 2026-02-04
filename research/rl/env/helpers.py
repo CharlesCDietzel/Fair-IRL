@@ -49,7 +49,7 @@ def play_n_episodes(env, model, n, use_eps=True, show_plots=True):
     totalrewards = np.zeros(n)
 
     if n > 10:
-        window = int(n/10)
+        window = int(n / 10)
     else:
         window = 1
 
@@ -61,20 +61,24 @@ def play_n_episodes(env, model, n, use_eps=True, show_plots=True):
             if _n >= (n - window):
                 eps = 0
             else:
-                eps = 1.0/(_n+1)**.2
+                eps = 1.0 / (_n + 1) ** 0.2
 
         totalreward = play_episode(env, model, eps)
         totalrewards[_n] = totalreward
         if _n % window == 0:
             ravg = _running_avg(totalrewards, _n, window)
-            print('episode: {:,}, total reward: {:,.2f}, eps: {:.3f}, avg '
-                  'reward last {:,}: {:.3f}'.format(_n, totalreward, eps,
-                                                    window, ravg))
+            print(
+                "episode: {:,}, total reward: {:,.2f}, eps: {:.3f}, avg "
+                "reward last {:,}: {:.3f}".format(_n, totalreward, eps, window, ravg)
+            )
 
-    print('\nTotal steps: {:,}'.format(len(totalrewards)))
-    print('Avg cumulative reward: {:,.3f}'.format(totalrewards.mean()))
-    print('Avg reward for last {:,} episodes: {:,.3f}'.format(
-        window, totalrewards[int(-1*(n/10)):].mean()))
+    print("\nTotal steps: {:,}".format(len(totalrewards)))
+    print("Avg cumulative reward: {:,.3f}".format(totalrewards.mean()))
+    print(
+        "Avg reward for last {:,} episodes: {:,.3f}".format(
+            window, totalrewards[int(-1 * (n / 10)) :].mean()
+        )
+    )
 
     if show_plots:
         fig, (ax0, ax1) = plt.subplots(1, 2, figsize=(16, 5))
@@ -87,7 +91,7 @@ def play_n_episodes(env, model, n, use_eps=True, show_plots=True):
 
 
 def _running_avg(totalrewards, t, window):
-    return totalrewards[max(0, t-window):(t+1)].mean()
+    return totalrewards[max(0, t - window) : (t + 1)].mean()
 
 
 def _plot_running_avg(ax, totalrewards, window):
@@ -96,4 +100,4 @@ def _plot_running_avg(ax, totalrewards, window):
     for t in range(N):
         ravg[t] = _running_avg(totalrewards, t, window)
     ax.plot(ravg)
-    ax.set_title('Running Average')
+    ax.set_title("Running Average")

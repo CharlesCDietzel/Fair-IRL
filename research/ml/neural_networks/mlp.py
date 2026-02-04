@@ -55,15 +55,15 @@ class MLP:
         self.M = [D] + hidden_layer_sizes + [K]
         n_layers = self.n_layers_
         M = self.M
-        self.W = [None for i in range(n_layers+1)]
-        self.b = [None for i in range(n_layers+1)]
+        self.W = [None for i in range(n_layers + 1)]
+        self.b = [None for i in range(n_layers + 1)]
 
         # Randomly initialize weights
         # Normalize with 1/sqrt(D)
-        norm = 1/np.sqrt(D)
-        for i in range(n_layers+1):
-            self.W[i] = norm*np.random.randn(M[i], M[i+1])
-            self.b[i] = norm*np.random.randn(M[i+1])
+        norm = 1 / np.sqrt(D)
+        for i in range(n_layers + 1):
+            self.W[i] = norm * np.random.randn(M[i], M[i + 1])
+            self.b[i] = norm * np.random.randn(M[i + 1])
 
     def __copy__(self):
         """Returns a copy of self.
@@ -121,11 +121,11 @@ class MLP:
         b = self.b
 
         # Collect Z at each layer so we can use them in backprop.
-        Z = [None for i in range(n_layers+2)]
+        Z = [None for i in range(n_layers + 2)]
         Z[0] = X.copy()
 
-        for i in range(1, self.n_layers_+1):
-            Z[i] = self._forward_single_layer(Z[i-1], i)
+        for i in range(1, self.n_layers_ + 1):
+            Z[i] = self._forward_single_layer(Z[i - 1], i)
             assert not np.any(np.isnan(Z[i]))
 
         final_A = Z[-2].dot(W[n_layers]) + b[n_layers]
@@ -163,7 +163,7 @@ class MLP:
         T = self._transform_targets(Y)
 
         if batch_size > len(X):
-            print('WARNING: Batch size > len(X). Setting batch size to len(X)')
+            print("WARNING: Batch size > len(X). Setting batch size to len(X)")
             batch_size = len(X)
         n_batches = int(len(X) / batch_size)
         losses = []
@@ -175,8 +175,8 @@ class MLP:
 
             for b in range(n_batches):
                 # Select batch
-                lower_idx = b*batch_size
-                upper_idx = (b+1)*batch_size
+                lower_idx = b * batch_size
+                upper_idx = (b + 1) * batch_size
                 if upper_idx > len(X):
                     upper_idx = len(X) - 1
                 X_batch = X[lower_idx:upper_idx, :]
@@ -194,21 +194,21 @@ class MLP:
                 loss = self._loss(T, Output)
                 P = self._transform_output(Output)
                 pm = self._performance_metric(Y, P)
-                out = 'epoch: {}'.format(epoch)
-                out += ', loss: {:.2f}'.format(loss)
-                out += ', performance_metric: {:.4f}'.format(pm)
+                out = "epoch: {}".format(epoch)
+                out += ", loss: {:.2f}".format(loss)
+                out += ", performance_metric: {:.4f}".format(pm)
                 w_max = max([w.max() for w in self.W])
-                out += ', max weight: {:.3f}'.format(w_max)
-                out += ', max weight gradient: {}'.format(grad_max)
+                out += ", max weight: {:.3f}".format(w_max)
+                out += ", max weight gradient: {}".format(grad_max)
                 print(out)
                 losses.append(loss)
                 performance_metrics.append(pm)
 
         fig, (ax0, ax1) = plt.subplots(1, 2, figsize=(13, 5))
         ax0.plot(losses[1:])
-        ax0.set_title('Loss')
+        ax0.set_title("Loss")
         ax1.plot(performance_metrics[1:])
-        ax1.set_title('Performance Metric')
+        ax1.set_title("Performance Metric")
         plt.show()
 
         return None
@@ -255,7 +255,7 @@ class MLP:
 
         # For each layer, iterating backwards from final layer, compute
         # deltas, weight partials, and update weights/biases.
-        Delta = [None for i in range(n_layers+1)]
+        Delta = [None for i in range(n_layers + 1)]
         grad_max = 0
         for i in range(n_layers, -1, -1):
             if i == n_layers:
@@ -263,15 +263,17 @@ class MLP:
                 Delta[i] = self._backprop_delta_final_layer(T, Output)
             else:
                 # Compute deltas at middle layer
-                Delta[i] = self._backprop_delta(Delta[i+1], self.W[i+1],
-                                                _Z[i+1], i)
+                Delta[i] = self._backprop_delta(
+                    Delta[i + 1], self.W[i + 1], _Z[i + 1], i
+                )
 
             # Compute weight and bias partial gradients
             dJdW_i = self._dJdW(_Z[i], Delta[i], i)
             dJdb_i = self._dJdb(Delta[i], i)
 
-            w_update, b_update, grad_max = opt.layer_update(self, i, dJdW_i,
-                                                            dJdb_i, grad_max)
+            w_update, b_update, grad_max = opt.layer_update(
+                self, i, dJdW_i, dJdb_i, grad_max
+            )
 
             # Update weights
             self.W[i] -= w_update
@@ -300,8 +302,8 @@ class MLP:
         W = self.W
         b = self.b
         Z = self.Z
-        assert prev_Z.shape == (N, M[i-1])
-        A = prev_Z.dot(W[i-1]) + b[i-1]
+        assert prev_Z.shape == (N, M[i - 1])
+        A = prev_Z.dot(W[i - 1]) + b[i - 1]
         assert A.shape == (N, M[i])
         _Z = Z.forward(A)
         assert _Z.shape == (N, M[i])
@@ -455,12 +457,12 @@ class MLP:
         M = self.M
         N = len(_Z)
         Z = self.Z
-        assert subs_Delta.shape == (N, M[i+2])
-        assert subs_W.shape == (M[i+1], M[i+2])
-        assert _Z.shape == (N, M[i+1])
+        assert subs_Delta.shape == (N, M[i + 2])
+        assert subs_W.shape == (M[i + 1], M[i + 2])
+        assert _Z.shape == (N, M[i + 1])
         dJdZ = Z.back(_Z)
-        ret = (subs_Delta.dot(subs_W.T))*dJdZ
-        assert ret.shape == (N, M[i+1])
+        ret = (subs_Delta.dot(subs_W.T)) * dJdZ
+        assert ret.shape == (N, M[i + 1])
         return ret
 
     def _dJdW(self, prev_Z, Delta, i):
@@ -483,9 +485,9 @@ class MLP:
         M = self.M
         N = len(prev_Z)
         assert prev_Z.shape == (N, M[i])
-        assert Delta.shape == (N, M[i+1])
+        assert Delta.shape == (N, M[i + 1])
         ret = prev_Z.T.dot(Delta)
-        assert ret.shape == (M[i], M[i+1])
+        assert ret.shape == (M[i], M[i + 1])
         return ret
 
     def _dJdb(self, Delta, i):
@@ -506,9 +508,9 @@ class MLP:
         """
         M = self.M
         N = Delta.shape[0]
-        assert Delta.shape == (N, M[i+1])
+        assert Delta.shape == (N, M[i + 1])
         ret = np.sum(Delta, axis=0)
-        assert ret.shape == (M[i+1],)
+        assert ret.shape == (M[i + 1],)
         return ret
 
 
@@ -592,7 +594,7 @@ class MLPClassifier(MLP):
         float
             Total cost (error).
         """
-        loss = -T*np.log(Y)
+        loss = -T * np.log(Y)
         loss = loss.sum()
         assert not np.any(np.isnan(loss))
         return loss
@@ -638,7 +640,7 @@ class MLPClassifier(MLP):
         np.ndarray, shape (N, K)
             Delta of final layer.
         """
-        return -1*(T - Output)
+        return -1 * (T - Output)
 
 
 class MLPRegressor(MLP):
@@ -706,7 +708,7 @@ class MLPRegressor(MLP):
         float
             Total loss.
         """
-        loss = .5*((T-Y)**2).mean()
+        loss = 0.5 * ((T - Y) ** 2).mean()
         assert not np.any(np.isnan(loss))
         return loss
 
@@ -743,4 +745,4 @@ class MLPRegressor(MLP):
         np.ndarray, shape (N, K)
             Delta of final layer.
         """
-        return -1*(T-Output)
+        return -1 * (T - Output)

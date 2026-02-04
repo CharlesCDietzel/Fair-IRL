@@ -7,10 +7,20 @@ from research.rl.env.discrete_mdp import DiscreteMDP, compute_optimal_policy
 
 class MultiObjectiveDiscreteMDP(DiscreteMDP):
 
-    def __init__(self, state_dims, action_dims, obs_dims,
-                 max_steps_per_episode, Osaso_dtype='float64', verbose=False,
-                 args={}, obj_weights=np.array([1, 0, 0]), T=None, Osaso=None,
-                 Rsas=None):
+    def __init__(
+        self,
+        state_dims,
+        action_dims,
+        obs_dims,
+        max_steps_per_episode,
+        Osaso_dtype="float64",
+        verbose=False,
+        args={},
+        obj_weights=np.array([1, 0, 0]),
+        T=None,
+        Osaso=None,
+        Rsas=None,
+    ):
         """
         Additional Parameters beyond DiscreteMDPs
         -----------------------------------------
@@ -35,20 +45,37 @@ class MultiObjectiveDiscreteMDP(DiscreteMDP):
         self.n_objectives = len(obj_weights)
         self.moo_reward_episode_memory = []
 
-        super().__init__(state_dims, action_dims, obs_dims,
-                         max_steps_per_episode, Osaso_dtype,
-                         verbose, args, T=T, Osaso=Osaso, Rsas=Rsas)
+        super().__init__(
+            state_dims,
+            action_dims,
+            obs_dims,
+            max_steps_per_episode,
+            Osaso_dtype,
+            verbose,
+            args,
+            T=T,
+            Osaso=Osaso,
+            Rsas=Rsas,
+        )
 
         # Build multi-objective reward matrix Rsasl from injected method
         larr = np.arange(self.n_objectives)
-        self.Rsasl = np.array([
-            np.array([
-                np.array([
-                    self._reward_sasl(s, a, sp, larr) for sp in range(
-                        self.n_states)
-                    ]) for a in range(self.n_actions)
-            ]) for s in range(self.n_states)
-        ])
+        self.Rsasl = np.array(
+            [
+                np.array(
+                    [
+                        np.array(
+                            [
+                                self._reward_sasl(s, a, sp, larr)
+                                for sp in range(self.n_states)
+                            ]
+                        )
+                        for a in range(self.n_actions)
+                    ]
+                )
+                for s in range(self.n_states)
+            ]
+        )
 
     def step(self, action):
         """
@@ -96,8 +123,7 @@ class MultiObjectiveDiscreteMDP(DiscreteMDP):
 
         # Compute reward value based on new state
         reward = self._get_reward(s=prev_state, a=action, sp=new_state)
-        moo_rewards = self._get_moo_rewards(
-            s=prev_state, a=action, sp=new_state)
+        moo_rewards = self._get_moo_rewards(s=prev_state, a=action, sp=new_state)
 
         # Update current state to new state
         self.cur_state = new_state
@@ -115,7 +141,7 @@ class MultiObjectiveDiscreteMDP(DiscreteMDP):
         done = self.cur_step >= self.max_steps_per_episode
 
         if self.verbose:
-            logging.info('\t' + self.render_state(self.cur_state))
+            logging.info("\t" + self.render_state(self.cur_state))
 
         return ob, reward, done, {}
 
@@ -146,13 +172,14 @@ class MultiObjectiveDiscreteMDP(DiscreteMDP):
         self.observation_episode_memory[self.cur_episode].append(ob)
         self.reward_episode_memory[self.cur_episode].append(-1)
         self.moo_reward_episode_memory[self.cur_episode].append(
-            -1*np.ones(self.n_objectives))
+            -1 * np.ones(self.n_objectives)
+        )
 
         if self.verbose:
-            logging.info(f'Episode {self.cur_episode}')
+            logging.info(f"Episode {self.cur_episode}")
 
         if self.verbose:
-            logging.info('\t' + self.render_state(self.cur_state))
+            logging.info("\t" + self.render_state(self.cur_state))
 
         return ob
 
@@ -168,32 +195,43 @@ class MultiObjectiveDiscreteMDP(DiscreteMDP):
         n_eps = len(self.observation_episode_memory[1:])
         n_steps = len(self.observation_episode_memory[1])
         metrics_by_ep = np.zeros(n_eps)
-        feat_cols = ['z', 'y0', 'y1', 'c', 'yd']
-        moo_cols = [f'r{i}' for i in range(self.n_objectives)]
-        weighted_moo_cols = [f'r{i}_w' for i in range(self.n_objectives)]
-        df = pd.DataFrame([],
-                columns=['episode', 'timestep', *feat_cols, 'a', 'r',
-                         *moo_cols, *weighted_moo_cols])
+        feat_cols = ["z", "y0", "y1", "c", "yd"]
+        moo_cols = [f"r{i}" for i in range(self.n_objectives)]
+        weighted_moo_cols = [f"r{i}_w" for i in range(self.n_objectives)]
+        df = pd.DataFrame(
+            [],
+            columns=[
+                "episode",
+                "timestep",
+                *feat_cols,
+                "a",
+                "r",
+                *moo_cols,
+                *weighted_moo_cols,
+            ],
+        )
 
         for ep in range(n_eps):
-            obss = self.observation_episode_memory[ep+1]
-            acts = self.action_episode_memory[ep+1]
-            rewards = self.reward_episode_memory[ep+1]
-            moo_rewards = np.array(self.moo_reward_episode_memory[ep+1])
+            obss = self.observation_episode_memory[ep + 1]
+            acts = self.action_episode_memory[ep + 1]
+            rewards = self.reward_episode_memory[ep + 1]
+            moo_rewards = np.array(self.moo_reward_episode_memory[ep + 1])
             weighted_moo_rewards = np.multiply(moo_rewards, self.obj_weights)
             feats = np.ndarray((len(obss), len(self.state_dims)))
             for i, s in enumerate(obss):
                 feats[i] = np.array(self._state_to_feats[s])
             ep_df = pd.DataFrame(feats, columns=feat_cols)
-            ep_df['a'] = acts[1:] + [np.nan]  # Actions are offset by 1 step
-            ep_df['episode'] = ep
-            ep_df['timestep'] = np.arange(n_steps)
-            ep_df['r'] = rewards[1:] + [np.nan]  # Rewards are offset by 1 step
+            ep_df["a"] = acts[1:] + [np.nan]  # Actions are offset by 1 step
+            ep_df["episode"] = ep
+            ep_df["timestep"] = np.arange(n_steps)
+            ep_df["r"] = rewards[1:] + [np.nan]  # Rewards are offset by 1 step
             for obj in range(self.n_objectives):
                 ep_df[moo_cols[obj]] = np.append(
-                    moo_rewards[1:, obj], [np.nan])  # Offset by 1 step
+                    moo_rewards[1:, obj], [np.nan]
+                )  # Offset by 1 step
                 ep_df[weighted_moo_cols[obj]] = np.append(
-                    weighted_moo_rewards[1:, obj], [np.nan])  # Offset by 1 stp
+                    weighted_moo_rewards[1:, obj], [np.nan]
+                )  # Offset by 1 stp
             df = pd.concat([df, ep_df])
 
         df = df.reset_index(drop=True)
@@ -243,4 +281,4 @@ class MultiObjectiveDiscreteMDP(DiscreteMDP):
         np.array<float>
             Moo rewards.
         """
-        return self.Rsasl[s,a,sp]
+        return self.Rsasl[s, a, sp]

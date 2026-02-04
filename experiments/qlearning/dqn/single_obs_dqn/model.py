@@ -53,19 +53,18 @@ class HiddenLayer:
         name collisions between the main and target graphs.
     """
 
-    def __init__(self, name, M1, M2, f=tf.nn.tanh, use_bias=True,
-                 use_name_scope=False):
+    def __init__(self, name, M1, M2, f=tf.nn.tanh, use_bias=True, use_name_scope=False):
         self.name = name
 
         if use_name_scope:
             with tf.name_scope(name):
-                with tf.name_scope('weights'):
+                with tf.name_scope("weights"):
                     self.W = tf.Variable(tf.random_normal(shape=(M1, M2)))
                     _variable_summaries(self.W)
                 self.params = [self.W]
                 self.use_bias = use_bias
                 if self.use_bias:
-                    with tf.name_scope('biases'):
+                    with tf.name_scope("biases"):
                         self.b = tf.Variable(np.zeros(M2).astype(np.float32))
                         _variable_summaries(self.b)
                     self.params.append(self.b)
@@ -174,9 +173,20 @@ class DQN:
         Used for writing TensorBoard cost summaries.
     """
 
-    def __init__(self, name, session, D, K, hidden_layer_sizes, gamma,
-                 max_experiences=10000, min_experiences=100, batch_size=32,
-                 log_summaries=False, logs_dir=None):
+    def __init__(
+        self,
+        name,
+        session,
+        D,
+        K,
+        hidden_layer_sizes,
+        gamma,
+        max_experiences=10000,
+        min_experiences=100,
+        batch_size=32,
+        log_summaries=False,
+        logs_dir=None,
+    ):
         self.name = name
         self.session = session
         self.K = K
@@ -193,17 +203,21 @@ class DQN:
         self.layers = []
         M1 = D
         for idx, M2 in enumerate(hidden_layer_sizes):
-            name = '{}-H{}'.format(self.name, idx)  # Used for TensorBoard
-            layer = HiddenLayer(name, M1, M2,
-                                use_name_scope=self.log_summaries)
+            name = "{}-H{}".format(self.name, idx)  # Used for TensorBoard
+            layer = HiddenLayer(name, M1, M2, use_name_scope=self.log_summaries)
             self.layers.append(layer)
             M1 = M2
 
         ##
         # Create the final layer of the main graph.
         ##
-        layer = HiddenLayer('{}-Output'.format(self.name), M1, K, lambda x: x,
-                            use_name_scope=self.log_summaries)
+        layer = HiddenLayer(
+            "{}-Output".format(self.name),
+            M1,
+            K,
+            lambda x: x,
+            use_name_scope=self.log_summaries,
+        )
         self.layers.append(layer)
 
         ##
@@ -217,9 +231,9 @@ class DQN:
         # Define the tensorflow placehoders for the inputs, targets, and
         # actions.
         ##
-        self.X = tf.placeholder(tf.float32, shape=(None, D), name='X')
-        self.G = tf.placeholder(tf.float32, shape=(None,), name='G')
-        self.actions = tf.placeholder(tf.int32, shape=(None,), name='actions')
+        self.X = tf.placeholder(tf.float32, shape=(None, D), name="X")
+        self.G = tf.placeholder(tf.float32, shape=(None,), name="G")
+        self.actions = tf.placeholder(tf.int32, shape=(None,), name="actions")
 
         ##
         # Define the forward() calls b/w each hidden layer, and the final
@@ -237,21 +251,19 @@ class DQN:
         # that there is one NN for each action.
         ##
         selected_action_values = tf.reduce_sum(
-            Y_hat * tf.one_hot(self.actions, K),
-            reduction_indices=[1])
+            Y_hat * tf.one_hot(self.actions, K), reduction_indices=[1]
+        )
 
         ##
         # Define the optimizer for the network.
         ##
         if self.log_summaries:
-            with tf.name_scope('cost'):
-                self.cost = tf.reduce_sum(
-                    tf.square(self.G-selected_action_values))
-            with tf.name_scope('train'):
-                self.train_op = tf.train.AdamOptimizer(1e-3).minimize(
-                    self.cost)
+            with tf.name_scope("cost"):
+                self.cost = tf.reduce_sum(tf.square(self.G - selected_action_values))
+            with tf.name_scope("train"):
+                self.train_op = tf.train.AdamOptimizer(1e-3).minimize(self.cost)
         else:
-            self.cost = tf.reduce_sum(tf.square(self.G-selected_action_values))
+            self.cost = tf.reduce_sum(tf.square(self.G - selected_action_values))
             self.train_op = tf.train.AdamOptimizer(1e-3).minimize(self.cost)
 
         ##
@@ -260,13 +272,14 @@ class DQN:
         if self.log_summaries:
             self.merged_summaries_ = tf.summary.merge_all()
             self.train_tb_writer_ = tf.summary.FileWriter(
-                self.logs_dir+'/train', self.session.graph)
-            self.cost_tb_writer_ = tf.summary.FileWriter(self.logs_dir+'/cost')
+                self.logs_dir + "/train", self.session.graph
+            )
+            self.cost_tb_writer_ = tf.summary.FileWriter(self.logs_dir + "/cost")
 
         ##
         # Create the replay memory.
         ##
-        self.experience = {'s': [], 'a': [], 'r': [], 's2': [], 'done': []}
+        self.experience = {"s": [], "a": [], "r": [], "s2": [], "done": []}
 
     def copy_from(self, other):
         """
@@ -342,7 +355,7 @@ class DQN:
         ##
         # Return early if we don't have enough experiences.
         ##
-        num_exp = len(self.experience['s'])
+        num_exp = len(self.experience["s"])
         if num_exp < self.min_experiences:
             return
 
@@ -350,11 +363,11 @@ class DQN:
         # Randomly select a batch (not sequence) of observations from replay buffer.
         ##
         idx = np.random.choice(num_exp, size=self.batch_size, replace=False)
-        states = [self.experience['s'][i] for i in idx]
-        actions = [self.experience['a'][i] for i in idx]
-        rewards = [self.experience['r'][i] for i in idx]
-        next_states = [self.experience['s2'][i] for i in idx]
-        dones = [self.experience['done'][i] for i in idx]
+        states = [self.experience["s"][i] for i in idx]
+        actions = [self.experience["a"][i] for i in idx]
+        rewards = [self.experience["r"][i] for i in idx]
+        next_states = [self.experience["s2"][i] for i in idx]
+        dones = [self.experience["done"][i] for i in idx]
 
         ##
         # Using the target network, compute the expected Q values after taking
@@ -374,34 +387,34 @@ class DQN:
         ##
         # TODO try doing this in a list and see if that messes this up
         # NOTE: The "targets" here are actually "G"
-        targets = [r + self.gamma * nQ if not done else r
-                   for r, nQ, done in zip(rewards, next_Q, dones)]
+        targets = [
+            r + self.gamma * nQ if not done else r
+            for r, nQ, done in zip(rewards, next_Q, dones)
+        ]
 
         ##
         # Every tenth train step, record the cost summary.
         ##
         if self.log_summaries and n % 10 == 0:
             summary, _ = self.session.run(
-                [self.merged_summaries_, self.cost], feed_dict={
-                    self.X: states,
-                    self.G: targets,
-                    self.actions: actions})
+                [self.merged_summaries_, self.cost],
+                feed_dict={self.X: states, self.G: targets, self.actions: actions},
+            )
             self.cost_tb_writer_.add_summary(summary, n)
 
         ##
         # Update the actual network by running the optimizer.
         ##
         if self.log_summaries:
-            summary, _ = self.session.run([self.merged_summaries_,
-                                           self.train_op],
-                                          feed_dict={self.X: states,
-                                                     self.G: targets,
-                                                     self.actions: actions})
+            summary, _ = self.session.run(
+                [self.merged_summaries_, self.train_op],
+                feed_dict={self.X: states, self.G: targets, self.actions: actions},
+            )
         else:
-            self.session.run([self.train_op],
-                             feed_dict={self.X: states,
-                                        self.G: targets,
-                                        self.actions: actions})
+            self.session.run(
+                [self.train_op],
+                feed_dict={self.X: states, self.G: targets, self.actions: actions},
+            )
 
         if self.log_summaries:
             self.train_tb_writer_.add_summary(summary, n)
@@ -429,10 +442,10 @@ class DQN:
         -------
         None
         """
-        if len(self.experience['s']) >= self.max_experiences:
-            for p in ['s', 'a', 'r', 's2', 'done']:
+        if len(self.experience["s"]) >= self.max_experiences:
+            for p in ["s", "a", "r", "s2", "done"]:
                 self.experience[p].pop(0)
-        for p, v in zip(['s', 'a', 'r', 's2', 'done'], [s, a, r, s2, done]):
+        for p, v in zip(["s", "a", "r", "s2", "done"], [s, a, r, s2, done]):
             self.experience[p].append(v)
 
     def sample_action(self, x, eps):
@@ -523,9 +536,8 @@ def play_one(env, model, tmodel, eps, gamma, copy_period, max_steps=10):
     return totalreward
 
 
-def main(logs_dir, copy_period=50, hidden_layer_sizes=[10, 10], N=500,
-         batch_size=32):
-    env = gym.make('CartPole-v0')
+def main(logs_dir, copy_period=50, hidden_layer_sizes=[10, 10], N=500, batch_size=32):
+    env = gym.make("CartPole-v0")
     gamma = 0.99
 
     # Define D - the number of components in the observations space
@@ -535,11 +547,28 @@ def main(logs_dir, copy_period=50, hidden_layer_sizes=[10, 10], N=500,
     # Define session - The tensorflow interactive session
     session = tf.InteractiveSession()
     # Define model - the main DQN model
-    model = DQN('main', session, D, K, hidden_layer_sizes, gamma, session,
-                batch_size=batch_size, logs_dir=logs_dir)
+    model = DQN(
+        "main",
+        session,
+        D,
+        K,
+        hidden_layer_sizes,
+        gamma,
+        session,
+        batch_size=batch_size,
+        logs_dir=logs_dir,
+    )
     # Define tmodel - the target DQN model
-    tmodel = DQN('target', session, D, K, hidden_layer_sizes, gamma, session,
-                 batch_size=batch_size)
+    tmodel = DQN(
+        "target",
+        session,
+        D,
+        K,
+        hidden_layer_sizes,
+        gamma,
+        session,
+        batch_size=batch_size,
+    )
     # Define init - the tensorflow global variables initializer
     init = tf.global_variables_initializer()
     # Run the session while passing in the global variables initializer
@@ -547,19 +576,24 @@ def main(logs_dir, copy_period=50, hidden_layer_sizes=[10, 10], N=500,
 
     totalrewards = np.zeros(N)
     for n in range(N):
-        eps = 1.0/np.sqrt(n+1)
-        totalreward = play_one(env, model, tmodel, eps, gamma, copy_period,
-                               logs_dir)
+        eps = 1.0 / np.sqrt(n + 1)
+        totalreward = play_one(env, model, tmodel, eps, gamma, copy_period, logs_dir)
         totalrewards[n] = totalreward
         if n % 100 == 0:
             ravg = running_avg(totalrewards, n)
-            print('episode:', n,
-                  'total reward:', totalreward,
-                  'eps:', eps,
-                  'avg reward (last 100):', ravg)
+            print(
+                "episode:",
+                n,
+                "total reward:",
+                totalreward,
+                "eps:",
+                eps,
+                "avg reward (last 100):",
+                ravg,
+            )
 
-    print('avg reward for last 100 episodes:', totalrewards[-100:].mean())
-    print('total steps:', totalrewards.sum())
+    print("avg reward for last 100 episodes:", totalrewards[-100:].mean())
+    print("total steps:", totalrewards.sum())
 
     plt.plot(totalrewards)
     plt.title("Rewards")
@@ -569,7 +603,7 @@ def main(logs_dir, copy_period=50, hidden_layer_sizes=[10, 10], N=500,
 
 
 def running_avg(totalrewards, t):
-    return totalrewards[max(0, t-100):(t+1)].mean()
+    return totalrewards[max(0, t - 100) : (t + 1)].mean()
 
 
 def plot_running_avg(totalrewards):
@@ -578,7 +612,7 @@ def plot_running_avg(totalrewards):
     for t in range(N):
         ravg[t] = running_avg(totalrewards, t)
     plt.plot(ravg)
-    plt.title('Running Average')
+    plt.title("Running Average")
     plt.show()
 
 
@@ -595,17 +629,16 @@ def _variable_summaries(var):
     -------
     None
     """
-    with tf.name_scope('summaries'):
+    with tf.name_scope("summaries"):
         mean = tf.reduce_mean(var)
-        tf.summary.scalar('mean', mean)
-        with tf.name_scope('stddev'):
+        tf.summary.scalar("mean", mean)
+        with tf.name_scope("stddev"):
             stddev = tf.sqrt(tf.reduce_mean(tf.square(var - mean)))
-        tf.summary.scalar('stddev', stddev)
-        tf.summary.scalar('max', tf.reduce_max(var))
-        tf.summary.scalar('min', tf.reduce_min(var))
-        tf.summary.histogram('histogram', var)
+        tf.summary.scalar("stddev", stddev)
+        tf.summary.scalar("max", tf.reduce_max(var))
+        tf.summary.scalar("min", tf.reduce_min(var))
+        tf.summary.histogram("histogram", var)
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()
-

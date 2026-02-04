@@ -11,11 +11,21 @@ from scipy.optimize import linprog
 
 
 class DiscreteMDP(gym.Env):
-    metadata = {'render.modes': ['human']}
+    metadata = {"render.modes": ["human"]}
 
-    def __init__(self, state_dims, action_dims, obs_dims,
-                 max_steps_per_episode, Osaso_dtype='float64', verbose=False,
-                 args={}, T=None, Osaso=None, Rsas=None):
+    def __init__(
+        self,
+        state_dims,
+        action_dims,
+        obs_dims,
+        max_steps_per_episode,
+        Osaso_dtype="float64",
+        verbose=False,
+        args={},
+        T=None,
+        Osaso=None,
+        Rsas=None,
+    ):
         """
         Generic environment for a discrete MDP. This class includes helper
         methods for computing transitions, observations, and rewards. Can also
@@ -139,46 +149,70 @@ class DiscreteMDP(gym.Env):
         # display(self._state_to_feats)
 
         # Build initial state vector mu0 from injected method
-        self.mu0 = np.array([
-            self._init_state_probability(s) for s in range(self.n_states)
-        ])
+        self.mu0 = np.array(
+            [self._init_state_probability(s) for s in range(self.n_states)]
+        )
 
         if T is not None:
             self.T = T
         else:
             # Build transition matrix T from injected method
-            print('Constructing transition matrix...')
-            self.T = np.array([
-                [self._transition_probability(s, a) for a in range(self.n_actions)]
-                for s in range(self.n_states)])
+            print("Constructing transition matrix...")
+            self.T = np.array(
+                [
+                    [self._transition_probability(s, a) for a in range(self.n_actions)]
+                    for s in range(self.n_states)
+                ]
+            )
 
         if Osaso is not None:
             self.Osaso = Osaso
         else:
             # Build observation matrix Osaso from injected method
-            print('Constructing observation matrix...')
-            self.Osaso = np.array([
-                np.array([
-                    np.array([
-                        self._observation_probability(s, a, sp) for sp in range(self.n_states)
-                    ], dtype=self.Osaso_dtype) for a in range(self.n_actions)
-                ], dtype=self.Osaso_dtype) for s in range(self.n_states)
-            ], dtype=self.Osaso_dtype)
+            print("Constructing observation matrix...")
+            self.Osaso = np.array(
+                [
+                    np.array(
+                        [
+                            np.array(
+                                [
+                                    self._observation_probability(s, a, sp)
+                                    for sp in range(self.n_states)
+                                ],
+                                dtype=self.Osaso_dtype,
+                            )
+                            for a in range(self.n_actions)
+                        ],
+                        dtype=self.Osaso_dtype,
+                    )
+                    for s in range(self.n_states)
+                ],
+                dtype=self.Osaso_dtype,
+            )
 
         if Rsas is not None:
             self.Rsas = Rsas
         else:
             # Build reward matrix Rsas from injected method.
-            print('Constructing reward matrix...')
-            self.Rsas = np.array([
-                np.array([
-                    np.array([
-                        self._reward_sas(s, a, sp) for sp in range(self.n_states)
-                        ]) for a in range(self.n_actions)
-                ]) for s in range(self.n_states)
-            ])
+            print("Constructing reward matrix...")
+            self.Rsas = np.array(
+                [
+                    np.array(
+                        [
+                            np.array(
+                                [
+                                    self._reward_sas(s, a, sp)
+                                    for sp in range(self.n_states)
+                                ]
+                            )
+                            for a in range(self.n_actions)
+                        ]
+                    )
+                    for s in range(self.n_states)
+                ]
+            )
 
-        print('Check all observation probabilities sum to 1...')
+        print("Check all observation probabilities sum to 1...")
         # Check all O[s][a][s'][:] probs sum to 1
         for s in range(self.n_states):
             for a in range(self.n_actions):
@@ -186,20 +220,20 @@ class DiscreteMDP(gym.Env):
                     assert self.Osaso[s][a][sp].sum() == 1
 
         # Check all T[s][a][:] probs sum to 1
-        print('Checking all transition probabilities sum to 1...')
+        print("Checking all transition probabilities sum to 1...")
         for s in range(self.n_states):
             for a in range(self.n_actions):
                 try:
-                    assert (abs(self.T[s][a].sum() - 1) < 1e6)
+                    assert abs(self.T[s][a].sum() - 1) < 1e6
                 except:
                     _sum = self.T[s][a].sum()
-                    log_msg = f'self.T[{s}][{a}].sum() = {self.T[s][a].sum()}'
-                    err_msg = f'T[s={s}][a={a}] sums to {_sum:.3f}, not 1.'
+                    log_msg = f"self.T[{s}][{a}].sum() = {self.T[s][a].sum()}"
+                    err_msg = f"T[s={s}][a={a}] sums to {_sum:.3f}, not 1."
                     s_feats = self._state_to_feats[s]
                     for sp in range(0, self.n_states):
                         if self.T[s][a][sp] > 0:
                             sp_feats = self._state_to_feats[sp]
-                            display(f'T{s_feats}[{a}]{sp_feats}] = {self.T[s][a][sp]}')
+                            display(f"T{s_feats}[{a}]{sp_feats}] = {self.T[s][a][sp]}")
                     logging.debug(log_msg)
                     raise AssertionError(err_msg)
 
@@ -209,7 +243,6 @@ class DiscreteMDP(gym.Env):
         assert self.T.shape == self.Rsas.shape
         # Check Osaso matches shape of T
         assert self.Osaso.shape[0:3] == self.T.shape
-
 
         # Reset
         self.reset()
@@ -274,7 +307,7 @@ class DiscreteMDP(gym.Env):
         done = self.cur_step >= self.max_steps_per_episode
 
         if self.verbose:
-            logging.info('\t' + self.render_state(self.cur_state))
+            logging.info("\t" + self.render_state(self.cur_state))
 
         return ob, reward, done, {}
 
@@ -303,14 +336,14 @@ class DiscreteMDP(gym.Env):
         self.reward_episode_memory[self.cur_episode].append(-1)
 
         if self.verbose:
-            logging.info(f'Episode {self.cur_episode}')
+            logging.info(f"Episode {self.cur_episode}")
 
         if self.verbose:
-            logging.info('\t' + self.render_state(self.cur_state))
+            logging.info("\t" + self.render_state(self.cur_state))
 
         return ob
 
-    def render(self, mode='human'):
+    def render(self, mode="human"):
         return
 
     def close(self):
@@ -333,8 +366,8 @@ class DiscreteMDP(gym.Env):
             Policy in dataframe format.
         """
         pi_df = pd.DataFrame(data=self._state_to_feats, columns=state_labels)
-        pi_df['mu0'] = self.mu0
-        pi_df['a'] = pi
+        pi_df["mu0"] = self.mu0
+        pi_df["a"] = pi
         return pi_df
 
     @abstractmethod
@@ -366,22 +399,21 @@ class DiscreteMDP(gym.Env):
         n_eps = len(self.observation_episode_memory[1:])
         n_steps = len(self.observation_episode_memory[1])
         metrics_by_ep = np.zeros(n_eps)
-        feat_cols = ['z', 'y0', 'y1', 'c', 'yd']
-        df = pd.DataFrame([],
-                columns=['episode', 'timestep', *feat_cols, 'a', 'r'])
+        feat_cols = ["z", "y0", "y1", "c", "yd"]
+        df = pd.DataFrame([], columns=["episode", "timestep", *feat_cols, "a", "r"])
 
         for ep in range(n_eps):
-            obss = self.observation_episode_memory[ep+1]
-            acts = self.action_episode_memory[ep+1]
-            rewards = self.reward_episode_memory[ep+1]
+            obss = self.observation_episode_memory[ep + 1]
+            acts = self.action_episode_memory[ep + 1]
+            rewards = self.reward_episode_memory[ep + 1]
             feats = np.ndarray((len(obss), len(self.state_dims)))
             for i, s in enumerate(obss):
                 feats[i] = np.array(self._state_to_feats[s])
             ep_df = pd.DataFrame(feats, columns=feat_cols)
-            ep_df['a'] = acts[1:] + [np.nan]  # Actions are offset by 1 step
-            ep_df['episode'] = ep
-            ep_df['timestep'] = np.arange(n_steps)
-            ep_df['r'] = rewards[1:] + [np.nan]  # Rewards are offset by 1 step
+            ep_df["a"] = acts[1:] + [np.nan]  # Actions are offset by 1 step
+            ep_df["episode"] = ep
+            ep_df["timestep"] = np.arange(n_steps)
+            ep_df["r"] = rewards[1:] + [np.nan]  # Rewards are offset by 1 step
             df = pd.concat([df, ep_df])
 
         df = df.reset_index(drop=True)
@@ -409,8 +441,7 @@ class DiscreteMDP(gym.Env):
             Osaso[s][a][s'][o] format of Ospo[s'][o].
 
         """
-        Osaso = np.zeros((self.n_states, self.n_actions, self.n_states,
-            self.n_obs))
+        Osaso = np.zeros((self.n_states, self.n_actions, self.n_states, self.n_obs))
         for s in range(self.n_states):
             for a in range(self.n_actions):
                 for sp in range(self.n_states):
@@ -436,8 +467,7 @@ class DiscreteMDP(gym.Env):
             State index lookup by feature values.
         """
         # construction variables
-        _state_to_feats = np.zeros((self.n_states, len(self.state_dims)),
-                dtype=int)
+        _state_to_feats = np.zeros((self.n_states, len(self.state_dims)), dtype=int)
         _feats_to_state = {}
         # temp variables
         state_comp_cur_idxs = np.zeros_like(self.state_dims)
@@ -451,11 +481,9 @@ class DiscreteMDP(gym.Env):
             #   with current vals of temp vars.
             #   state_comp_cur_idxs e.g. [3, 0, 2] if 3 state components.
             #   State component 0 is at index 3, ...
-            for state_comp_idx, state_comp_val in enumerate(
-                    state_comp_cur_idxs):
+            for state_comp_idx, state_comp_val in enumerate(state_comp_cur_idxs):
                 _state_to_feats[state_idx][state_comp_idx] = state_comp_val
-                _feats_to_state[
-                        self._hash_features(state_comp_cur_idxs)] = state_idx
+                _feats_to_state[self._hash_features(state_comp_cur_idxs)] = state_idx
 
             # Increment/decrement temp vars
 
@@ -466,17 +494,16 @@ class DiscreteMDP(gym.Env):
             # respective dim size, increment it by 1, then reset all index vals
             # to the right of it to zero.
             done = True
-            for idx in range(len(state_comp_cur_idxs)-1, -1, -1):
-                if state_comp_cur_idxs[idx] < self.state_dims[idx]-1:
+            for idx in range(len(state_comp_cur_idxs) - 1, -1, -1):
+                if state_comp_cur_idxs[idx] < self.state_dims[idx] - 1:
                     state_comp_cur_idxs[idx] += 1
-                    for comp_idx in range(idx+1, len(self.state_dims)):
+                    for comp_idx in range(idx + 1, len(self.state_dims)):
                         state_comp_cur_idxs[comp_idx] = 0
                     done = False
                     break
 
         self._state_to_feats = _state_to_feats
         self._feats_to_state = _feats_to_state
-
 
     def _construct_obs_feat_lookups(self):
         """
@@ -497,8 +524,7 @@ class DiscreteMDP(gym.Env):
             Obs index lookup by feature values.
         """
         # construction variables
-        _obs_to_feats = np.zeros((self.n_obs, len(self.obs_dims)),
-                dtype=int)
+        _obs_to_feats = np.zeros((self.n_obs, len(self.obs_dims)), dtype=int)
         _feats_to_obs = {}
         # temp variables
         obs_comp_cur_idxs = np.zeros_like(self.obs_dims)
@@ -512,11 +538,9 @@ class DiscreteMDP(gym.Env):
             #   with current vals of temp vars.
             #   obs_comp_cur_idxs e.g. [3, 0, 2] if 3 obs components.
             #   obs component 0 is at index 3, ...
-            for obs_comp_idx, obs_comp_val in enumerate(
-                    obs_comp_cur_idxs):
+            for obs_comp_idx, obs_comp_val in enumerate(obs_comp_cur_idxs):
                 _obs_to_feats[obs_idx][obs_comp_idx] = obs_comp_val
-                _feats_to_obs[
-                        self._hash_features(obs_comp_cur_idxs)] = obs_idx
+                _feats_to_obs[self._hash_features(obs_comp_cur_idxs)] = obs_idx
 
             # Increment/decrement temp vars
 
@@ -527,10 +551,10 @@ class DiscreteMDP(gym.Env):
             # respective dim size, increment it by 1, then reset all index vals
             # to the right of it to zero.
             done = True
-            for idx in range(len(obs_comp_cur_idxs)-1, -1, -1):
-                if obs_comp_cur_idxs[idx] < self.obs_dims[idx]-1:
+            for idx in range(len(obs_comp_cur_idxs) - 1, -1, -1):
+                if obs_comp_cur_idxs[idx] < self.obs_dims[idx] - 1:
                     obs_comp_cur_idxs[idx] += 1
-                    for comp_idx in range(idx+1, len(self.obs_dims)):
+                    for comp_idx in range(idx + 1, len(self.obs_dims)):
                         obs_comp_cur_idxs[comp_idx] = 0
                     done = False
                     break
@@ -555,7 +579,7 @@ class DiscreteMDP(gym.Env):
         str
             Hash value for the corresponding state.
         """
-        return ''.join(np.array(features).astype(str))
+        return "".join(np.array(features).astype(str))
 
     @abstractmethod
     def _init_state_probability(self, s):
@@ -651,10 +675,9 @@ class DiscreteMDP(gym.Env):
         try:
             s0 = np.random.choice(np.arange(self.n_states), p=self.mu0)
         except Exception as e:
-            print(f'self.mu0: {self.mu0}')
+            print(f"self.mu0: {self.mu0}")
             raise e
         return s0
-
 
     def _take_action(self, action):
         """
@@ -674,8 +697,7 @@ class DiscreteMDP(gym.Env):
         trans_probs = self.T[self.cur_state, action]
 
         # Generate an array of next state options to choose from
-        next_state_options = np.linspace(0, self.n_states-1, self.n_states,
-                                         dtype=int)
+        next_state_options = np.linspace(0, self.n_states - 1, self.n_states, dtype=int)
 
         # Sample from new state options based on the transition probabilities
         new_state = np.random.choice(next_state_options, p=trans_probs)
@@ -700,7 +722,7 @@ class DiscreteMDP(gym.Env):
         float
             Reward(s,a,s').
         """
-        return self.Rsas[s,a,sp]
+        return self.Rsas[s, a, sp]
 
     def _get_obs(self, s, a, sp):
         """
@@ -727,21 +749,24 @@ class DiscreteMDP(gym.Env):
             # TODO: this is hacky since we just sample a random previous state
             # and action. Think # of something better.
             # Generate an array of next state options to choose from
-            action_options = np.linspace(0, self.n_actions-1, self.n_actions,
-                                         dtype=int)
+            action_options = np.linspace(
+                0, self.n_actions - 1, self.n_actions, dtype=int
+            )
             # Sample from all states
-            s = np.random.choice(np.arange(self.n_states),
-                    p=(np.ones(self.n_states)/self.n_states))
+            s = np.random.choice(
+                np.arange(self.n_states), p=(np.ones(self.n_states) / self.n_states)
+            )
 
             # Sample from all actions
-            a = np.random.choice(np.arange(self.n_actions),
-                    p=(np.ones(self.n_actions)/self.n_actions))
+            a = np.random.choice(
+                np.arange(self.n_actions), p=(np.ones(self.n_actions) / self.n_actions)
+            )
 
         # Get probabilities for all potential observations
         obs_probs = self.Osaso[s][a][sp]
 
         # Generate an array of observation options to choose from
-        obs_options = np.linspace(0, self.n_obs-1, self.n_obs, dtype=int)
+        obs_options = np.linspace(0, self.n_obs - 1, self.n_obs, dtype=int)
 
         # Sample from observation options using observation probabilities
         obs = np.random.choice(obs_options, p=obs_probs)
@@ -772,25 +797,25 @@ def compute_optimal_policy(env, gamma):
         Optimal policy.
     """
     # Construct dual_A[s][s'*|A|+a]
-    dual_A = np.zeros((env.n_states, env.n_states*env.n_actions))
+    dual_A = np.zeros((env.n_states, env.n_states * env.n_actions))
     for s in range(env.n_states):
         for sp in range(env.n_states):
             for a in range(env.n_actions):
                 if s == sp:
-                    dual_A[s][sp*env.n_actions+a] = 1 - gamma*env.T[sp][a][s]
+                    dual_A[s][sp * env.n_actions + a] = 1 - gamma * env.T[sp][a][s]
                 else:
-                    dual_A[s][sp*env.n_actions+a] = 0 - gamma*env.T[sp][a][s]
+                    dual_A[s][sp * env.n_actions + a] = 0 - gamma * env.T[sp][a][s]
 
     # Construct dual_c
-    dual_c = np.zeros(env.n_states*env.n_actions)
+    dual_c = np.zeros(env.n_states * env.n_actions)
     for s in range(env.n_states):
         for a in range(env.n_actions):
             _sum = 0
             for sp in range(env.n_states):
-                _sum += (env.T[s][a][sp] * env.Rsas[s][a][sp])
-            dual_c[s*env.n_actions+a] = _sum
+                _sum += env.T[s][a][sp] * env.Rsas[s][a][sp]
+            dual_c[s * env.n_actions + a] = _sum
 
-    dual_c = -1*dual_c  # Multiply by -1 since maximizing
+    dual_c = -1 * dual_c  # Multiply by -1 since maximizing
 
     # Construct dual_b = mu0
     dual_b = env.mu0
@@ -804,8 +829,8 @@ def compute_optimal_policy(env, gamma):
     pi_opt = np.zeros(env.n_states, dtype=int)
     print(f"res.fun: {res.fun:.3f}")
     for s in range(env.n_states):
-        start_idx = s*env.n_actions
-        end_idx = s*env.n_actions+env.n_actions
+        start_idx = s * env.n_actions
+        end_idx = s * env.n_actions + env.n_actions
         pi_opt[s] = res.x[start_idx:end_idx].argmax()
 
     return np.array([pi_opt])

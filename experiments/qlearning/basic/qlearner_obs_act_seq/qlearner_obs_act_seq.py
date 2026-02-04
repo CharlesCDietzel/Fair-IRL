@@ -5,8 +5,15 @@ from IPython.display import display
 
 class QLearnerObsActSeq:
 
-    def __init__(self, env, feature_transformer, initial_alpha=.1, gamma=.9,
-                 alpha_decay=0, seq_len=3):
+    def __init__(
+        self,
+        env,
+        feature_transformer,
+        initial_alpha=0.1,
+        gamma=0.9,
+        alpha_decay=0,
+        seq_len=3,
+    ):
         """
         Started 06/27/2019
         Q Learner with all combinations of seq_len action-observations as state
@@ -57,7 +64,7 @@ class QLearnerObsActSeq:
         exp = seq_len
         num_states = 1
         while exp > 0:
-            num_states += (num_obs*num_actions)**exp
+            num_states += (num_obs * num_actions) ** exp
             exp = exp - 1
         self.Q = np.zeros((num_states, num_actions))
         self._n_updates = 0
@@ -131,14 +138,14 @@ class QLearnerObsActSeq:
 
             if None in seqt:
                 display(seqt)
-                raise ValueError('seqt contains Nones at time {}'.format(t))
+                raise ValueError("seqt contains Nones at time {}".format(t))
 
             # Transform seqt, seqt1
             seqt_t = self.feature_transformer.transform(seqt)
             seqt1_t = self.feature_transformer.transform(seqt1)
 
             # Compute alpha (if there's nonzero alpha decay)
-            alpha = self.initial_alpha / (self._n_updates+1)**self._alpha_decay
+            alpha = self.initial_alpha / (self._n_updates + 1) ** self._alpha_decay
 
             # TD(0) update using observation-action sequences as states.
             Qt = self.Q[seqt_t, at]
@@ -204,19 +211,21 @@ class QLearnerObsActSeq:
         ht = historyt.copy()
 
         # Add observation as new row in temp copy of history
-        ht1 = np.empty((self.seq_len+1, 3), dtype=object)
-        ht1[0:self.seq_len] = ht[0:self.seq_len]
+        ht1 = np.empty((self.seq_len + 1, 3), dtype=object)
+        ht1[0 : self.seq_len] = ht[0 : self.seq_len]
 
         # Action has not yet been chosen, so it's None
-        ht1[self.seq_len] = np.array([t+1, None, ot])
+        ht1[self.seq_len] = np.array([t + 1, None, ot])
 
         # Need observations and actions staggered w. regard to timestep
-        seq = np.empty((len(ht1)-1, 2), dtype=object)
+        seq = np.empty((len(ht1) - 1, 2), dtype=object)
         for i, (o, a) in enumerate(zip(ht1[1:, 2], ht1[0:-1, 1])):
-            seq[i] = np.array([o, a], dtype=object).reshape(-1,)
+            seq[i] = np.array([o, a], dtype=object).reshape(
+                -1,
+            )
 
         assert seq.shape == (self.seq_len, 2)
-        assert ht1.shape == (self.seq_len+1, 3)
+        assert ht1.shape == (self.seq_len + 1, 3)
 
         return seq, ht1
 
@@ -241,8 +250,7 @@ class QLearnerObsActSeq:
         """
         if len(self.history) == self.seq_len:
             self.history = np.delete(self.history, 0, axis=0)
-        self.history = np.vstack([self.history, np.array([t, at, ot],
-                                                         dtype=object)])
+        self.history = np.vstack([self.history, np.array([t, at, ot], dtype=object)])
 
     def to_df(self):
         """
@@ -255,7 +263,7 @@ class QLearnerObsActSeq:
         """
         env_class = self.env.__class__.__name__
 
-        if env_class == 'TigerEnv':
+        if env_class == "TigerEnv":
             actions = [0, 1, 2]
             actions_ = [self.env.translate_action(a1) for a1 in actions]
             obs_act_seqs = self.feature_transformer.inverse_lookup_.values()
@@ -287,20 +295,20 @@ class QLearnerObsActSeq:
                 row.append(actions_[best_action])
                 rows.append(row)
 
-            update_counts_ = [a + ' UPDATE COUNT' for a in actions_]
+            update_counts_ = [a + " UPDATE COUNT" for a in actions_]
             Q_columns = []
             for a, u in zip(actions_, update_counts_):
-                Q_columns.append(a + ' Q VALUE')
+                Q_columns.append(a + " Q VALUE")
                 Q_columns.append(u)
             columns = []
             for i in range(self.seq_len):
-                columns.append('a_t-{}'.format(self.seq_len-i))
-                columns.append('o_t-{}'.format(self.seq_len-i-1))
-            columns += Q_columns + ['BEST ACTION']
+                columns.append("a_t-{}".format(self.seq_len - i))
+                columns.append("o_t-{}".format(self.seq_len - i - 1))
+            columns += Q_columns + ["BEST ACTION"]
             df = pd.DataFrame(rows, columns=columns)
             return df
         else:
-            raise ValueError('Don\'t know how to represent this env.')
+            raise ValueError("Don't know how to represent this env.")
 
 
 def play_one(env, model, eps, verbose=False):
@@ -331,9 +339,12 @@ def play_one(env, model, eps, verbose=False):
     t = 0
 
     if verbose:
-        print('{:<5} | {:<11} | {:<10} | {:<5} | {:<11} | {:<10}'.format(
-            't', 'o_t-1', 'a_t-1', 'r', 'o_t', 'a_t'))
-        print('-'*100)
+        print(
+            "{:<5} | {:<11} | {:<10} | {:<5} | {:<11} | {:<10}".format(
+                "t", "o_t-1", "a_t-1", "r", "o_t", "a_t"
+            )
+        )
+        print("-" * 100)
 
     while not done:
         otm1 = ot
@@ -357,7 +368,10 @@ def play_one(env, model, eps, verbose=False):
             _atm1 = env.translate_action(atm1)
             _ot = env.translate_obs(ot)
             _at = env.translate_action(at)
-            print('{:<5} | {:<11} | {:<10} | {:<5} | {:<11} | {:<10}'.format(
-                t, _otm1, _atm1, r, _ot, _at))
+            print(
+                "{:<5} | {:<11} | {:<10} | {:<5} | {:<11} | {:<10}".format(
+                    t, _otm1, _atm1, r, _ot, _at
+                )
+            )
         t += 1
     return total_episode_reward
