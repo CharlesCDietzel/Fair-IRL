@@ -166,6 +166,7 @@ def add_demo_bias(demo, unfairness_types=[], dataset=None):
         nrz = 1
         nry = 0
 
+    percent = 0.2
     for unfairness_type in unfairness_types:
         demo.reset_index(inplace=True)
         match unfairness_type:
@@ -174,7 +175,7 @@ def add_demo_bias(demo, unfairness_types=[], dataset=None):
                 # Count how many rows have z == rz
                 rz_count = (demo["z"] == rz).sum()
                 # Multiply that by 20% to get the number of rows to redline
-                n = int(rz_count * 0.2)
+                n = int(rz_count * percent)
                 # Step 3: Get n indices where z == rz
                 rz_indices = demo[demo['z'] == rz].sample(n=n).index
                 # Step 4: Set yhat to ry for sampled rows
@@ -184,7 +185,7 @@ def add_demo_bias(demo, unfairness_types=[], dataset=None):
                 # Count how many rows have z == rz
                 rz_count = (demo["z"] == rz).sum()
                 # Multiply that by 20% to get the number of rows to redline
-                n = int(rz_count * 0.2)
+                n = int(rz_count * percent)
                 # Edge case check: If there are fewer z == nrz than n, set n = nrz_count instead
                 nrz_count = (demo["z"] == nrz).sum()
                 n = min(nrz_count, n)
@@ -201,7 +202,7 @@ def add_demo_bias(demo, unfairness_types=[], dataset=None):
                 # Count how many rows have z == rz AND yhat == nry
                 rz_count = ((demo["z"] == rz) & (demo["yhat"] == nry)).sum()
                 # Multiply that by 20% to get the number of rows to flip
-                n = int(rz_count * 0.2)
+                n = int(rz_count * percent)
                 # Edge case check: If there are fewer z == nrz and yhat == ry than n, set n = nrz_count instead
                 nrz_count = ((demo["z"] == nrz) & (demo["yhat"] == ry)).sum()
                 n = min(nrz_count, n)
@@ -219,7 +220,7 @@ def add_demo_bias(demo, unfairness_types=[], dataset=None):
                 minority_yhat = demo["yhat"].value_counts(ascending=True).index[0]
                 z_mask = demo['z'] == minority_z
                 random_mask = np.zeros(len(demo), dtype=bool)
-                random_mask[z_mask] = np.random.random(z_mask.sum()) < 0.2
+                random_mask[z_mask] = np.random.random(z_mask.sum()) < percent
                 demo.loc[random_mask, 'yhat'] = minority_yhat
         demo.set_index("index", inplace=True) 
         demo.index.name = None
