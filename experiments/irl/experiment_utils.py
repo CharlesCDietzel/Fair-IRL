@@ -494,6 +494,7 @@ def generate_single_exp_results_df(feat_obj_set, perf_obj_set, results):
 
 
 def new_trial_result(
+    best_idx,
     feat_obj_set,
     perf_obj_set,
     muE_unbiased,
@@ -573,20 +574,20 @@ def new_trial_result(
         muE_hold_std = np.std(muE_hold[:, i])
         result += [muE_hold_mean, muE_hold_std]
 
-    best_t = (
-        df_irl.query("(is_expert == 0) and (is_init_policy == 0)")
-        .sort_values("t")["t"]
-        .values[0]
-    )
-    try:
-        best_idx = (
-            df_irl[(df_irl["is_expert"] == 0) & (df_irl["is_init_policy"] == 0)]
-            .query("abs(t - @best_t) <= .0001")
-            .sort_index()
-            .index[0]
-        )
-    except:
-        pass
+    # best_t = (
+    #     df_irl.query("(is_expert == 0) and (is_init_policy == 0)")
+    #     .sort_values("t")["t"]
+    #     .values[0]
+    # )
+    # try:
+    #     best_idx = (
+    #         df_irl[(df_irl["is_expert"] == 0) & (df_irl["is_init_policy"] == 0)]
+    #         .query("abs(t - @best_t) <= .0001")
+    #         .sort_index()
+    #         .index[0]
+    #     )
+    # except:
+    #     pass
     best_row = df_irl.loc[best_idx]
 
     # Adds n_feat_exp * 1 values
@@ -734,18 +735,6 @@ def run_trial_source_domain(
     split_is_okay = False
     max_muE_cosine_dist_split = 0.001
 
-    # TODO: just generally check this code against the original,
-    # I'm not convinced that it's all correct
-    muE_unbiased, _ = generate_demos_k_folds(
-        exp_info,
-        X=X,
-        y=y,
-        clf=expert_algo_lookup[exp_info["EXPERT_ALGO"]],
-        obj_set=feat_obj_set,
-        n_demos=exp_info["N_EXPERT_DEMOS"],
-        bias_types=[],
-    )
-
     while not split_is_okay:
         X_demo, X_hold, y_demo, y_hold = train_test_split(X, y, test_size=0.2)
 
@@ -760,35 +749,42 @@ def run_trial_source_domain(
             bias_types=bias_types,
         )
 
-        muE_hold_test, _ = generate_demos_k_folds(
-            exp_info,
-            X=X_hold,
-            y=y_hold,
-            clf=expert_algo_lookup[exp_info["EXPERT_ALGO"]],
-            obj_set=feat_obj_set,
-            n_demos=exp_info["N_EXPERT_DEMOS"],
-            bias_types=bias_types,
-        )
-
         # Fit expert on entire training dataset. This is used when computing demos
         # on the holdout set for performance measurement.
         expert_hold_clf = expert_algo_lookup[exp_info["EXPERT_ALGO"]]
         expert_hold_clf.fit(X_demo, y_demo)
+        expert_hold_clf = add_classifier_bias(expert_hold_clf, bias_types)
         demoE_hold = generate_demo(
             clf=expert_hold_clf,
             X_test=X_demo,
             y_test=y_demo,
             can_observe_y=CAN_OBSERVE_Y,
         )
-        muE_hold = np.array(
-            [feat_obj_set.compute_demo_feature_exp(demoE_hold)]
-        )  # TODO: Maybe replace this with muE_hold_test???
+        demoE_hold = add_demo_bias(
+            demoE_hold, unfairness_types=bias_types, dataset=exp_info["DATASET"]
+        )
+        muE_hold = np.array([feat_obj_set.compute_demo_feature_exp(demoE_hold)])
         muE_perf_hold = np.array([perf_obj_set.compute_demo_feature_exp(demoE_hold)])
 
         for demo_i, _ in enumerate(muE):
             split_is_okay = True
-            if cosine(muE[demo_i], muE_hold_test[demo_i]) > max_muE_cosine_dist_split:
+            if cosine(muE[demo_i], muE_hold[demo_i]) > max_muE_cosine_dist_split:
                 split_is_okay = False
+                # Emergency escape hatch to prevent this from getting stuck, it should probably be fine I hope -Charles
+                # Nevermind, it wasn't fine, removing this
+                # max_muE_cosine_dist_split *= 2
+                # logging.info(f"WARNING: Split check failed, increasing max_muE_cosine_dist_split to {max_muE_cosine_dist_split}")
+                logging.info(f"WARNING: Split check failed: {cosine(muE[demo_i], muE_hold[demo_i])} > {max_muE_cosine_dist_split}")
+
+    muE_unbiased, _ = generate_demos_k_folds(
+        exp_info,
+        X=X_demo,
+        y=y_demo,
+        clf=expert_algo_lookup[exp_info["EXPERT_ALGO"]],
+        obj_set=feat_obj_set,
+        n_demos=exp_info["N_EXPERT_DEMOS"],
+        bias_types=[],
+    )
 
     logging.info(f"muE_unbiased:\n{muE_unbiased}")
     logging.info(f"muE:\n{muE}")
@@ -853,7 +849,7 @@ def run_trial_source_domain(
         # Holdout set
         _mu_hold, _demos_hold = generate_demos_k_folds(
             exp_info,
-            X=X_demo,
+            X=X_demo,  # Is this supposed to be X_hold and y_hold?
             y=y_demo,
             clf=expert_algo_lookup[non_expert_algo],
             obj_set=feat_obj_set,
@@ -1128,7 +1124,7 @@ def run_trial_source_domain(
             logging.info(
                 f"IGNORING RESULTS BECAUSE BEST ERROR {min(mu_delta_l2norm_hist):.3f} > {exp_info['IGNORE_RESULTS_EPSILON']:.3f}"
             )
-            return_val = (False, None, None, None, None, None, None, None, None)
+            return_val = (None, None, None, None, None, None, None, None, None)
             return_vals.append(return_val)
             return return_vals
 
@@ -1170,6 +1166,8 @@ def run_trial_source_domain(
             f"Best Learned Policy yhat (not real yhat since doesn't factor mu0): {best_demo['yhat'].mean():.3f}"
         )
         logging.info(f"best weight:\t {np.round(best_weight, 3)}")
+
+        best_row = exp_info["N_EXPERT_DEMOS"] + exp_info["N_INIT_POLICIES"] + best_iter
 
         # Generate a dataframe for results gathering.
         X_irl = pd.concat([X_irl_exp, X_irl_learn], axis=0).reset_index(drop=True)
@@ -1244,26 +1242,26 @@ def run_trial_source_domain(
         logging.debug("Experiment Summary")
         # display(df_irl.round(3))
 
-        best_t = (
-            df_irl.query("(is_expert == 0) and (is_init_policy == 0)")
-            .sort_values("t")["t"]
-            .values[0]
-        )
-        if (
-            len(
-                df_irl[
-                    (df_irl["is_expert"] == 0) & (df_irl["is_init_policy"] == 0)
-                ].query("abs(t - @best_t) <= .0001")
-            )
-            < 1
-        ):
-            pass
-        else:
-            pass
+        # best_t = (
+        #     df_irl.query("(is_expert == 0) and (is_init_policy == 0)")
+        #     .sort_values("t")["t"]
+        #     .values[0]
+        # )
+        # if (
+        #     len(
+        #         df_irl[
+        #             (df_irl["is_expert"] == 0) & (df_irl["is_init_policy"] == 0)
+        #         ].query("abs(t - @best_t) <= .0001")
+        #     )
+        #     < 1
+        # ):
+        #     pass
+        # else:
+        #     pass
 
         # End regular IRL trial
         return_val = (
-            True,
+            best_row,
             muE_unbiased,
             muE,
             muE_hold,
@@ -1983,7 +1981,7 @@ def run_bias_experiment(
             zip(exp_info["WEIGHT_ADJUSTS_LIST"], return_vals)
         ):
             (
-                did_converge,
+                converge_idx,
                 muE_unbiased,
                 muE,
                 muE_feat_hold,
@@ -2004,13 +2002,14 @@ def run_bias_experiment(
                 source_trial_inputsize = source_clf_pol.mdp.n_states_
 
             # If feature expectation error wasn't sufficiently small, skip.
-            if not did_converge:
+            if converge_idx is None:
                 logging.info(f"\nTrial {trial_i} did not converge.\n")
                 trial_i += 1
                 continue
 
             # Aggregate trial results
             _result = new_trial_result(
+                converge_idx,
                 feat_obj_set,
                 perf_obj_set,
                 muE_unbiased,

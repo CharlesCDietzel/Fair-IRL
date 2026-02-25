@@ -239,6 +239,26 @@ def add_demo_bias(demo, unfairness_types=[], dataset=None):
     return demo
 
 
+def add_classifier_bias(clf, bias_types=[]):
+    # Swap thresholds for expert classifiers (invert fairness objective, sort of)
+    for bias_type in bias_types:
+        match bias_type:
+            case "threshold_swapping":
+                try:
+                    thresholds = (
+                        clf.clf.interpolated_thresholder_.interpolation_dict
+                    )
+                    thresholds[0], thresholds[1] = thresholds[1], thresholds[0]
+                    clf.clf.interpolated_thresholder_.interpolation_dict = (
+                        thresholds
+                    )
+                except AttributeError:
+                    pass
+    # Access clf
+    # clf.clf.interpolated_thresholder_.interpolation_dict[0]["operation0"]
+    return clf
+
+
 def generate_demos_k_folds(exp_info, X, y, clf, obj_set, n_demos=3, bias_types=[]):
     """
     Generates the expert demonstrations which will be used as the positive
@@ -272,28 +292,12 @@ def generate_demos_k_folds(exp_info, X, y, clf, obj_set, n_demos=3, bias_types=[
     demos = []
 
     # Generate demonstrations (populate mu)
-    def _generate_demo(mu, demos, k, X_train, X_test, y_train, y_test):
+    def _generate_demo(clf, mu, demos, k, X_train, X_test, y_train, y_test):
         logging.debug(f"\tStaring iteration {k+1}/{n_demos}")
 
         # Fit the classifier
         clf.fit(X_train, y_train)
-
-        # Swap thresholds for expert classifiers (invert fairness objective, sort of)
-        for bias_type in bias_types:
-            match bias_type:
-                case "threshold_swapping":
-                    try:
-                        thresholds = (
-                            clf.clf.interpolated_thresholder_.interpolation_dict
-                        )
-                        thresholds[0], thresholds[1] = thresholds[1], thresholds[0]
-                        clf.clf.interpolated_thresholder_.interpolation_dict = (
-                            thresholds
-                        )
-                    except AttributeError:
-                        pass
-        # Access clf
-        # clf.clf.interpolated_thresholder_.interpolation_dict[0]["operation0"]
+        clf = add_classifier_bias(clf, bias_types)
 
         logging.debug("\t\tGenerating demo...")
         demo = generate_demo(clf, X_test, y_test)
@@ -320,6 +324,7 @@ def generate_demos_k_folds(exp_info, X, y, clf, obj_set, n_demos=3, bias_types=[
             _X_train, _y_train = X.iloc[train], y.iloc[train]
             _X_test, _y_test = X.iloc[test], y.iloc[test]
             mu, demos = _generate_demo(
+                clf,
                 mu,
                 demos,
                 k,
@@ -335,6 +340,7 @@ def generate_demos_k_folds(exp_info, X, y, clf, obj_set, n_demos=3, bias_types=[
             test_size=0.33,
         )
         mu, demos = _generate_demo(
+            clf,
             mu,
             demos,
             0,
