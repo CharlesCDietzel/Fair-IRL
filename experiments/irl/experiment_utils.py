@@ -774,7 +774,9 @@ def run_trial_source_domain(
                 # Nevermind, it wasn't fine, removing this
                 # max_muE_cosine_dist_split *= 2
                 # logging.info(f"WARNING: Split check failed, increasing max_muE_cosine_dist_split to {max_muE_cosine_dist_split}")
-                logging.info(f"WARNING: Split check failed: {cosine(muE[demo_i], muE_hold[demo_i])} > {max_muE_cosine_dist_split}")
+                logging.info(
+                    f"WARNING: Split check failed: {cosine(muE[demo_i], muE_hold[demo_i])} > {max_muE_cosine_dist_split}"
+                )
 
     muE_unbiased, _ = generate_demos_k_folds(
         exp_info,
@@ -880,7 +882,7 @@ def run_trial_source_domain(
     irl_loop_start = datetime.datetime.now()
     for weight_adjusts in weight_adjusts_list:
         while not done:
-            if weight_adjusts == []:
+            if weight_adjusts == ():
                 logging.info(f"\tIRL Loop iteration {i+1}/{exp_info['MAX_ITER']} ...")
 
                 # Train SVM classifier that distinguishes which demonstrations are
@@ -971,10 +973,15 @@ def run_trial_source_domain(
                 y_irl_exp = pd.Series(np.ones(exp_info["N_EXPERT_DEMOS"]), dtype=int)
                 X_irl_learn = pd.DataFrame(mu, columns=feat_obj_set_cols)
                 y_irl_learn = pd.Series(np.zeros(len(mu)), dtype=int)
-                wi = best_weight
+                wi = unadjusted_best_weight.copy()
                 for weight_adjust in weight_adjusts:
-                    if weight_adjust == "zero_negative_weights":
-                        wi[wi < 0] = 0
+                    if weight_adjust[0] == "mul_negative_weights":
+                        mul_factor = weight_adjust[1]
+                        wi[wi < 0] = wi[wi < 0] * mul_factor
+                    elif weight_adjust == "sqrt_negative_weights":
+                        wi[wi < 0] = 1 - np.sqrt((-wi[wi < 0]) + 1)
+                    elif weight_adjust == "ln_negative_weights":
+                        wi[wi < 0] = -np.log((-wi[wi < 0]) + 1)
                 done = True
             # Learn a policy that maximizes the reward function.
             # logging.debug('\tComputing the optimal policy given reward weights and `y|x` classifier...')
@@ -1161,6 +1168,8 @@ def run_trial_source_domain(
         # Compare the best learned policy with the expert demonstrations
         best_demo = demo_history[best_iter]
         best_weight = weights[best_iter]
+        if weight_adjusts == ():
+            unadjusted_best_weight = weights[best_iter].copy()
         logging.debug("Best iteration: " + str(best_iter))
         logging.info(
             f"Best Learned Policy yhat (not real yhat since doesn't factor mu0): {best_demo['yhat'].mean():.3f}"
@@ -1962,7 +1971,7 @@ def run_bias_experiment(
     weight_adjust_names = []
     for weight_adjusts in exp_info["WEIGHT_ADJUSTS_LIST"]:
         results.append([])
-        weight_adjust_names.append("".join(weight_adjusts))
+        weight_adjust_names.append("".join(str(weight_adjusts)))
     trial_i = 0
 
     while trial_i < exp_info["N_TRIALS"]:

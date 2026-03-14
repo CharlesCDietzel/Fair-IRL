@@ -142,7 +142,7 @@ def generate_demo(clf, X_test, y_test, can_observe_y=False):
     return demo
 
 
-def add_demo_bias(demo, unfairness_types=[], dataset=None):
+def add_demo_bias(demo, unfairness_types=(), dataset=None):
     # Z = 0 is discriminated against, Y = 0 is "bad" outcome
     # rz - redlined Z value
     # ry - redline Y outcome
@@ -259,7 +259,7 @@ def add_classifier_bias(clf, bias_types=[]):
     return clf
 
 
-def generate_demos_k_folds(exp_info, X, y, clf, obj_set, n_demos=3, bias_types=[]):
+def generate_demos_k_folds(exp_info, X, y, clf, obj_set, n_demos=3, bias_types=()):
     """
     Generates the expert demonstrations which will be used as the positive
     training samples in the IRL loop, or generates the initial policy
