@@ -975,13 +975,18 @@ def run_trial_source_domain(
                 y_irl_learn = pd.Series(np.zeros(len(mu)), dtype=int)
                 wi = unadjusted_best_weight.copy()
                 for weight_adjust in weight_adjusts:
+                    mul_factor = weight_adjust[1]
                     if weight_adjust[0] == "mul_negative_weights":
-                        mul_factor = weight_adjust[1]
                         wi[wi < 0] = wi[wi < 0] * mul_factor
-                    elif weight_adjust == "sqrt_negative_weights":
-                        wi[wi < 0] = 1 - np.sqrt((-wi[wi < 0]) + 1)
-                    elif weight_adjust == "ln_negative_weights":
-                        wi[wi < 0] = -np.log((-wi[wi < 0]) + 1)
+                    # elif weight_adjust[0] == "sqrt_negative_weights":
+                    #     wi[wi < 0] = 1 - np.sqrt((-wi[wi < 0]) + 1)
+                    # elif weight_adjust[0] == "ln_negative_weights":
+                    #     wi[wi < 0] = -np.log((-wi[wi < 0]) + 1)
+                    # Other function ideas: 
+                    # y\ =\ -\sqrt{-x}
+                    # y\ =-\ x\ ^{2}
+                    # y=-\ln\left(1-x\left(e-1\right)\right)
+                    # y=\frac{-e^{-x}+1}{e-1}
                 done = True
             # Learn a policy that maximizes the reward function.
             # logging.debug('\tComputing the optimal policy given reward weights and `y|x` classifier...')
@@ -1138,8 +1143,8 @@ def run_trial_source_domain(
         # Find best weights based on smallest error (with nonnegative weights)
         t_arg_smallest_to_largest = np.argsort(t)
         mu_delta_l2_norm_arg_smallest_to_largest = np.argsort(mu_delta_l2norm_hist)
-        # best_iter = t_arg_smallest_to_largest[0]
-        best_iter = mu_delta_l2_norm_arg_smallest_to_largest[0]
+        best_iter = t_arg_smallest_to_largest[0]
+        # best_iter = mu_delta_l2_norm_arg_smallest_to_largest[0]
         # print('best_iter', best_iter)
         if not exp_info["ALLOW_NEG_WEIGHTS"]:
             best_t = None
@@ -1250,23 +1255,6 @@ def run_trial_source_domain(
         )
         logging.debug("Experiment Summary")
         # display(df_irl.round(3))
-
-        # best_t = (
-        #     df_irl.query("(is_expert == 0) and (is_init_policy == 0)")
-        #     .sort_values("t")["t"]
-        #     .values[0]
-        # )
-        # if (
-        #     len(
-        #         df_irl[
-        #             (df_irl["is_expert"] == 0) & (df_irl["is_init_policy"] == 0)
-        #         ].query("abs(t - @best_t) <= .0001")
-        #     )
-        #     < 1
-        # ):
-        #     pass
-        # else:
-        #     pass
 
         # End regular IRL trial
         return_val = (
