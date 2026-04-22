@@ -143,7 +143,7 @@ def generate_demo(clf, X_test, y_test, can_observe_y=False):
 
 
 def add_demo_bias(demo, unfairness_types=(), dataset=None):
-    # Z = 0 is discriminated against, Y = 0 is "bad" outcome
+    # Z = 0 is discriminated against, Y = 0 is "bad" outcome (except for COMPAS where Y=1 is "bad" outcome)
     # rz - redlined Z value
     # ry - redline Y outcome
     # nrz - non-redlined Z value
@@ -158,12 +158,7 @@ def add_demo_bias(demo, unfairness_types=(), dataset=None):
         ry = 0
         nrz = 1
         nry = 1
-    elif dataset == "ACSIncome__MA":
-        rz = 0
-        ry = 0
-        nrz = 1
-        nry = 1
-    elif dataset == "ACSIncome__MS":
+    elif "ACSIncome__" in dataset:  # All ACSIncome datasets have same strtucture
         rz = 0
         ry = 0
         nrz = 1

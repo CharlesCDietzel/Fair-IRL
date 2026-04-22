@@ -855,12 +855,8 @@ def run_trial_source_domain(
             split_is_okay = True
             if cosine(muE[demo_i], muE_hold[demo_i]) > max_muE_cosine_dist_split:
                 split_is_okay = False
-                # Emergency escape hatch to prevent this from getting stuck, it should probably be fine I hope -Charles
-                # Nevermind, it wasn't fine, removing this
-                # max_muE_cosine_dist_split *= 2
-                # logging.info(f"WARNING: Split check failed, increasing max_muE_cosine_dist_split to {max_muE_cosine_dist_split}")
                 logging.info(
-                    f"WARNING: Split check failed: {cosine(muE[demo_i], muE_hold[demo_i])} > {max_muE_cosine_dist_split}"
+                    f"INFO: Split check failed: {cosine(muE[demo_i], muE_hold[demo_i])} > {max_muE_cosine_dist_split}, retrying split..."
                 )
 
     muE_unbiased, demoE_unbiased = generate_demos_k_folds(
