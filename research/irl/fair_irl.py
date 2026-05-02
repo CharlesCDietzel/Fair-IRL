@@ -236,19 +236,20 @@ def add_demo_bias(demo, unfairness_types=(), dataset=None):
 
 def add_classifier_bias(clf, bias_types=[]):
     # Swap thresholds for expert classifiers (invert fairness objective, sort of)
+    # Since this doesn't work for non postprocessing classifiers, probably shouldnt use this
     for bias_type in bias_types:
         match bias_type:
             case "threshold_swapping":
-                try:
-                    thresholds = (
-                        clf.clf.interpolated_thresholder_.interpolation_dict
-                    )
-                    thresholds[0], thresholds[1] = thresholds[1], thresholds[0]
-                    clf.clf.interpolated_thresholder_.interpolation_dict = (
-                        thresholds
-                    )
-                except AttributeError:
-                    pass
+                # try: # Commenting out the try except because I want it to fail if it doesn't work, since this is only meant to be used with postprocessing classifiers where it should work
+                thresholds = (
+                    clf.clf.interpolated_thresholder_.interpolation_dict
+                )
+                thresholds[0], thresholds[1] = thresholds[1], thresholds[0]
+                clf.clf.interpolated_thresholder_.interpolation_dict = (
+                    thresholds
+                )
+                # except AttributeError:
+                #     pass
     # Access clf
     # clf.clf.interpolated_thresholder_.interpolation_dict[0]["operation0"]
     return clf

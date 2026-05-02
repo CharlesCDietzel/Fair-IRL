@@ -31,18 +31,18 @@ from sklearn.tree import DecisionTreeClassifier
 from xgboost import XGBClassifier
 from .datasets import *
 
-
 # Color palette for plotting
 cp = sns.color_palette()
 
 
-# Objective looup
+# Objective lookup
 OBJ_LOOKUP_BY_NAME = {
     "Acc": AccuracyObjective,
     "AccPar": AccuracyParityObjective,
     "DemPar": DemographicParityObjective,
     "EqOpp": EqualOpportunityObjective,
     "FPRPar": FalsePositiveRateParityObjective,
+    "EqOdds": EqualizedOddsObjective,
     "TNRPar": TrueNegativeRateParityObjective,
     "FNRPar": FalseNegativeRateParityObjective,
     "PredPar": PredictiveParityObjective,
@@ -361,78 +361,6 @@ def generate_expert_algo_lookup(feature_types):
     return expert_algo_lookup
 
 
-# def generate_all_exp_results_df(
-#     feat_obj_set,
-#     perf_obj_set,
-#     n_trials,
-#     data_demo,
-#     exp_algo,
-#     irl_method,
-# ):
-#     """
-#     Generate dataframe for experiment parameters and results
-
-#     Parameters
-#     ----------
-#     feat_obj_set : ObjectiveSet
-#         The feature expectation objective set.
-#     perf_obj_set : ObjectiveSet
-#         The performance measure objective set.
-#     n_trials : int
-#         Number of experiment trials to run.
-#     data_demo : str
-#         The name of the dataset used to generate expert demonstrations.
-#     exp_algo : str
-#         The name of the algorithm used to train the expert demonstrator.
-#     irl_method : str
-#         The name of the IRL algorithm used to recover the rewards.
-
-#     Returns
-#     -------
-#     all_exp_df : pandas.DataFrame
-#         A dataframe with relevant columns, but no data.
-#     """
-#     all_exp_df_cols = ["n_trials", "data_demo", "exp_algo", "irl_method"]
-
-#     # Feature expectation objectives
-#     for obj in feat_obj_set.objectives:
-#         all_exp_df_cols.append(f"muE_{obj.name}_mean")
-#         all_exp_df_cols.append(f"muE_{obj.name}_std")
-
-#     for obj in feat_obj_set.objectives:
-#         all_exp_df_cols.append(f"wL_{obj.name}_mean")
-#         all_exp_df_cols.append(f"wL_{obj.name}_std")
-
-#     for obj in feat_obj_set.objectives:
-#         all_exp_df_cols.append(f"muL_err_{obj.name}_mean")
-#         all_exp_df_cols.append(f"muL_err_{obj.name}_std")
-
-#     # Performance measure objectives
-#     for obj in perf_obj_set.objectives:
-#         all_exp_df_cols.append(f"muE_{obj.name}_mean")
-#         all_exp_df_cols.append(f"muE_{obj.name}_std")
-
-#     for obj in perf_obj_set.objectives:
-#         all_exp_df_cols.append(f"wL_{obj.name}_mean")
-#         all_exp_df_cols.append(f"wL_{obj.name}_std")
-
-#     for obj in perf_obj_set.objectives:
-#         all_exp_df_cols.append(f"muL_err_{obj.name}_mean")
-#         all_exp_df_cols.append(f"muL_err_{obj.name}_std")
-
-#     all_exp_df_cols.append("muL_err_l2norm_mean")
-#     all_exp_df_cols.append("muL_err_l2norm_std")
-
-#     all_exp_df = pd.DataFrame(columns=all_exp_df_cols)
-
-#     all_exp_df.loc[0, "n_trials"] = n_trials
-#     all_exp_df.loc[0, "data_demo"] = "Adult"
-#     all_exp_df.loc[0, "exp_algo"] = exp_algo
-#     all_exp_df.loc[0, "irl_method"] = "IRL_METHOD"
-
-#     return all_exp_df
-
-
 def generate_single_exp_results_df(feat_obj_set, perf_obj_set, results):
     """
     Generate dataframe for a single experiment. Keeps track of the results of
@@ -716,7 +644,6 @@ def run_trial_source_domain(
     X=None,
     y=None,
     feature_types=None,
-    plot_svm_iters=False,
 ):
     """
     Runs 1 trial to learn weights in the source domain.

@@ -7,7 +7,7 @@ from folktables import ACSDataSource, ACSIncome
 from research.utils import *
 
 
-def generate_dataset(dataset_name, n_samples):
+def generate_dataset(dataset_name, n_samples: int | None = None):
     """
     Helper method that returns a dataset based on the specified label.
 
@@ -15,8 +15,8 @@ def generate_dataset(dataset_name, n_samples):
     ----------
     dataset_name : str
         Name of the dataset.
-    n_samples : int
-        Number of samples to return from the dataset.
+    n_samples : int | None
+        Number of samples to return from the dataset. If None, use the whole dataset.
 
     Returns
     -------
@@ -44,7 +44,7 @@ def generate_dataset(dataset_name, n_samples):
 
 
 def generate_adult_dataset(
-    n=10_000,
+    n: int | None = None,
     z_col="is_race_white",
     y_col="is_income_over_50k",
 ):
@@ -55,8 +55,8 @@ def generate_adult_dataset(
 
     Parameters
     ---------
-    n : int, default 10_000
-        Number of records to sample from dataset.
+    n : int, default None
+        Number of records to sample from dataset. If None, use the whole dataset.
     z_col : str, default 'is_race_white'
         The column to use as the protected attribute. Must be binary.
     y_col : str, default 'is_income_over_50k'
@@ -77,7 +77,7 @@ def generate_adult_dataset(
     df["income"] = data.target.copy()
 
     # Take sample if possible
-    if n < len(df):
+    if n is not None and n < len(df):
         df = df.sample(n)
 
     # Common transformations
@@ -153,7 +153,7 @@ def generate_adult_dataset(
 
 
 def generate_compas_dataset(
-    n=10_000,
+    n: int | None = None,
     z_col="is_race_white",
     y_col="is_recid",
     filepath="./../../data/compas/cox-violent-parsed.csv",
@@ -167,8 +167,8 @@ def generate_compas_dataset(
     ---------
     filepath : str
         Filepath for dataset.
-    n : int, default 10_000
-        Number of records to sample from dataset.
+    n : int, default None
+        Number of records to sample from dataset. If None, use the whole dataset.
     z_col : str, default 'is_race_white'
         The column to use as the protected attribute. Must be binary.
     y_col : str, default 'is_recid'
@@ -193,7 +193,7 @@ def generate_compas_dataset(
     df = pd.read_csv(filepath)
 
     # Take sample if possible
-    if n < len(df):
+    if n is not None and n < len(df):
         df = df.sample(n)
 
     # Filter out records where we don't know their compas risk score
@@ -276,14 +276,14 @@ def generate_compas_dataset(
     return X, y, feature_types
 
 
-def generate_boston_housing_dataset(n=10_000):
+def generate_boston_housing_dataset(n: int | None = None):
     """
     Wrapper function for generating a sample of the boston housing dataset.
 
     Parameters
     ---------
-    n : int, default 10_000
-        Number of records to sample from dataset.
+    n : int, default None
+        Number of records to sample from dataset. If None, use the whole dataset.
 
     Returns
     -------
@@ -301,9 +301,9 @@ def generate_boston_housing_dataset(n=10_000):
     df["MEDV"] = data.target.copy()
 
     # Take sample if possible
-    if n < len(df):
+    if n is not None and n < len(df):
         df = df.sample(n)
-    if n > len(df):
+    if n is not None and n > len(df):
         df = df.sample(n, replace=True)
 
     # Specify the protected attribute `z`
@@ -366,7 +366,7 @@ def generate_boston_housing_dataset(n=10_000):
     return X, y, feature_types
 
 
-def generate_acs_income(n=10_000, state=None):
+def generate_acs_income(n: int | None = None, state=None):
     """
     Wrapper function for generating a sample of the folktable ACSIncome
     dataset.
@@ -376,8 +376,8 @@ def generate_acs_income(n=10_000, state=None):
 
     Parameters
     ---------
-    n : int, default 10_000
-        Number of records to sample from dataset.
+    n : int, default None
+        Number of records to sample from dataset. If None, use the whole dataset.
     state : str
         The US state to use.
 
@@ -400,9 +400,9 @@ def generate_acs_income(n=10_000, state=None):
     del X, y
 
     # Take sample if possible
-    if n < len(df):
+    if n is not None and n < len(df):
         df = df.sample(n)
-    if n > len(df):
+    if n is not None and n > len(df):
         df = df.sample(n, replace=True)
 
     # Specify the protected attribute `z`

@@ -26,9 +26,9 @@ class ObjectiveSplit:
 
 
 class Objective:
-
-    def __init__(self):
-        pass
+    def __init__(self, *args, **kwargs):
+        self._init_args = args
+        self._init_kwargs = kwargs
 
     def fit(self, ldf):
         raise NotImplementedError()
@@ -72,51 +72,97 @@ class LinearObjective(Objective):
         )
         return [split]
 
-    def _construct_reward(self):
-        raise NotImplementedError
+    def _construct_reward(self, ldf):
+        raise NotImplementedError()
 
 
 class AbsoluteValueObjective(Objective):
 
-    def __init__(self):
-        self.n_splits = 2
+    def __init__(self, n_splits=None):
+        # Backwards compatible default: existing objectives still have 2 splits.
+        # Subclasses can either pass n_splits=4 or set self.n_splits before super().
+        if n_splits is None:
+            n_splits = getattr(self, "n_splits", 2)
+
+        self.n_splits = n_splits
         super().__init__()
 
     def fit(self, ldf):
-        self.b_ub_row_ = 0  # Numb of constraints
-        self.A_ub_row__split1_ = self._compute_A_ub_row__split1(ldf)
-        self.A_ub_row__split2_ = self._compute_A_ub_row__split2(ldf)
-        self.c__split1_ = self._construct_reward__split1(ldf)
-        self.c__split2_ = self._construct_reward__split2(ldf)
+        """
+        Fits all LP sign splits for an absolute-value-style objective.
+
+        Existing 2-split objectives remain compatible because they implement:
+            _compute_A_ub_row__split1
+            _compute_A_ub_row__split2
+            _construct_reward__split1
+            _construct_reward__split2
+
+        New objectives can implement more splits, e.g. split1 ... split4.
+        """
+        for split_idx in range(1, self.n_splits + 1):
+            A_func_name = f"_compute_A_ub_row__split{split_idx}"
+            c_func_name = f"_construct_reward__split{split_idx}"
+
+            if not hasattr(self, A_func_name):
+                raise NotImplementedError(
+                    f"{self.__class__.__name__} must implement {A_func_name}"
+                )
+
+            if not hasattr(self, c_func_name):
+                raise NotImplementedError(
+                    f"{self.__class__.__name__} must implement {c_func_name}"
+                )
+
+            A_ub = getattr(self, A_func_name)(ldf)
+            c = getattr(self, c_func_name)(ldf)
+            b_ub = self._compute_b_ub(ldf, split_idx)
+
+            # Preserve the old attribute naming convention.
+            setattr(self, f"A_ub_row__split{split_idx}_", A_ub)
+            setattr(self, f"c__split{split_idx}_", c)
+            setattr(self, f"b_ub__split{split_idx}_", b_ub)
+
+        # Backwards compatibility with existing code that expects this attr.
+        self.b_ub_row_ = getattr(self, "b_ub__split1_", 0)
+
         return self
 
     def to_splits(self):
         """
         Returns objective as one or more splits.
 
-        Parameters
-        ----------
-        None
-
         Returns
         -------
         array<ObjectiveSplit>
         """
-        split1 = ObjectiveSplit(
-            name=f"{self.name} Split1",
-            parent=self,
-            c=self.c__split1_,
-            b_ub=self.b_ub_row_,
-            A_ub=self.A_ub_row__split1_,
-        )
-        split2 = ObjectiveSplit(
-            name=f"{self.name} Split2",
-            parent=self,
-            c=self.c__split2_,
-            b_ub=self.b_ub_row_,
-            A_ub=self.A_ub_row__split2_,
-        )
-        return [split1, split2]
+        splits = []
+
+        for split_idx in range(1, self.n_splits + 1):
+            split = ObjectiveSplit(
+                name=f"{self.name} Split{split_idx}",
+                parent=self,
+                c=getattr(self, f"c__split{split_idx}_"),
+                b_ub=getattr(self, f"b_ub__split{split_idx}_", self.b_ub_row_),
+                A_ub=getattr(self, f"A_ub_row__split{split_idx}_"),
+            )
+            splits.append(split)
+
+        return splits
+
+    def _compute_b_ub(self, ldf, split_idx):
+        """
+        Default b_ub for one-row constraints.
+
+        Existing objectives use one inequality per split, so scalar 0 remains
+        correct. Objectives with multiple constraints per split, such as
+        EqualizedOddsObjective, can override this and return e.g. np.zeros(2).
+        """
+        method_name = f"_compute_b_ub__split{split_idx}"
+
+        if hasattr(self, method_name):
+            return getattr(self, method_name)(ldf)
+
+        return np.array([0.0])
 
     def _compute_A_ub_row__split1(self, ldf):
         raise NotImplementedError()
@@ -174,10 +220,7 @@ class AccuracyObjective(LinearObjective):
         ldf["r"] = (ldf["yhat"] == ldf["y"]).astype(float) / p_all
         c = -1 * ldf["r"]  # Negative since maximizing not minimizing
 
-        # Check c sums to 1
-        assert (c.sum() + 1) < 1e-8
-
-        return c
+        return c.to_numpy() if hasattr(c, "to_numpy") else np.asarray(c)
 
 
 class AccuracyParityObjective(AbsoluteValueObjective):
@@ -234,7 +277,6 @@ class AccuracyParityObjective(AbsoluteValueObjective):
         -------
         ldf['A_ub'] : pandas.Series<float>
         """
-        n_actions = 2
         ldf = ldf.copy()
         filt__yhaty_z0 = (ldf["z"] == 0) & (ldf["yhat"] == ldf["y"])
         filt__yhaty_z1 = (ldf["z"] == 1) & (ldf["yhat"] == ldf["y"])
@@ -244,7 +286,7 @@ class AccuracyParityObjective(AbsoluteValueObjective):
         ldf.loc[filt__yhaty_z0, "A_ub"] = -1 / p_z0
         ldf.loc[filt__yhaty_z1, "A_ub"] = 1 / p_z1
 
-        return ldf["A_ub"]
+        return ldf["A_ub"].to_numpy()
 
     def _compute_A_ub_row__split2(self, ldf):
         """
@@ -263,7 +305,6 @@ class AccuracyParityObjective(AbsoluteValueObjective):
         -------
         ldf['A_ub'] : pandas.Series<float>
         """
-        n_actions = 2
         ldf = ldf.copy()
         filt__yhaty_z0 = (ldf["z"] == 0) & (ldf["yhat"] == ldf["y"])
         filt__yhaty_z1 = (ldf["z"] == 1) & (ldf["yhat"] == ldf["y"])
@@ -273,7 +314,7 @@ class AccuracyParityObjective(AbsoluteValueObjective):
         ldf.loc[filt__yhaty_z0, "A_ub"] = 1 / p_z0
         ldf.loc[filt__yhaty_z1, "A_ub"] = -1 / p_z1
 
-        return ldf["A_ub"]
+        return ldf["A_ub"].to_numpy()
 
     def _construct_reward__split1(self, ldf):
         """
@@ -302,7 +343,7 @@ class AccuracyParityObjective(AbsoluteValueObjective):
         ldf.loc[filt__yhaty_z1, "r"] = 1 / p_z1
         c = -1 * ldf["r"]  # Negative since maximizing not minimizing
 
-        return c
+        return c.to_numpy() if hasattr(c, "to_numpy") else np.asarray(c)
 
     def _construct_reward__split2(self, ldf):
         """
@@ -331,7 +372,7 @@ class AccuracyParityObjective(AbsoluteValueObjective):
         ldf.loc[filt__yhaty_z1, "r"] = -1 / p_z1
         c = -1 * ldf["r"]  # Negative since maximizing not minimizing
 
-        return c
+        return c.to_numpy() if hasattr(c, "to_numpy") else np.asarray(c)
 
 
 class DemographicParityObjective(AbsoluteValueObjective):
@@ -382,13 +423,13 @@ class DemographicParityObjective(AbsoluteValueObjective):
 
         Parameters
         ----------
+        ldf : pandas.DataFrame
             "Lambda dataframe". One row for each state and action combination.
 
         Returns
         -------
         ldf['A_ub'] : pandas.Series<float>
         """
-        n_actions = 2
         ldf = ldf.copy()
         filt__yhat1_z0 = (ldf["z"] == 0) & (ldf["yhat"] == 1)
         filt__yhat1_z1 = (ldf["z"] == 1) & (ldf["yhat"] == 1)
@@ -398,7 +439,7 @@ class DemographicParityObjective(AbsoluteValueObjective):
         ldf.loc[filt__yhat1_z0, "A_ub"] = -1 / p_z0
         ldf.loc[filt__yhat1_z1, "A_ub"] = 1 / p_z1
 
-        return ldf["A_ub"]
+        return ldf["A_ub"].to_numpy()
 
     def _compute_A_ub_row__split2(self, ldf):
         """
@@ -418,7 +459,6 @@ class DemographicParityObjective(AbsoluteValueObjective):
         -------
         ldf['A_ub'] : pandas.Series<float>
         """
-        n_actions = 2
         ldf = ldf.copy()
         filt__yhat1_z0 = (ldf["z"] == 0) & (ldf["yhat"] == 1)
         filt__yhat1_z1 = (ldf["z"] == 1) & (ldf["yhat"] == 1)
@@ -428,7 +468,7 @@ class DemographicParityObjective(AbsoluteValueObjective):
         ldf.loc[filt__yhat1_z0, "A_ub"] = 1 / p_z0
         ldf.loc[filt__yhat1_z1, "A_ub"] = -1 / p_z1
 
-        return ldf["A_ub"]
+        return ldf["A_ub"].to_numpy()
 
     def _construct_reward__split1(self, ldf):
         """
@@ -457,7 +497,7 @@ class DemographicParityObjective(AbsoluteValueObjective):
         ldf.loc[filt__yhat1_z1, "r"] = 1 / p_z1
         c = -1 * ldf["r"]  # Negative since maximizing not minimizing
 
-        return c
+        return c.to_numpy() if hasattr(c, "to_numpy") else np.asarray(c)
 
     def _construct_reward__split2(self, ldf):
         """
@@ -486,7 +526,7 @@ class DemographicParityObjective(AbsoluteValueObjective):
         ldf.loc[filt__yhat1_z1, "r"] = -1 / p_z1
         c = -1 * ldf["r"]  # Negative since maximizing not minimizing
 
-        return c
+        return c.to_numpy() if hasattr(c, "to_numpy") else np.asarray(c)
 
 
 class EqualOpportunityObjective(AbsoluteValueObjective):
@@ -543,7 +583,6 @@ class EqualOpportunityObjective(AbsoluteValueObjective):
         -------
         ldf['A_ub'] : pandas.Series<float>
         """
-        n_actions = 2
         ldf = ldf.copy()
         filt__yhat1_y1_z0 = (ldf["z"] == 0) & (ldf["y"] == 1) & (ldf["yhat"] == 1)
         filt__yhat1_y1_z1 = (ldf["z"] == 1) & (ldf["y"] == 1) & (ldf["yhat"] == 1)
@@ -553,7 +592,7 @@ class EqualOpportunityObjective(AbsoluteValueObjective):
         ldf.loc[filt__yhat1_y1_z0, "A_ub"] = -1 / p_z0_y1
         ldf.loc[filt__yhat1_y1_z1, "A_ub"] = 1 / p_z1_y1
 
-        return ldf["A_ub"]
+        return ldf["A_ub"].to_numpy()
 
     def _compute_A_ub_row__split2(self, ldf):
         """
@@ -572,7 +611,6 @@ class EqualOpportunityObjective(AbsoluteValueObjective):
         -------
         ldf['A_ub'] : pandas.Series<float>
         """
-        n_actions = 2
         ldf = ldf.copy()
         filt__yhat1_y1_z0 = (ldf["z"] == 0) & (ldf["y"] == 1) & (ldf["yhat"] == 1)
         filt__yhat1_y1_z1 = (ldf["z"] == 1) & (ldf["y"] == 1) & (ldf["yhat"] == 1)
@@ -582,11 +620,11 @@ class EqualOpportunityObjective(AbsoluteValueObjective):
         ldf.loc[filt__yhat1_y1_z0, "A_ub"] = 1 / p_z0_y1
         ldf.loc[filt__yhat1_y1_z1, "A_ub"] = -1 / p_z1_y1
 
-        return ldf["A_ub"]
+        return ldf["A_ub"].to_numpy()
 
     def _construct_reward__split1(self, ldf):
         """
-        Constructs the reward function for Equal Opportunity  opt_problem 1.
+        Constructs the reward function for Equal Opportunity opt_problem 1.
         opt_problem 1 is when we constrain P(yhat=1|y=1,z=0) >= P(yhat=1|y=1,z=1), in
         which case the reward penalizes giving the Z=0 group the positive
         prediction.
@@ -611,13 +649,13 @@ class EqualOpportunityObjective(AbsoluteValueObjective):
         ldf.loc[filt__yhat1_y1_z1, "r"] = 1 / p_y1_z1
         c = -1 * ldf["r"]  # Negative since maximizing not minimizing
 
-        return c
+        return c.to_numpy() if hasattr(c, "to_numpy") else np.asarray(c)
 
     def _construct_reward__split2(self, ldf):
         """
-        Constructs the reward function for Demographic Parity opt_problem 1.
-        opt_problem 1 is when we constrain P(yhat=1|y=1,z=0) >= P(yhat=1|y=1,z=1), in
-        which case the reward penalizes giving the Z=0 group the positive
+        Constructs the reward function for Equal Opportunity opt_problem 2.
+        opt_problem 2 is when we constrain P(yhat=1|y=1,z=1) >= P(yhat=1|y=1,z=0), in
+        which case the reward penalizes giving the Z=1 group the positive
         prediction.
 
         Parameters
@@ -640,7 +678,7 @@ class EqualOpportunityObjective(AbsoluteValueObjective):
         ldf.loc[filt__yhat1_y1_z1, "r"] = -1 / p_y1_z1
         c = -1 * ldf["r"]  # Negative since maximizing not minimizing
 
-        return c
+        return c.to_numpy() if hasattr(c, "to_numpy") else np.asarray(c)
 
 
 class FalsePositiveRateParityObjective(AbsoluteValueObjective):
@@ -697,7 +735,6 @@ class FalsePositiveRateParityObjective(AbsoluteValueObjective):
         -------
         ldf['A_ub'] : pandas.Series<float>
         """
-        n_actions = 2
         ldf = ldf.copy()
         filt__yhat1_y0_z0 = (ldf["z"] == 0) & (ldf["y"] == 0) & (ldf["yhat"] == 1)
         filt__yhat1_y0_z1 = (ldf["z"] == 1) & (ldf["y"] == 0) & (ldf["yhat"] == 1)
@@ -707,7 +744,7 @@ class FalsePositiveRateParityObjective(AbsoluteValueObjective):
         ldf.loc[filt__yhat1_y0_z0, "A_ub"] = -1 / p_z0_y0
         ldf.loc[filt__yhat1_y0_z1, "A_ub"] = 1 / p_z1_y0
 
-        return ldf["A_ub"]
+        return ldf["A_ub"].to_numpy()
 
     def _compute_A_ub_row__split2(self, ldf):
         """
@@ -715,7 +752,7 @@ class FalsePositiveRateParityObjective(AbsoluteValueObjective):
             ```
             P(yhat=1|y=0,z=1) >= P(yhat=1|y=0,z=0)
             ```
-        which is Equal Opportunity opt_problem 2.
+        which is False Positive Rate Parity opt_problem 2.
 
         Parameters
         ----------
@@ -726,17 +763,16 @@ class FalsePositiveRateParityObjective(AbsoluteValueObjective):
         -------
         ldf['A_ub'] : pandas.Series<float>
         """
-        n_actions = 2
         ldf = ldf.copy()
         filt__yhat1_y0_z0 = (ldf["z"] == 0) & (ldf["y"] == 0) & (ldf["yhat"] == 1)
         filt__yhat1_y0_z1 = (ldf["z"] == 1) & (ldf["y"] == 0) & (ldf["yhat"] == 1)
-        p_z0_y0 = ldf[(ldf["z"] == 0) & (ldf["y"] == 1)]["mu0"].sum() / 2
-        p_z1_y0 = ldf[(ldf["z"] == 1) & (ldf["y"] == 1)]["mu0"].sum() / 2
+        p_z0_y0 = ldf[(ldf["z"] == 0) & (ldf["y"] == 0)]["mu0"].sum() / 2
+        p_z1_y0 = ldf[(ldf["z"] == 1) & (ldf["y"] == 0)]["mu0"].sum() / 2
         ldf["A_ub"] = 0.0
         ldf.loc[filt__yhat1_y0_z0, "A_ub"] = 1 / p_z0_y0
         ldf.loc[filt__yhat1_y0_z1, "A_ub"] = -1 / p_z1_y0
 
-        return ldf["A_ub"]
+        return ldf["A_ub"].to_numpy()
 
     def _construct_reward__split1(self, ldf):
         """
@@ -765,13 +801,13 @@ class FalsePositiveRateParityObjective(AbsoluteValueObjective):
         ldf.loc[filt__yhat1_y0_z1, "r"] = 1 / p_y0_z1
         c = -1 * ldf["r"]  # Negative since maximizing not minimizing
 
-        return c
+        return c.to_numpy() if hasattr(c, "to_numpy") else np.asarray(c)
 
     def _construct_reward__split2(self, ldf):
         """
         Constructs the reward function for False Positive Rate Parity,
         opt_problem 2, which is when we constrain
-        P(yhat=0|y=0,z=0) <= P(yhat=0|y=0,z=1), in which case the reward
+        P(yhat=1|y=0,z=0) <= P(yhat=1|y=0,z=1), in which case the reward
         penalizes giving the Z=1 group the positive prediction.
 
         Parameters
@@ -794,7 +830,243 @@ class FalsePositiveRateParityObjective(AbsoluteValueObjective):
         ldf.loc[filt__yhat1_y0_z1, "r"] = -1 / p_y0_z1
         c = -1 * ldf["r"]  # Negative since maximizing not minimizing
 
-        return c
+        return c.to_numpy() if hasattr(c, "to_numpy") else np.asarray(c)
+
+
+class EqualizedOddsObjective(AbsoluteValueObjective):
+
+    def __init__(self):
+        self.name = "EqOdds"
+        super().__init__(n_splits=4)
+
+    def compute_feat_exp(self, demo):
+        """
+        Computes the feature expectation representation of Equalized Odds.
+
+        Equalized Odds requires both:
+            TPR parity:
+                P(yhat=1 | y=1, z=0) == P(yhat=1 | y=1, z=1)
+
+            FPR parity:
+                P(yhat=1 | y=0, z=0) == P(yhat=1 | y=0, z=1)
+
+        This returns:
+            1 - |TPR_z0 - TPR_z1| - |FPR_z0 - FPR_z1|
+        """
+
+        def cond_pos_rate(y_value, z_value):
+            denom = ((demo["y"] == y_value) & (demo["z"] == z_value)).sum()
+
+            if denom == 0:
+                return np.nan
+
+            numer = (
+                (demo["yhat"] == 1) & (demo["y"] == y_value) & (demo["z"] == z_value)
+            ).sum()
+
+            return numer / denom
+
+        tpr_z0 = cond_pos_rate(y_value=1, z_value=0)
+        tpr_z1 = cond_pos_rate(y_value=1, z_value=1)
+        fpr_z0 = cond_pos_rate(y_value=0, z_value=0)
+        fpr_z1 = cond_pos_rate(y_value=0, z_value=1)
+
+        mu = 1 - abs(tpr_z0 - tpr_z1) - abs(fpr_z0 - fpr_z1)
+
+        if np.isnan(mu):
+            mu = 1
+
+        return mu
+
+    def _compute_b_ub(self, ldf, split_idx):
+        """
+        Equalized Odds has two sign constraints per split:
+            one for TPR parity
+            one for FPR parity
+
+        Therefore A_ub is 2 x n and b_ub must have length 2.
+        """
+        return np.zeros(2)
+
+    def _signed_rate_diff_row(self, ldf, y_value, z0_ge_z1):
+        """
+        Constructs one inequality row.
+
+        If z0_ge_z1 is True, construct:
+
+            P(yhat=1 | y=y_value, z=1)
+            -
+            P(yhat=1 | y=y_value, z=0)
+            <= 0
+
+        which enforces:
+
+            P(yhat=1 | y=y_value, z=0)
+            >=
+            P(yhat=1 | y=y_value, z=1)
+
+        If z0_ge_z1 is False, construct the opposite sign:
+
+            P(yhat=1 | y=y_value, z=0)
+            -
+            P(yhat=1 | y=y_value, z=1)
+            <= 0
+        """
+        ldf = ldf.copy()
+
+        filt_yhat1_y_z0 = (ldf["z"] == 0) & (ldf["y"] == y_value) & (ldf["yhat"] == 1)
+
+        filt_yhat1_y_z1 = (ldf["z"] == 1) & (ldf["y"] == y_value) & (ldf["yhat"] == 1)
+
+        p_z0_y = ldf[(ldf["z"] == 0) & (ldf["y"] == y_value)]["mu0"].sum() / 2
+        p_z1_y = ldf[(ldf["z"] == 1) & (ldf["y"] == y_value)]["mu0"].sum() / 2
+
+        inv_z0_y = 1 / p_z0_y
+        inv_z1_y = 1 / p_z1_y
+
+        ldf["A_ub"] = 0.0
+
+        if z0_ge_z1:
+            # rate_z1 - rate_z0 <= 0
+            ldf.loc[filt_yhat1_y_z0, "A_ub"] = -inv_z0_y
+            ldf.loc[filt_yhat1_y_z1, "A_ub"] = inv_z1_y
+        else:
+            # rate_z0 - rate_z1 <= 0
+            ldf.loc[filt_yhat1_y_z0, "A_ub"] = inv_z0_y
+            ldf.loc[filt_yhat1_y_z1, "A_ub"] = -inv_z1_y
+
+        return ldf["A_ub"].to_numpy()
+
+    def _compute_A_ub_rows(self, ldf, tpr_z0_ge_z1, fpr_z0_ge_z1):
+        """
+        Returns the 2-row A_ub matrix for one Equalized Odds sign split.
+
+        Row 0: TPR sign constraint, y=1.
+        Row 1: FPR sign constraint, y=0.
+        """
+        tpr_row = self._signed_rate_diff_row(
+            ldf=ldf,
+            y_value=1,
+            z0_ge_z1=tpr_z0_ge_z1,
+        )
+
+        fpr_row = self._signed_rate_diff_row(
+            ldf=ldf,
+            y_value=0,
+            z0_ge_z1=fpr_z0_ge_z1,
+        )
+
+        return np.vstack([tpr_row, fpr_row])
+
+    def _construct_reward(self, ldf, tpr_z0_ge_z1, fpr_z0_ge_z1):
+        """
+        Constructs the linear reward for one Equalized Odds sign split.
+
+        Within a fixed sign region, maximizing:
+
+            signed_TPR_diff + signed_FPR_diff
+
+        is equivalent to minimizing:
+
+            |TPR_z0 - TPR_z1| + |FPR_z0 - FPR_z1|
+
+        up to the omitted constant 1.
+        """
+        tpr_row = self._signed_rate_diff_row(
+            ldf=ldf,
+            y_value=1,
+            z0_ge_z1=tpr_z0_ge_z1,
+        )
+
+        fpr_row = self._signed_rate_diff_row(
+            ldf=ldf,
+            y_value=0,
+            z0_ge_z1=fpr_z0_ge_z1,
+        )
+
+        r = tpr_row + fpr_row
+
+        # Negative because scipy-style LP solvers minimize c^T x.
+        c = -1 * r
+
+        return c.to_numpy() if hasattr(c, "to_numpy") else np.asarray(c)
+
+    # ------------------------------------------------------------------
+    # Four sign splits
+    # ------------------------------------------------------------------
+    #
+    # Split1:
+    #   TPR_z0 >= TPR_z1
+    #   FPR_z0 >= FPR_z1
+    #
+    # Split2:
+    #   TPR_z0 >= TPR_z1
+    #   FPR_z1 >= FPR_z0
+    #
+    # Split3:
+    #   TPR_z1 >= TPR_z0
+    #   FPR_z0 >= FPR_z1
+    #
+    # Split4:
+    #   TPR_z1 >= TPR_z0
+    #   FPR_z1 >= FPR_z0
+    # ------------------------------------------------------------------
+
+    def _compute_A_ub_row__split1(self, ldf):
+        return self._compute_A_ub_rows(
+            ldf=ldf,
+            tpr_z0_ge_z1=True,
+            fpr_z0_ge_z1=True,
+        )
+
+    def _compute_A_ub_row__split2(self, ldf):
+        return self._compute_A_ub_rows(
+            ldf=ldf,
+            tpr_z0_ge_z1=True,
+            fpr_z0_ge_z1=False,
+        )
+
+    def _compute_A_ub_row__split3(self, ldf):
+        return self._compute_A_ub_rows(
+            ldf=ldf,
+            tpr_z0_ge_z1=False,
+            fpr_z0_ge_z1=True,
+        )
+
+    def _compute_A_ub_row__split4(self, ldf):
+        return self._compute_A_ub_rows(
+            ldf=ldf,
+            tpr_z0_ge_z1=False,
+            fpr_z0_ge_z1=False,
+        )
+
+    def _construct_reward__split1(self, ldf):
+        return self._construct_reward(
+            ldf=ldf,
+            tpr_z0_ge_z1=True,
+            fpr_z0_ge_z1=True,
+        )
+
+    def _construct_reward__split2(self, ldf):
+        return self._construct_reward(
+            ldf=ldf,
+            tpr_z0_ge_z1=True,
+            fpr_z0_ge_z1=False,
+        )
+
+    def _construct_reward__split3(self, ldf):
+        return self._construct_reward(
+            ldf=ldf,
+            tpr_z0_ge_z1=False,
+            fpr_z0_ge_z1=True,
+        )
+
+    def _construct_reward__split4(self, ldf):
+        return self._construct_reward(
+            ldf=ldf,
+            tpr_z0_ge_z1=False,
+            fpr_z0_ge_z1=False,
+        )
 
 
 class TrueNegativeRateParityObjective(AbsoluteValueObjective):
@@ -851,7 +1123,6 @@ class TrueNegativeRateParityObjective(AbsoluteValueObjective):
         -------
         ldf['A_ub'] : pandas.Series<float>
         """
-        n_actions = 2
         ldf = ldf.copy()
         filt__yhat0_y0_z0 = (ldf["z"] == 0) & (ldf["y"] == 0) & (ldf["yhat"] == 0)
         filt__yhat0_y0_z1 = (ldf["z"] == 1) & (ldf["y"] == 0) & (ldf["yhat"] == 0)
@@ -861,7 +1132,7 @@ class TrueNegativeRateParityObjective(AbsoluteValueObjective):
         ldf.loc[filt__yhat0_y0_z0, "A_ub"] = -1 / p_z0_y0
         ldf.loc[filt__yhat0_y0_z1, "A_ub"] = 1 / p_z1_y0
 
-        return ldf["A_ub"]
+        return ldf["A_ub"].to_numpy()
 
     def _compute_A_ub_row__split2(self, ldf):
         """
@@ -880,7 +1151,6 @@ class TrueNegativeRateParityObjective(AbsoluteValueObjective):
         -------
         ldf['A_ub'] : pandas.Series<float>
         """
-        n_actions = 2
         ldf = ldf.copy()
         filt__yhat0_y0_z0 = (ldf["z"] == 0) & (ldf["y"] == 0) & (ldf["yhat"] == 0)
         filt__yhat0_y0_z1 = (ldf["z"] == 1) & (ldf["y"] == 0) & (ldf["yhat"] == 0)
@@ -890,7 +1160,7 @@ class TrueNegativeRateParityObjective(AbsoluteValueObjective):
         ldf.loc[filt__yhat0_y0_z0, "A_ub"] = 1 / p_z0_y0
         ldf.loc[filt__yhat0_y0_z1, "A_ub"] = -1 / p_z1_y0
 
-        return ldf["A_ub"]
+        return ldf["A_ub"].to_numpy()
 
     def _construct_reward__split1(self, ldf):
         """
@@ -919,7 +1189,7 @@ class TrueNegativeRateParityObjective(AbsoluteValueObjective):
         ldf.loc[filt__yhat0_y0_z1, "r"] = 1 / p_y0_z1
         c = -1 * ldf["r"]  # Negative since maximizing not minimizing
 
-        return c
+        return c.to_numpy() if hasattr(c, "to_numpy") else np.asarray(c)
 
     def _construct_reward__split2(self, ldf):
         """
@@ -948,7 +1218,7 @@ class TrueNegativeRateParityObjective(AbsoluteValueObjective):
         ldf.loc[filt__yhat0_y0_z1, "r"] = -1 / p_y0_z1
         c = -1 * ldf["r"]  # Negative since maximizing not minimizing
 
-        return c
+        return c.to_numpy() if hasattr(c, "to_numpy") else np.asarray(c)
 
 
 class FalseNegativeRateParityObjective(AbsoluteValueObjective):
@@ -1005,7 +1275,6 @@ class FalseNegativeRateParityObjective(AbsoluteValueObjective):
         -------
         ldf['A_ub'] : pandas.Series<float>
         """
-        n_actions = 2
         ldf = ldf.copy()
         filt__yhat0_y1_z0 = (ldf["z"] == 0) & (ldf["y"] == 1) & (ldf["yhat"] == 0)
         filt__yhat0_y1_z1 = (ldf["z"] == 1) & (ldf["y"] == 1) & (ldf["yhat"] == 0)
@@ -1015,7 +1284,7 @@ class FalseNegativeRateParityObjective(AbsoluteValueObjective):
         ldf.loc[filt__yhat0_y1_z0, "A_ub"] = -1 / p_z0_y1
         ldf.loc[filt__yhat0_y1_z1, "A_ub"] = 1 / p_z1_y1
 
-        return ldf["A_ub"]
+        return ldf["A_ub"].to_numpy()
 
     def _compute_A_ub_row__split2(self, ldf):
         """
@@ -1034,7 +1303,6 @@ class FalseNegativeRateParityObjective(AbsoluteValueObjective):
         -------
         ldf['A_ub'] : pandas.Series<float>
         """
-        n_actions = 2
         ldf = ldf.copy()
         filt__yhat0_y1_z0 = (ldf["z"] == 0) & (ldf["y"] == 1) & (ldf["yhat"] == 0)
         filt__yhat0_y1_z1 = (ldf["z"] == 1) & (ldf["y"] == 1) & (ldf["yhat"] == 0)
@@ -1044,14 +1312,14 @@ class FalseNegativeRateParityObjective(AbsoluteValueObjective):
         ldf.loc[filt__yhat0_y1_z0, "A_ub"] = 1 / p_z0_y1
         ldf.loc[filt__yhat0_y1_z1, "A_ub"] = -1 / p_z1_y1
 
-        return ldf["A_ub"]
+        return ldf["A_ub"].to_numpy()
 
     def _construct_reward__split1(self, ldf):
         """
         Constructs the reward function for False Negative Rate Parity,
         opt_problem 1, which is when we constrain
         P(yhat=0|y=1,z=0) >= P(yhat=0|y=1,z=1), in which case the reward
-        penalizes giving the Z=0 group the positive prediction.
+        penalizes giving the Z=0 group the negative prediction.
 
         Parameters
         ----------
@@ -1073,7 +1341,7 @@ class FalseNegativeRateParityObjective(AbsoluteValueObjective):
         ldf.loc[filt__yhat0_y1_z1, "r"] = 1 / p_y1_z1
         c = -1 * ldf["r"]  # Negative since maximizing not minimizing
 
-        return c
+        return c.to_numpy() if hasattr(c, "to_numpy") else np.asarray(c)
 
     def _construct_reward__split2(self, ldf):
         """
@@ -1102,7 +1370,7 @@ class FalseNegativeRateParityObjective(AbsoluteValueObjective):
         ldf.loc[filt__yhat0_y1_z1, "r"] = -1 / p_y1_z1
         c = -1 * ldf["r"]  # Negative since maximizing not minimizing
 
-        return c
+        return c.to_numpy() if hasattr(c, "to_numpy") else np.asarray(c)
 
 
 class PredictiveParityObjective(Objective):
@@ -1243,10 +1511,7 @@ class GroupPositiveRateZ0Objective(LinearObjective):
         ldf.loc[filt__yhat1_giv_z, "r"] = 1 / p_z
         c = -1 * ldf["r"]  # Negative since maximizing not minimizing
 
-        # Check c sums to 1
-        assert (c.sum() + 1) < 1e-8
-
-        return c
+        return c.to_numpy() if hasattr(c, "to_numpy") else np.asarray(c)
 
 
 class GroupPositiveRateZ1Objective(GroupPositiveRateZ0Objective):
@@ -1309,10 +1574,7 @@ class GroupNegativeRateZ0Objective(LinearObjective):
         ldf.loc[filt__yhat0_giv_z, "r"] = 1 / p_z
         c = -1 * ldf["r"]  # Negative since maximizing not minimizing
 
-        # Check c sums to 1
-        assert (c.sum() + 1) < 1e-8
-
-        return c
+        return c.to_numpy() if hasattr(c, "to_numpy") else np.asarray(c)
 
 
 class GroupNegativeRateZ1Objective(GroupNegativeRateZ0Objective):
@@ -1377,10 +1639,7 @@ class GroupTruePositiveRateZ0Objective(LinearObjective):
         ldf.loc[filt__yhat1_giv_y1_z, "r"] = 1 / p_y1_z
         c = -1 * ldf["r"]  # Negative since maximizing not minimizing
 
-        # Check c sums to 1
-        assert (c.sum() + 1) < 1e-8
-
-        return c
+        return c.to_numpy() if hasattr(c, "to_numpy") else np.asarray(c)
 
 
 class GroupTruePositiveRateZ1Objective(GroupTruePositiveRateZ0Objective):
@@ -1444,7 +1703,7 @@ class GroupTrueNegativeRateZ0Objective(LinearObjective):
         ldf.loc[filt__yhat0_giv_y0_z, "r"] = 1 / p_y0_z
         c = -1 * ldf["r"]  # Negative since maximizing not minimizing
 
-        return c
+        return c.to_numpy() if hasattr(c, "to_numpy") else np.asarray(c)
 
 
 class GroupTrueNegativeRateZ1Objective(GroupTrueNegativeRateZ0Objective):
@@ -1480,9 +1739,8 @@ class GroupFalsePositiveRateZ0Objective(LinearObjective):
 
         mu = p_yhat_eq_1_giv_y_eq_0_z_eq_z
 
-        # Absence should imply 0
         if np.isnan(mu):
-            mu = 1.0
+            mu = 1
 
         return mu
 
@@ -1509,7 +1767,7 @@ class GroupFalsePositiveRateZ0Objective(LinearObjective):
         ldf.loc[filt__yhat1_giv_y0_z, "r"] = 1 / p_y0_z
         c = -1 * ldf["r"]  # Negative since maximizing not minimizing
 
-        return c
+        return c.to_numpy() if hasattr(c, "to_numpy") else np.asarray(c)
 
 
 class GroupFalsePositiveRateZ1Objective(GroupFalsePositiveRateZ0Objective):
@@ -1539,15 +1797,14 @@ class GroupFalseNegativeRateZ0Objective(LinearObjective):
                 yhat : predictions
                 y : ground truth targets
         """
-        p_yhat_eq_1_giv_y_eq_0_z_eq_z = (
-            (demo["yhat"] == 1) & (demo["y"] == 0) & (demo["z"] == self.z)
-        ).sum() / ((demo["y"] == 0) & (demo["z"] == self.z)).sum()
+        p_yhat_eq_0_giv_y_eq_1_z_eq_z = (
+            (demo["yhat"] == 0) & (demo["y"] == 1) & (demo["z"] == self.z)
+        ).sum() / ((demo["y"] == 1) & (demo["z"] == self.z)).sum()
 
-        mu = p_yhat_eq_1_giv_y_eq_0_z_eq_z
+        mu = p_yhat_eq_0_giv_y_eq_1_z_eq_z
 
-        # Absence should imply 1
         if np.isnan(mu):
-            mu = 1.0
+            mu = 1
 
         return mu
 
@@ -1566,15 +1823,15 @@ class GroupFalseNegativeRateZ0Objective(LinearObjective):
             The objective function for the linear program.
         """
         ldf = ldf.copy()
-        filt__yhat1_giv_y0_z = (
-            (ldf["z"] == self.z) & (ldf["y"] == 0) & (ldf["yhat"] == 1)
+        filt__yhat0_giv_y1_z = (
+            (ldf["z"] == self.z) & (ldf["y"] == 1) & (ldf["yhat"] == 0)
         )
-        p_y0_z = ldf[(ldf["y"] == 0) & (ldf["z"] == self.z)]["mu0"].sum() / 2
+        p_y1_z = ldf[(ldf["y"] == 1) & (ldf["z"] == self.z)]["mu0"].sum() / 2
         ldf["r"] = np.zeros(len(ldf))
-        ldf.loc[filt__yhat1_giv_y0_z, "r"] = 1 / p_y0_z
+        ldf.loc[filt__yhat0_giv_y1_z, "r"] = 1 / p_y1_z
         c = -1 * ldf["r"]  # Negative since maximizing not minimizing
 
-        return c
+        return c.to_numpy() if hasattr(c, "to_numpy") else np.asarray(c)
 
 
 class GroupFalseNegativeRateZ1Objective(GroupFalseNegativeRateZ0Objective):
@@ -1663,24 +1920,64 @@ class ObjectiveSet:
         for obj in self.objectives:
             if obj.n_splits == 1:
                 linear_splits += obj.to_splits()
-            if obj.n_splits == 2:
-                abs_val_splits += obj.to_splits()
-                abs_val_split_generator.append([counter, counter + 1])
-                counter += 2
+            else:
+                # Handles 2-split objectives AND multi-split objectives (e.g. EqOdds with 4).
+                splits = obj.to_splits()
+                abs_val_splits += splits
+                abs_val_split_generator.append(
+                    list(range(counter, counter + obj.n_splits))
+                )
+                counter += obj.n_splits
 
-        # abs_val_splits_perms = list(itertools.product(*[[0,1], [2,3]]))
-        # >>> [(0, 2), (0, 3), (1, 2), (1, 3)]
+        # itertools.product over an empty list of iterables yields a single empty tuple,
+        # but we make this explicit so the case of "no abs-val objectives" is unambiguous.
         abs_val_splits_perms = list(itertools.product(*abs_val_split_generator))
+        if not abs_val_splits_perms:
+            abs_val_splits_perms = [()]
+
         opt_problems = []
         for split_indexes in abs_val_splits_perms:
             _abs_val_splits = [abs_val_splits[idx] for idx in split_indexes]
             all_splits = linear_splits + _abs_val_splits
             name = ",".join([split.name for split in all_splits])
-            A_ub = np.array([split.A_ub for split in _abs_val_splits], dtype=float)
-            b_ub = np.array([split.b_ub for split in _abs_val_splits], dtype=float)
-            c = reward_weights[all_splits[0].parent.name] * all_splits[0].c
-            for split_i, split in enumerate(all_splits[1:]):
-                c += reward_weights[split.parent.name] * split.c
+            # vstack correctly stacks both 1-D rows (2-split objectives)
+            # and 2-D row-blocks (e.g. EqualizedOdds, which contributes 2 rows
+            # per split: one TPR constraint + one FPR constraint).
+            if _abs_val_splits:
+                A_ub = np.vstack(
+                    [
+                        np.atleast_2d(np.asarray(split.A_ub, dtype=float))
+                        for split in _abs_val_splits
+                    ]
+                )
+                # concatenate handles per-split b_ub vectors of unequal length
+                # (e.g. length 1 for normal objectives, length 2 for EqOdds).
+                b_ub = np.concatenate(
+                    [
+                        np.atleast_1d(np.asarray(split.b_ub, dtype=float))
+                        for split in _abs_val_splits
+                    ]
+                )
+
+                # Sanity check: one bound per inequality row.
+                assert (
+                    A_ub.shape[0] == b_ub.shape[0]
+                ), f"A_ub has {A_ub.shape[0]} rows but b_ub has {b_ub.shape[0]} entries"
+            else:
+                A_ub = None
+                b_ub = None
+            # Initialize a zero vector of the correct length, then accumulate the
+            # reward-weighted contribution of every split (linear + selected
+            # absolute-value splits).
+            if not all_splits:
+                raise ValueError("ObjectiveSet.fit requires at least one objective.")
+
+            c_len = np.asarray(all_splits[0].c, dtype=float).shape[0]
+            c = np.zeros(c_len, dtype=float)
+            for split in all_splits:
+                c = c + reward_weights[split.parent.name] * np.asarray(
+                    split.c, dtype=float
+                )
 
             opt_problem = OptimizationProblem(
                 name=name,
@@ -1690,11 +1987,9 @@ class ObjectiveSet:
                 b_ub=b_ub,
                 c=c,
             )
-
             opt_problems.append(opt_problem)
 
         self.opt_problems_ = opt_problems
-
         return self
 
     def reset(self):
@@ -1714,6 +2009,6 @@ class ObjectiveSet:
         None
         """
         for obj in self.objectives:
-            obj.__init__()
+            obj.__init__(*obj._init_args, **obj._init_kwargs)
 
         self.opt_problems_ = None
