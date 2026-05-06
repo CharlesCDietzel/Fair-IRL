@@ -135,7 +135,7 @@ def generate_demo(clf, X_test, y_test, can_observe_y=False):
         else:
             demo["yhat"] = y_test
     else:
-        demo["yhat"] = clf.predict(X_test)
+        demo["yhat"] = clf.predict(X_test).astype(np.int64)
 
     demo["y"] = y_test.copy()
 

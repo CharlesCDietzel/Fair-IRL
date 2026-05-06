@@ -1,8 +1,9 @@
+import copy
 import datetime
 import itertools
 import json
 import logging
-import copy
+
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
@@ -10,25 +11,27 @@ import seaborn as sns
 import sklearn.base
 from fairlearn.postprocessing import ThresholdOptimizer
 from fairlearn.reductions import (
-    ExponentiatedGradient,
+    BoundedGroupLoss,
     EqualizedOdds,
     ErrorRateParity,
-    BoundedGroupLoss,
+    ExponentiatedGradient,
     ZeroOneLoss,
 )
 from matplotlib.ticker import FormatStrFormatter
-from research.rl.env.clf_mdp import *
-from research.rl.env.clf_mdp_policy import *
-from research.rl.env.objectives import *
-from research.irl.fair_irl import *
-from research.ml.svm import SVM
-from research.utils import *
 from scipy.spatial.distance import cosine
 from sklearn.dummy import DummyClassifier
 from sklearn.ensemble import RandomForestClassifier
-from sklearn.model_selection import train_test_split, KFold
+from sklearn.model_selection import KFold, train_test_split
 from sklearn.tree import DecisionTreeClassifier
 from xgboost import XGBClassifier
+
+from research.irl.fair_irl import *
+from research.ml.svm import SVM
+from research.rl.env.clf_mdp import *
+from research.rl.env.clf_mdp_policy import *
+from research.rl.env.objectives import *
+from research.utils import *
+
 from .datasets import *
 
 # Color palette for plotting
@@ -405,11 +408,8 @@ def generate_single_exp_results_df(feat_obj_set, perf_obj_set, results):
 
     for obj in feat_obj_set.objectives:
         exp_df_cols.append(f"muL_{obj.name}")
-        exp_df_cols.append(f"muL_best_{obj.name}")
         exp_df_cols.append(f"muL_val_{obj.name}")
         exp_df_cols.append(f"muL_test_{obj.name}")
-        exp_df_cols.append(f"muL_best_val_{obj.name}")
-        exp_df_cols.append(f"muL_best_test_{obj.name}")
 
     for obj in feat_obj_set.objectives:
         exp_df_cols.append(f"muL_err_{obj.name}")
@@ -442,14 +442,16 @@ def generate_single_exp_results_df(feat_obj_set, perf_obj_set, results):
     exp_df_cols.append("best_t_test")
 
     for obj in perf_obj_set.objectives:
+        exp_df_cols.append(f"muE_perf_{obj.name}")
         exp_df_cols.append(f"muE_perf_val_{obj.name}")
         exp_df_cols.append(f"muE_perf_test_{obj.name}")
-        exp_df_cols.append(f"muL_perf_best_val_{obj.name}")
-        exp_df_cols.append(f"muL_perf_best_test_{obj.name}")
+        exp_df_cols.append(f"muL_perf_{obj.name}")
+        exp_df_cols.append(f"muL_perf_val_{obj.name}")
+        exp_df_cols.append(f"muL_perf_test_{obj.name}")
 
-    exp_df_cols.append(f"source_trial_runtime")
-    exp_df_cols.append(f"source_irl_loop_runtime")
-    exp_df_cols.append(f"source_trial_inputsize")
+    exp_df_cols.append(f"trial_runtime")
+    exp_df_cols.append(f"avg_runtime_per_irl_loop")
+    exp_df_cols.append(f"trial_inputsize")
 
     exp_df = pd.DataFrame(results, columns=exp_df_cols)
 
@@ -457,19 +459,20 @@ def generate_single_exp_results_df(feat_obj_set, perf_obj_set, results):
 
 
 def new_trial_result(
-    best_idx,
+    best_row_idx,
     feat_obj_set,
     perf_obj_set,
     muE_dataset,
     muE,
     muE_val,
     muE_test,
+    muE_perf,
     muE_perf_val,
     muE_perf_test,
     df_irl,
-    source_trial_runtime,
-    source_irl_loop_runtime,
-    source_trial_inputsize,
+    trial_runtime,
+    avg_runtime_per_irl_loop,
+    trial_inputsize,
 ):
     """
     Generates a row of "results", which are collected and persisted for each
@@ -500,7 +503,7 @@ def new_trial_result(
         items like learned weights, feature expectations, error, etc.
     source_trial_runtime : float
         The runtime to complete the source trial, in seconds.
-    source_irl_loop_runtime : float
+    source_avg_runtime_per_irl_loop : float
         The runtime to complete the source IRL loop, in seconds.
     source_trial_inputsize : int
         The size of the input space. Specifically `mdp.n_states_` (includes y)
@@ -533,21 +536,18 @@ def new_trial_result(
         muE_test_std = np.std(muE_test[:, i])
         result += [muE_test_mean, muE_test_std]
 
-    best_row = df_irl.loc[best_idx]
+    best_row = df_irl.loc[best_row_idx]
 
     for i, obj in enumerate(feat_obj_set.objectives):
         result.append(best_row[f"{obj.name}_weight"])
 
     for obj in feat_obj_set.objectives:
-        result.append(best_row[f"{obj.name}"])
-        result.append(best_row[f"muL_best_{obj.name}"])
+        result.append(best_row[f"muL_{obj.name}"])
         result.append(best_row[f"muL_val_{obj.name}"])
         result.append(best_row[f"muL_test_{obj.name}"])
-        result.append(best_row[f"muL_best_val_{obj.name}"])
-        result.append(best_row[f"muL_best_test_{obj.name}"])
 
     for i, obj in enumerate(feat_obj_set.objectives):
-        _muL_err = abs(best_row[f"{obj.name}"] - np.mean(muE_val[:, i]))
+        _muL_err = abs(best_row[f"muL_{obj.name}"] - np.mean(muE_val[:, i]))
         _muL_val_err = abs(best_row[f"muL_val_{obj.name}"] - np.mean(muE_val[:, i]))
         _muL_test_err = abs(best_row[f"muL_test_{obj.name}"] - np.mean(muE_test[:, i]))
         result.append(_muL_err)
@@ -581,16 +581,19 @@ def new_trial_result(
 
     # Append performance measures of expert_val, expert_test and best learned policies
     for i, obj in enumerate(perf_obj_set.objectives):
+        perf_mean = np.mean(muE_perf[:, i])
         perf_val_mean = np.mean(muE_perf_val[:, i])
         perf_test_mean = np.mean(muE_perf_test[:, i])
+        result.append(perf_mean)
         result.append(perf_val_mean)
         result.append(perf_test_mean)
-        result.append(best_row[f"muL_perf_best_val_{obj.name}"])
-        result.append(best_row[f"muL_perf_best_test_{obj.name}"])
+        result.append(best_row[f"muL_perf_{obj.name}"])
+        result.append(best_row[f"muL_perf_val_{obj.name}"])
+        result.append(best_row[f"muL_perf_test_{obj.name}"])
 
-    result.append(source_trial_runtime)
-    result.append(source_irl_loop_runtime)
-    result.append(source_trial_inputsize)
+    result.append(trial_runtime)
+    result.append(avg_runtime_per_irl_loop)
+    result.append(trial_inputsize)
 
     return result
 
@@ -640,33 +643,56 @@ def compute_alphas(raw_demos_feat_loss, clf_demos_feat_loss):
 
 
 def compute_subdominance(
-    alphas, raw_demos_feat_loss, clf_demos_feat_loss, relative=True, sum_agg=True
+    exp_info,
+    alphas,
+    raw_demos_feat_loss,
+    clf_demos_feat_loss,
+    relative=True,
+    sum_agg=True,
 ):
     # Computation taken from https://proceedings.mlr.press/v162/ziebart22a/ziebart22a.pdf eq. 5-8 and def. 5
-    lamda = 0.001  # I assume this is the correct lambda value to use, but it is not specified in the paper.
+    # lamda = 0.001  # I assume this is the correct lambda value to use, but it is not specified in the paper.
     beta = 1.0
+    num_perf_metrics = len(exp_info["SUBDOMINANCE_PERF_METRICS_LIST"])
+    num_fair_metrics = len(exp_info["SUBDOMINANCE_FAIR_METRICS_LIST"])
+    perf_metric_weight = 0.5 / num_perf_metrics
+    fair_metric_weight = 0.5 / num_fair_metrics
     # compute the average across subdom for each demo
     total_subdom_list = []
-    for demo in range(raw_demos_feat_loss.shape[0]):
+    for demo_idx in range(raw_demos_feat_loss.shape[0]):
         subdom_list = []
-        for feature in range(raw_demos_feat_loss.shape[1]):
-            alpha = alphas[feature]
-            raw_demo_loss = raw_demos_feat_loss[demo][feature]
-            clf_demo_loss = clf_demos_feat_loss[demo][feature]
+        for feature_idx in range(raw_demos_feat_loss.shape[1]):
+            alpha = alphas[feature_idx]
+            raw_demo_loss = raw_demos_feat_loss[demo_idx][feature_idx]
+            clf_demo_loss = clf_demos_feat_loss[demo_idx][feature_idx]
             if relative:
                 epsilon = 1e-10  # to avoid divide by zero
                 if raw_demo_loss < epsilon:
                     raw_demo_loss = epsilon
-                subdom = (alpha * ((clf_demo_loss / raw_demo_loss) - 1)) + beta
+                subdom = np.maximum(
+                    (alpha * ((clf_demo_loss / raw_demo_loss) - 1)) + beta, 0
+                )
             else:
-                subdom = (alpha * (clf_demo_loss - raw_demo_loss)) + beta
+                subdom = np.maximum((alpha * (clf_demo_loss - raw_demo_loss)) + beta, 0)
             subdom_list.append(subdom)
 
-        total_subdom = sum(subdom_list) if sum_agg else max(subdom_list)
+        if sum_agg:
+            # CUSTOM MODIFICATION FOR OUR USE CASE:
+            # If we are aggregating by sum, reweight the performance measure (accuracy) subdominance
+            # and the fairness measure subdominance equally
+            for i, subdom in enumerate(subdom_list):
+                if i < num_perf_metrics:
+                    subdom_list[i] = subdom * perf_metric_weight
+                else:
+                    subdom_list[i] = subdom * fair_metric_weight
+            total_subdom = sum(subdom_list)
+        else:
+            total_subdom = max(subdom_list)
         total_subdom_list.append(total_subdom)
 
     final_subdom = sum(total_subdom_list) / len(total_subdom_list)
-    final_subdom += (lamda / 2.0) * (np.linalg.norm(alphas) ** 2)  # add once
+    # Since we are using subdominance as an evaluation metric, we don't need to add regularization.
+    # final_subdom += (lamda / 2.0) * (np.linalg.norm(alphas) ** 2)
     return final_subdom
 
 
@@ -723,7 +749,7 @@ def run_trial_source_domain(
         The irl error on the test set.
     clf_pol : research.rl.env.clf_mdp.ClassificationMDPPolicy
         The classification MDP optimal policy.
-    irl_loop_runtime : float
+    avg_runtime_per_irl_loop : float
         The runtime of the IRL loop, in seconds.
 
     """
@@ -784,21 +810,22 @@ def run_trial_source_domain(
     # holdout, otherwise it messes up interpretations.
     #
     split_is_okay = False
-    max_muE_cosine_dist_split = 0.001
+    max_muE_cosine_dist_split = 0.002
 
     # Hold variables for later use in IRL loop
     demoE_val = None
     demoE_test = None
 
     while not split_is_okay:
-        X_train_val, X_test, y_train_val, y_test = train_test_split(
-            X, y, test_size=0.20
+        # 1. First split: Split into 60/40 train and val_test
+        X_train, X_val_test, y_train, y_val_test = train_test_split(
+            X, y, train_size=0.60
         )
 
-        # 2. Second split: Split the training_val set into 50/50
-        # (This results in 10% of total for val and 10% for train)
-        X_train, X_val, y_train, y_val = train_test_split(
-            X_train_val, y_train_val, test_size=0.50
+        # 2. Second split: Split the training_val set 50/50 between val and test
+        # (In total, this results in 60% for train, 20% for val, and 20% for test)
+        X_val, X_test, y_val, y_test = train_test_split(
+            X_val_test, y_val_test, test_size=0.50
         )
 
         # Generate expert demonstrations to learn from
@@ -806,14 +833,15 @@ def run_trial_source_domain(
             exp_info,
             X=X_train,
             y=y_train,
-            clf=expert_algo_lookup[exp_info["EXPERT_ALGO"]],
+            clf=copy.deepcopy(expert_algo_lookup[exp_info["EXPERT_ALGO"]]),
             obj_set=feat_obj_set,
             n_demos=exp_info["N_EXPERT_DEMOS"],
             bias_types=bias_types,
         )
+        muE_perf = np.array([perf_obj_set.compute_demo_feature_exp(demoE[0])])
 
         # Expert validation set computations
-        expert_val_clf = expert_algo_lookup[exp_info["EXPERT_ALGO"]]
+        expert_val_clf = copy.deepcopy(expert_algo_lookup[exp_info["EXPERT_ALGO"]])
         expert_val_clf.fit(X_val, y_val)
         expert_val_clf = add_classifier_bias(expert_val_clf, bias_types)
         demoE_val = generate_demo(
@@ -829,7 +857,7 @@ def run_trial_source_domain(
         muE_perf_val = np.array([perf_obj_set.compute_demo_feature_exp(demoE_val)])
 
         # Expert test set computations
-        expert_test_clf = expert_algo_lookup[exp_info["EXPERT_ALGO"]]
+        expert_test_clf = copy.deepcopy(expert_algo_lookup[exp_info["EXPERT_ALGO"]])
         expert_test_clf.fit(X_test, y_test)
         expert_test_clf = add_classifier_bias(expert_test_clf, bias_types)
         demoE_test = generate_demo(
@@ -849,7 +877,13 @@ def run_trial_source_domain(
             if cosine(muE[demo_i], muE_val[0]) > max_muE_cosine_dist_split:
                 split_is_okay = False
                 logging.info(
-                    f"INFO: Split check failed: {cosine(muE[demo_i], muE_val[0])} > {max_muE_cosine_dist_split}, retrying split..."
+                    f"INFO: muE_val Split check failed: {cosine(muE[demo_i], muE_val[0])} > {max_muE_cosine_dist_split}, retrying split..."
+                )
+                break
+            if cosine(muE[demo_i], muE_test[0]) > max_muE_cosine_dist_split:
+                split_is_okay = False
+                logging.info(
+                    f"INFO: muE_test Split check failed: {cosine(muE[demo_i], muE_test[0])} > {max_muE_cosine_dist_split}, retrying split..."
                 )
                 break
 
@@ -857,13 +891,13 @@ def run_trial_source_domain(
         exp_info,
         X=X,
         y=y,
-        clf=expert_algo_lookup[exp_info["EXPERT_ALGO"]],
+        clf=copy.deepcopy(expert_algo_lookup[exp_info["EXPERT_ALGO"]]),
         obj_set=feat_obj_set,
         n_demos=exp_info["N_EXPERT_DEMOS"],
         bias_types=[],
     )
     # For subdominance calculations later
-    raw_clf = expert_algo_lookup[exp_info["EXPERT_ALGO"]]
+    raw_clf = copy.deepcopy(expert_algo_lookup[exp_info["EXPERT_ALGO"]])
     raw_clf.fit(X_train, y_train)
     raw_clf = add_classifier_bias(raw_clf, bias_types)
     ref_demo = generate_demo(raw_clf, X_train, y_train)
@@ -879,6 +913,7 @@ def run_trial_source_domain(
     logging.info(f"muE:\n{muE}")
     logging.info(f"muE_val:\n{muE_val}")
     logging.info(f"muE_test:\n{muE_test}")
+    logging.info(f"muE_perf_val:\n{muE_perf}")
     logging.info(f"muE_perf_val:\n{muE_perf_val}")
     logging.info(f"muE_perf_test:\n{muE_perf_test}")
 
@@ -936,13 +971,9 @@ def run_trial_source_domain(
     muL_history = []
     muL_val_history = []
     muL_test_history = []
+    muL_perf_history = []
     muL_perf_val_history = []
     muL_perf_test_history = []
-    muL_best_history = []
-    muL_best_val_history = []
-    muL_best_test_history = []
-    muL_perf_best_val_history = []
-    muL_perf_best_test_history = []
 
     # Generate initial learned policies to serve as negative training examples
     # for the SVM IRL classifier.
@@ -953,7 +984,7 @@ def run_trial_source_domain(
             exp_info,
             X=X_train,
             y=y_train,
-            clf=expert_algo_lookup[non_expert_algo],
+            clf=copy.deepcopy(expert_algo_lookup[non_expert_algo]),
             obj_set=feat_obj_set,
             n_demos=1,
             bias_types=bias_types,
@@ -965,31 +996,31 @@ def run_trial_source_domain(
             exp_info,
             X=X_val,
             y=y_val,
-            clf=expert_algo_lookup[non_expert_algo],
+            clf=copy.deepcopy(expert_algo_lookup[non_expert_algo]),
             obj_set=feat_obj_set,
             n_demos=1,
             bias_types=bias_types,
         )
-        muL_deltas_val = _muL_val - muE_val
-        muL_deltas_val_l2norm = np.linalg.norm(muL_deltas_val, ord=2)
-        muL_delta_l2norm_val_hist.append(muL_deltas_val_l2norm)
+        # muL_deltas_val = _muL_val - muE_val
+        # muL_deltas_val_l2norm = np.linalg.norm(muL_deltas_val, ord=2)
+        # muL_delta_l2norm_val_hist.append(muL_deltas_val_l2norm)
 
         # Test set
         _muL_test, _demos_test = generate_demos_k_folds(
             exp_info,
             X=X_test,
             y=y_test,
-            clf=expert_algo_lookup[non_expert_algo],
+            clf=copy.deepcopy(expert_algo_lookup[non_expert_algo]),
             obj_set=feat_obj_set,
             n_demos=1,
             bias_types=bias_types,
         )
-        muL_deltas_test = _muL_test - muE_test
-        muL_deltas_test_l2norm = np.linalg.norm(muL_deltas_test, ord=2)
-        muL_delta_l2norm_test_hist.append(muL_deltas_test_l2norm)
+        # muL_deltas_test = _muL_test - muE_test
+        # muL_deltas_test_l2norm = np.linalg.norm(muL_deltas_test, ord=2)
+        # muL_delta_l2norm_test_hist.append(muL_deltas_test_l2norm)
 
-    muL_delta_l2norm_val_hist_backup = muL_delta_l2norm_val_hist.copy()
-    muL_delta_l2norm_test_hist_backup = muL_delta_l2norm_test_hist.copy()
+    # muL_delta_l2norm_val_hist_backup = muL_delta_l2norm_val_hist.copy()
+    # muL_delta_l2norm_test_hist_backup = muL_delta_l2norm_test_hist.copy()
 
     muL = np.array(muL)
     logging.info(f"muL:\n{muL}")
@@ -1004,10 +1035,13 @@ def run_trial_source_domain(
 
     done = False  # When true, breaks IRL loop
     is_stuck_in_loop = False
+    num_loops = 0
     return_vals = []
-    irl_loop_start = datetime.datetime.now()
+    all_irl_loop_start = datetime.datetime.now()
     for weight_adjusts in weight_adjusts_list:
         while not done:
+            this_irl_loop_start = datetime.datetime.now()
+            num_loops += 1
             if weight_adjusts == ():
                 logging.info(f"\tIRL Loop iteration {i+1}/{exp_info['MAX_ITER']} ...")
 
@@ -1066,8 +1100,10 @@ def run_trial_source_domain(
                 t_val = []  # Errors on validation set for each iteration
                 t_test = []  # Errors on test set for each iteration
                 muL_delta_l2norm_hist = []
-                muL_delta_l2norm_val_hist = muL_delta_l2norm_val_hist_backup.copy()
-                muL_delta_l2norm_test_hist = muL_delta_l2norm_test_hist_backup.copy()
+                # muL_delta_l2norm_val_hist = muL_delta_l2norm_val_hist_backup.copy()
+                # muL_delta_l2norm_test_hist = muL_delta_l2norm_test_hist_backup.copy()
+                muL_delta_l2norm_val_hist = []
+                muL_delta_l2norm_test_hist = []
                 weights = []
                 i = 0
                 demo_history = []
@@ -1076,13 +1112,9 @@ def run_trial_source_domain(
                 muL_history = []
                 muL_val_history = []
                 muL_test_history = []
+                muL_perf_history = []
                 muL_perf_val_history = []
                 muL_perf_test_history = []
-                muL_best_history = []
-                muL_best_val_history = []
-                muL_best_test_history = []
-                muL_perf_best_val_history = []
-                muL_perf_best_test_history = []
                 X_irl_exp = pd.DataFrame(muE, columns=feat_obj_set_cols)
                 y_irl_exp = pd.Series(np.ones(exp_info["N_EXPERT_DEMOS"]), dtype=int)
                 X_irl_learn = pd.DataFrame(muL, columns=feat_obj_set_cols)
@@ -1127,11 +1159,13 @@ def run_trial_source_domain(
             muL_ = feat_obj_set.compute_demo_feature_exp(demo)
             muL_val = feat_obj_set.compute_demo_feature_exp(demo_val)
             muL_test = feat_obj_set.compute_demo_feature_exp(demo_test)
+            muL_perf = perf_obj_set.compute_demo_feature_exp(demo)
             muL_perf_val = perf_obj_set.compute_demo_feature_exp(demo_val)
             muL_perf_test = perf_obj_set.compute_demo_feature_exp(demo_test)
             muL_history.append(muL_)
             muL_val_history.append(muL_val)
             muL_test_history.append(muL_test)
+            muL_perf_history.append(muL_perf)
             muL_perf_val_history.append(muL_perf_val)
             muL_perf_test_history.append(muL_perf_test)
             logging.info(
@@ -1148,6 +1182,17 @@ def run_trial_source_domain(
 
             # Compute error of the learned policy: t[i] = wT(muE-muL[j])
             # This is equivalent to computing the SVM margin.
+            # NOTE: Since the svm model does not get retrained when weights are adjusted,
+            # the ti values returned here are incorrect when weights are being adjusted.
+            # However, this does not practically matter since there is only one iteration
+            # when weights are being adjusted. Also they are never actually used for anything.
+            # NOTE: the best_j values returned here are sometimes incorrect, instead of returning
+            # the index of the lowest error iteration, it just returns the most recent index.
+            # However, this also does not practically matter since best_j is only used to select
+            # the data to put in the muL_best_ lists, which are only ever used for diagnostics.
+            # Honestly, the names muL_"best" and "best"_j are misleading since they are not
+            # necessarily referencing the best performing iteration, just the most recent iteration.
+            # But I can't be bothered to change the name at this point, so it shall stay for now.
             ti, best_j, muL_delta, muL_delta_l2norm = irl_error(
                 wi,
                 muE,
@@ -1155,6 +1200,8 @@ def run_trial_source_domain(
                 dot_weights_feat_exp=exp_info["DOT_WEIGHTS_FEAT_EXP"],
                 svm_margin=svm.margin(),
             )
+            if len(t) >= 1 and ti > t[-1]:  # This is the final IRL loop iteration
+                pass
             # Do it for the validation set as well.
             ti_val, best_j_val, muL_delta_val, muL_delta_l2norm_val = irl_error(
                 wi,
@@ -1176,13 +1223,14 @@ def run_trial_source_domain(
 
             # Helper to compute subdominance for a specific set
             def compute_iteration_subdominance(
-                raw_demo_ref, clf_demo_cur, prefix_suffix=""
+                raw_demo_ref,
+                clf_demo_cur,
             ):
                 # Compute subdominance metric for the learned policy
                 raw_demo = raw_demo_ref.copy()
                 clf_demo = clf_demo_cur.copy()
-                raw_demo = raw_demo.sample(frac=1).reset_index(drop=True)
-                clf_demo = clf_demo.sample(frac=1).reset_index(drop=True)
+                # raw_demo = raw_demo.sample(frac=1).reset_index(drop=True)
+                # clf_demo = clf_demo.sample(frac=1).reset_index(drop=True)
                 raw_demos = np.array_split(raw_demo, exp_info["N_SUBDOMINANCE_GROUPS"])
                 clf_demos = np.array_split(clf_demo, exp_info["N_SUBDOMINANCE_GROUPS"])
                 raw_demos_feat_loss = np.array(
@@ -1200,6 +1248,7 @@ def run_trial_source_domain(
                 alphas = compute_alphas(raw_demos_feat_loss, clf_demos_feat_loss)
                 # Compute max-aggregated absolute subdominance:
                 max_abs_subdom = compute_subdominance(
+                    exp_info,
                     alphas,
                     raw_demos_feat_loss,
                     clf_demos_feat_loss,
@@ -1208,6 +1257,7 @@ def run_trial_source_domain(
                 )
                 # Compute sum-aggregated absolute subdominance:
                 sum_abs_subdom = compute_subdominance(
+                    exp_info,
                     alphas,
                     raw_demos_feat_loss,
                     clf_demos_feat_loss,
@@ -1216,6 +1266,7 @@ def run_trial_source_domain(
                 )
                 # Compute max-aggregated relative subdominance:
                 max_rel_subdom = compute_subdominance(
+                    exp_info,
                     alphas,
                     raw_demos_feat_loss,
                     clf_demos_feat_loss,
@@ -1224,6 +1275,7 @@ def run_trial_source_domain(
                 )
                 # Compute sum-aggregated relative subdominance:
                 sum_rel_subdom = compute_subdominance(
+                    exp_info,
                     alphas,
                     raw_demos_feat_loss,
                     clf_demos_feat_loss,
@@ -1264,11 +1316,6 @@ def run_trial_source_domain(
 
             # -------------------------------
 
-            muL_best_history.append(muL_history[best_j])
-            muL_best_val_history.append(muL_val_history[best_j])
-            muL_best_test_history.append(muL_test_history[best_j])
-            muL_perf_best_val_history.append(muL_perf_val_history[best_j])
-            muL_perf_best_test_history.append(muL_perf_test_history[best_j])
             t.append(ti)
             t_val.append(ti_val)
             t_test.append(ti_test)
@@ -1290,6 +1337,11 @@ def run_trial_source_domain(
             logging.info(
                 f"\t\t weights[{i}] \t= {str(np.round(weights[i], 2)).replace('0.', '.')}"
             )
+
+            runtime_this_irl_loop = (
+                datetime.datetime.now() - this_irl_loop_start
+            ).total_seconds()
+            logging.info(f"\t\t Runtime for this IRL loop: {runtime_this_irl_loop}")
 
             # If reached maximum iterations
             if i >= exp_info["MAX_ITER"] - 1:
@@ -1340,7 +1392,9 @@ def run_trial_source_domain(
             # End IRL Loop
         done = False
 
-        irl_loop_runtime = (datetime.datetime.now() - irl_loop_start).total_seconds()
+        avg_runtime_per_irl_loop = (
+            datetime.datetime.now() - all_irl_loop_start
+        ).total_seconds() / num_loops
 
         # If solution not sufficient for use, exit early
         if min(muL_delta_l2norm_hist) > exp_info["IGNORE_RESULTS_EPSILON"]:
@@ -1348,29 +1402,35 @@ def run_trial_source_domain(
                 f"IGNORING RESULTS BECAUSE BEST ERROR {min(muL_delta_l2norm_hist):.3f} > {exp_info['IGNORE_RESULTS_EPSILON']:.3f}"
             )
             return_val = (
-                None,  # best_row / converge_idx
+                None,  # best_row_idx
                 None,  # muE_dataset
                 None,  # muE
                 None,  # muE_val
                 None,  # muE_test
+                None,  # muE_perf
                 None,  # muE_perf_val
                 None,  # muE_perf_test
                 None,  # df_irl
-                None,  # weights
-                None,  # t_val
-                None,  # t_test
                 None,  # clf_pol
-                None,  # irl_loop_runtime
+                None,  # avg_runtime_per_irl_loop
             )
             return_vals.append(return_val)
             return return_vals
 
-        # Find best weights based on smallest validation error (with nonnegative weights)
-        # MODIFIED: Using t_val for best_iter selection
+        # Find best weights based on smallest subdominance error
+        # Using the validation set for selection since it is never seen in training
+        # and therefore should give the most unbiased estimate of true error.
+        # MODIFIED: Using sum_abs_subdominance_val for best_iter selection
         t_val_arg_smallest_to_largest = np.argsort(t_val)
-        muL_delta_l2_norm_arg_smallest_to_largest = np.argsort(muL_delta_l2norm_hist)
-
-        best_iter = t_val_arg_smallest_to_largest[0]
+        muL_delta_l2_norm_val_arg_smallest_to_largest = np.argsort(
+            muL_delta_l2norm_val_hist
+        )
+        sum_abs_subdominance_val_arg_smallest_to_largest = np.argsort(
+            sum_abs_subdom_val_hist
+        )
+        # best_iter = muL_delta_l2_norm_val_arg_smallest_to_largest[0]
+        # best_iter = t_val_arg_smallest_to_largest[0]
+        best_iter = sum_abs_subdominance_val_arg_smallest_to_largest[0]
 
         if not exp_info["ALLOW_NEG_WEIGHTS"]:
             best_t_val = None
@@ -1405,7 +1465,7 @@ def run_trial_source_domain(
         )
         logging.info(f"best weight:\t {np.round(best_weight, 3)}")
 
-        best_row = exp_info["N_EXPERT_DEMOS"] + n_init_policies + best_iter
+        best_row_idx = exp_info["N_EXPERT_DEMOS"] + n_init_policies + best_iter
 
         # Generate a dataframe for results gathering.
         X_irl = pd.concat([X_irl_exp, X_irl_learn], axis=0).reset_index(drop=True)
@@ -1413,10 +1473,11 @@ def run_trial_source_domain(
         df_irl = X_irl.copy()
         df_irl["is_expert"] = y_irl.copy()
         for i, col in enumerate(feat_obj_set_cols):
-            df_irl[f"muL_best_{col}"] = (
-                np.zeros(exp_info["N_EXPERT_DEMOS"] + n_init_policies).tolist()
-                + np.array(muL_best_history)[:, i].tolist()
-            )
+            df_irl.columns.values[i] = f"muL_{col}"
+            # df_irl[f"muL_{col}"] = (
+            #     np.zeros(exp_info["N_EXPERT_DEMOS"] + n_init_policies).tolist()
+            #     + np.array(muL_history)[:, i].tolist()
+            # )
             df_irl[f"muL_val_{col}"] = (
                 np.zeros(exp_info["N_EXPERT_DEMOS"] + n_init_policies).tolist()
                 + np.array(muL_val_history)[:, i].tolist()
@@ -1425,22 +1486,18 @@ def run_trial_source_domain(
                 np.zeros(exp_info["N_EXPERT_DEMOS"] + n_init_policies).tolist()
                 + np.array(muL_test_history)[:, i].tolist()
             )
-            df_irl[f"muL_best_val_{col}"] = (
-                np.zeros(exp_info["N_EXPERT_DEMOS"] + n_init_policies).tolist()
-                + np.array(muL_best_val_history)[:, i].tolist()
-            )
-            df_irl[f"muL_best_test_{col}"] = (
-                np.zeros(exp_info["N_EXPERT_DEMOS"] + n_init_policies).tolist()
-                + np.array(muL_best_test_history)[:, i].tolist()
-            )
         for i, col in enumerate(perf_obj_set_cols):
-            df_irl[f"muL_perf_best_val_{col}"] = (
+            df_irl[f"muL_perf_{col}"] = (
                 np.zeros(exp_info["N_EXPERT_DEMOS"] + n_init_policies).tolist()
-                + np.array(muL_perf_best_val_history)[:, i].tolist()
+                + np.array(muL_perf_history)[:, i].tolist()
             )
-            df_irl[f"muL_perf_best_test_{col}"] = (
+            df_irl[f"muL_perf_val_{col}"] = (
                 np.zeros(exp_info["N_EXPERT_DEMOS"] + n_init_policies).tolist()
-                + np.array(muL_perf_best_test_history)[:, i].tolist()
+                + np.array(muL_perf_val_history)[:, i].tolist()
+            )
+            df_irl[f"muL_perf_test_{col}"] = (
+                np.zeros(exp_info["N_EXPERT_DEMOS"] + n_init_policies).tolist()
+                + np.array(muL_perf_test_history)[:, i].tolist()
             )
         df_irl["is_init_policy"] = (
             np.zeros(exp_info["N_EXPERT_DEMOS"]).tolist()
@@ -1509,28 +1566,27 @@ def run_trial_source_domain(
             np.inf * np.ones(exp_info["N_EXPERT_DEMOS"] + n_init_policies, dtype=float)
         ).tolist() + muL_delta_l2norm_hist
         df_irl["mu_delta_l2norm_val"] = (
-            np.inf * np.ones(exp_info["N_EXPERT_DEMOS"], dtype=float)
+            np.inf * np.ones(exp_info["N_EXPERT_DEMOS"] + n_init_policies, dtype=float)
         ).tolist() + muL_delta_l2norm_val_hist
         df_irl["mu_delta_l2norm_test"] = (
-            np.inf * np.ones(exp_info["N_EXPERT_DEMOS"], dtype=float)
+            np.inf * np.ones(exp_info["N_EXPERT_DEMOS"] + n_init_policies, dtype=float)
         ).tolist() + muL_delta_l2norm_test_hist
+
         logging.debug("Experiment Summary")
 
         # End regular IRL trial
         return_val = (
-            best_row,
+            best_row_idx,
             muE_dataset,
             muE,
             muE_val,
             muE_test,
+            muE_perf,
             muE_perf_val,
             muE_perf_test,
             df_irl,
-            weights,
-            t_val,
-            t_test,
             clf_pol,
-            irl_loop_runtime,
+            avg_runtime_per_irl_loop,
         )
         return_vals.append(return_val)
     return return_vals
@@ -1538,7 +1594,9 @@ def run_trial_source_domain(
 
 def compute_relevant_feat_loss(exp_info, demo):
     objectives = []
-    for obj_name in exp_info["SUBDOMINANCE_METRICS_LIST"]:
+    for obj_name in exp_info["SUBDOMINANCE_PERF_METRICS_LIST"]:
+        objectives.append(OBJ_LOOKUP_BY_NAME[obj_name]())
+    for obj_name in exp_info["SUBDOMINANCE_FAIR_METRICS_LIST"]:
         objectives.append(OBJ_LOOKUP_BY_NAME[obj_name]())
     feat_obj_set = ObjectiveSet(objectives)
     del objectives
@@ -1622,7 +1680,7 @@ def run_bias_experiment(
     while trial_i < exp_info["N_TRIALS"]:
         # logging.info(f"\n\nTRIAL {trial_i}\n")
 
-        source_trial_start = datetime.datetime.now()
+        trial_start = datetime.datetime.now()
 
         # Run trials to learn weights on source domain
         return_vals = run_trial_source_domain(
@@ -1635,49 +1693,46 @@ def run_bias_experiment(
             zip(exp_info["WEIGHT_ADJUSTS_LIST"], return_vals)
         ):
             (
-                converge_idx,
+                best_row_idx,
                 muE_dataset,
                 muE,
-                muE_feat_val,
-                muE_feat_test,
+                muE_val,
+                muE_test,
+                muE_perf,
                 muE_perf_val,
                 muE_perf_test,
                 df_irl,
-                weights,
-                t_val,
-                t_test,
-                source_clf_pol,
-                source_irl_loop_runtime,
+                clf_pol,
+                avg_runtime_per_irl_loop,
             ) = return_val
 
-            source_trial_runtime = (
-                datetime.datetime.now() - source_trial_start
-            ).total_seconds()
+            trial_runtime = (datetime.datetime.now() - trial_start).total_seconds()
 
-            source_trial_inputsize = None
-            if hasattr(source_clf_pol, "mdp"):
-                source_trial_inputsize = source_clf_pol.mdp.n_states_
+            trial_inputsize = None
+            if hasattr(clf_pol, "mdp"):
+                trial_inputsize = clf_pol.mdp.n_states_
 
-            if converge_idx is None:
+            if best_row_idx is None:
                 logging.info(f"\nTrial {trial_i} did not converge.\n")
                 trial_i += 1
                 continue
 
             # Aggregate trial results
             _result = new_trial_result(
-                converge_idx,
+                best_row_idx,
                 feat_obj_set,
                 perf_obj_set,
                 muE_dataset,
                 muE,
-                muE_feat_val,
-                muE_feat_test,
+                muE_val,
+                muE_test,
+                muE_perf,
                 muE_perf_val,
                 muE_perf_test,
                 df_irl,
-                source_trial_runtime,
-                source_irl_loop_runtime,
-                source_trial_inputsize,
+                trial_runtime,
+                avg_runtime_per_irl_loop,
+                trial_inputsize,
             )
             results[i].append(
                 _result
