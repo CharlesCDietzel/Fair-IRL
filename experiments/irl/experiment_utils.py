@@ -9,8 +9,15 @@ import numpy as np
 import pandas as pd
 import seaborn as sns
 import sklearn.base
+from fairlearn.metrics import MetricFrame, selection_rate, true_positive_rate
 from fairlearn.postprocessing import ThresholdOptimizer
 from fairlearn.reductions import (
+    ClassificationMoment,
+    Moment,
+    DemographicParity,
+    ErrorRate,
+    ZeroOneLoss,
+    TruePositiveRateParity,
     BoundedGroupLoss,
     EqualizedOdds,
     ErrorRateParity,
@@ -23,6 +30,9 @@ from sklearn.dummy import DummyClassifier
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.model_selection import KFold, train_test_split
 from sklearn.tree import DecisionTreeClassifier
+from sklearn.datasets import make_classification
+from sklearn.linear_model import LogisticRegression
+from sklearn.model_selection import train_test_split
 from xgboost import XGBClassifier
 
 from research.irl.fair_irl import *
@@ -241,6 +251,234 @@ def generate_expert_algo_lookup(feature_types):
         sensitive_features="z",
     )
 
+    # Demographic Parity Reduction with difference_bound=0.01
+    dem_par = DemographicParity(difference_bound=0.01)
+    dem_par_exp_grad = ExponentiatedGradient(
+        sample_weight_name="classifier__sample_weight",
+        constraints=dem_par,
+        estimator=sklearn_clf_pipeline(
+            feature_types=feature_types,
+            # clf_inst=DecisionTreeClassifier(min_samples_leaf=10, max_depth=4),
+            # clf_inst=RandomForestClassifier(),
+            clf_inst=XGBClassifier(),
+        ),
+    )
+    dem_par_red_wrapper = FairLearnSkLearnWrapper(
+        clf=dem_par_exp_grad,
+        sensitive_features="z",
+        has_access_to_sensitive_features=False,
+        clone_on_fit=True,
+    )
+
+    # Demographic Parity Reduction with difference_bound=0.01
+    dem_par_1 = DemographicParity(difference_bound=0.01)
+    dem_par_exp_grad_1 = ExponentiatedGradient(
+        sample_weight_name="classifier__sample_weight",
+        constraints=dem_par_1,
+        estimator=sklearn_clf_pipeline(
+            feature_types=feature_types,
+            # clf_inst=DecisionTreeClassifier(min_samples_leaf=10, max_depth=4),
+            # clf_inst=RandomForestClassifier(),
+            clf_inst=XGBClassifier(),
+        ),
+    )
+    dem_par_red_wrapper_1 = FairLearnSkLearnWrapper(
+        clf=dem_par_exp_grad_1,
+        sensitive_features="z",
+        has_access_to_sensitive_features=False,
+        clone_on_fit=True,
+    )
+
+    # Demographic Parity Reduction with difference_bound=0.02
+    dem_par_2 = DemographicParity(difference_bound=0.02)
+    dem_par_exp_grad_2 = ExponentiatedGradient(
+        sample_weight_name="classifier__sample_weight",
+        constraints=dem_par_2,
+        estimator=sklearn_clf_pipeline(
+            feature_types=feature_types,
+            # clf_inst=DecisionTreeClassifier(min_samples_leaf=10, max_depth=4),
+            # clf_inst=RandomForestClassifier(),
+            clf_inst=XGBClassifier(),
+        ),
+    )
+    dem_par_red_wrapper_2 = FairLearnSkLearnWrapper(
+        clf=dem_par_exp_grad_2,
+        sensitive_features="z",
+        has_access_to_sensitive_features=False,
+        clone_on_fit=True,
+    )
+
+    # Demographic Parity Reduction with difference_bound=0.03
+    dem_par_3 = DemographicParity(difference_bound=0.03)
+    dem_par_exp_grad_3 = ExponentiatedGradient(
+        sample_weight_name="classifier__sample_weight",
+        constraints=dem_par_3,
+        estimator=sklearn_clf_pipeline(
+            feature_types=feature_types,
+            # clf_inst=DecisionTreeClassifier(min_samples_leaf=10, max_depth=4),
+            # clf_inst=RandomForestClassifier(),
+            clf_inst=XGBClassifier(),
+        ),
+    )
+    dem_par_red_wrapper_3 = FairLearnSkLearnWrapper(
+        clf=dem_par_exp_grad_3,
+        sensitive_features="z",
+        has_access_to_sensitive_features=False,
+        clone_on_fit=True,
+    )
+
+    # Demographic Parity Reduction with difference_bound=0.04
+    dem_par_4 = DemographicParity(difference_bound=0.04)
+    dem_par_exp_grad_4 = ExponentiatedGradient(
+        sample_weight_name="classifier__sample_weight",
+        constraints=dem_par_4,
+        estimator=sklearn_clf_pipeline(
+            feature_types=feature_types,
+            # clf_inst=DecisionTreeClassifier(min_samples_leaf=10, max_depth=4),
+            # clf_inst=RandomForestClassifier(),
+            clf_inst=XGBClassifier(),
+        ),
+    )
+    dem_par_red_wrapper_4 = FairLearnSkLearnWrapper(
+        clf=dem_par_exp_grad_4,
+        sensitive_features="z",
+        has_access_to_sensitive_features=False,
+        clone_on_fit=True,
+    )
+
+    # Demographic Parity Reduction with difference_bound=0.05
+    dem_par_5 = DemographicParity(difference_bound=0.05)
+    dem_par_exp_grad_5 = ExponentiatedGradient(
+        sample_weight_name="classifier__sample_weight",
+        constraints=dem_par_5,
+        estimator=sklearn_clf_pipeline(
+            feature_types=feature_types,
+            # clf_inst=DecisionTreeClassifier(min_samples_leaf=10, max_depth=4),
+            # clf_inst=RandomForestClassifier(),
+            clf_inst=XGBClassifier(),
+        ),
+    )
+    dem_par_red_wrapper_5 = FairLearnSkLearnWrapper(
+        clf=dem_par_exp_grad_5,
+        sensitive_features="z",
+        has_access_to_sensitive_features=False,
+        clone_on_fit=True,
+    )
+
+    # Demographic Parity Reduction with difference_bound=0.06
+    dem_par_6 = DemographicParity(difference_bound=0.06)
+    dem_par_exp_grad_6 = ExponentiatedGradient(
+        sample_weight_name="classifier__sample_weight",
+        constraints=dem_par_6,
+        estimator=sklearn_clf_pipeline(
+            feature_types=feature_types,
+            # clf_inst=DecisionTreeClassifier(min_samples_leaf=10, max_depth=4),
+            # clf_inst=RandomForestClassifier(),
+            clf_inst=XGBClassifier(),
+        ),
+    )
+    dem_par_red_wrapper_6 = FairLearnSkLearnWrapper(
+        clf=dem_par_exp_grad_6,
+        sensitive_features="z",
+        has_access_to_sensitive_features=False,
+        clone_on_fit=True,
+    )
+
+    # Demographic Parity Reduction with difference_bound=0.07
+    dem_par_7 = DemographicParity(difference_bound=0.07)
+    dem_par_exp_grad_7 = ExponentiatedGradient(
+        sample_weight_name="classifier__sample_weight",
+        constraints=dem_par_7,
+        estimator=sklearn_clf_pipeline(
+            feature_types=feature_types,
+            # clf_inst=DecisionTreeClassifier(min_samples_leaf=10, max_depth=4),
+            # clf_inst=RandomForestClassifier(),
+            clf_inst=XGBClassifier(),
+        ),
+    )
+    dem_par_red_wrapper_7 = FairLearnSkLearnWrapper(
+        clf=dem_par_exp_grad_7,
+        sensitive_features="z",
+        has_access_to_sensitive_features=False,
+        clone_on_fit=True,
+    )
+
+    # Demographic Parity Reduction with difference_bound=0.08
+    dem_par_8 = DemographicParity(difference_bound=0.08)
+    dem_par_exp_grad_8 = ExponentiatedGradient(
+        sample_weight_name="classifier__sample_weight",
+        constraints=dem_par_8,
+        estimator=sklearn_clf_pipeline(
+            feature_types=feature_types,
+            # clf_inst=DecisionTreeClassifier(min_samples_leaf=10, max_depth=4),
+            # clf_inst=RandomForestClassifier(),
+            clf_inst=XGBClassifier(),
+        ),
+    )
+    dem_par_red_wrapper_8 = FairLearnSkLearnWrapper(
+        clf=dem_par_exp_grad_8,
+        sensitive_features="z",
+        has_access_to_sensitive_features=False,
+        clone_on_fit=True,
+    )
+
+    # Demographic Parity Reduction with difference_bound=0.09
+    dem_par_9 = DemographicParity(difference_bound=0.09)
+    dem_par_exp_grad_9 = ExponentiatedGradient(
+        sample_weight_name="classifier__sample_weight",
+        constraints=dem_par_9,
+        estimator=sklearn_clf_pipeline(
+            feature_types=feature_types,
+            # clf_inst=DecisionTreeClassifier(min_samples_leaf=10, max_depth=4),
+            # clf_inst=RandomForestClassifier(),
+            clf_inst=XGBClassifier(),
+        ),
+    )
+    dem_par_red_wrapper_9 = FairLearnSkLearnWrapper(
+        clf=dem_par_exp_grad_9,
+        sensitive_features="z",
+        has_access_to_sensitive_features=False,
+        clone_on_fit=True,
+    )
+
+    # Demographic Parity Reduction with difference_bound=0.1
+    dem_par_10 = DemographicParity(difference_bound=0.1)
+    dem_par_exp_grad_10 = ExponentiatedGradient(
+        sample_weight_name="classifier__sample_weight",
+        constraints=dem_par_10,
+        estimator=sklearn_clf_pipeline(
+            feature_types=feature_types,
+            # clf_inst=DecisionTreeClassifier(min_samples_leaf=10, max_depth=4),
+            # clf_inst=RandomForestClassifier(),
+            clf_inst=XGBClassifier(),
+        ),
+    )
+    dem_par_red_wrapper_10 = FairLearnSkLearnWrapper(
+        clf=dem_par_exp_grad_10,
+        sensitive_features="z",
+        has_access_to_sensitive_features=False,
+        clone_on_fit=True,
+    )
+
+    # Equal Opportunity Reduction
+    eq_opp = TruePositiveRateParity(difference_bound=0.01)
+    eq_opp_exp_grad = ExponentiatedGradient(
+        sample_weight_name="classifier__sample_weight",
+        constraints=eq_opp,
+        estimator=sklearn_clf_pipeline(
+            feature_types=feature_types,
+            # clf_inst=DecisionTreeClassifier(min_samples_leaf=10, max_depth=4),
+            # clf_inst=RandomForestClassifier(),
+            clf_inst=XGBClassifier(),
+        ),
+    )
+    eq_opp_red_wrapper = FairLearnSkLearnWrapper(
+        clf=eq_opp_exp_grad,
+        sensitive_features="z",
+        has_access_to_sensitive_features=False,
+        clone_on_fit=True,
+    )
+
     # Equal Odds Reduction
     eq_odds = EqualizedOdds(difference_bound=0.01)
     eq_odds_exp_grad = ExponentiatedGradient(
@@ -347,7 +585,19 @@ def generate_expert_algo_lookup(feature_types):
         "HardtTNRPar": tnr_wrapper,
         "HardtFNRPar": fnr_wrapper,
         "Dummy": dummy_pipe,
-        "RedEqOdds": eq_odds_red_wrapper,
+        "DemParRed": dem_par_red_wrapper,
+        "DemParRed_0.01": dem_par_red_wrapper_1,
+        "DemParRed_0.02": dem_par_red_wrapper_2,
+        "DemParRed_0.03": dem_par_red_wrapper_3,
+        "DemParRed_0.04": dem_par_red_wrapper_4,
+        "DemParRed_0.05": dem_par_red_wrapper_5,
+        "DemParRed_0.06": dem_par_red_wrapper_6,
+        "DemParRed_0.07": dem_par_red_wrapper_7,
+        "DemParRed_0.08": dem_par_red_wrapper_8,
+        "DemParRed_0.09": dem_par_red_wrapper_9,
+        "DemParRed_0.1": dem_par_red_wrapper_10,
+        "EqOppRed": eq_opp_red_wrapper,
+        "EqOddsRed": eq_odds_red_wrapper,
         "BoundedGroupLoss": bgl_wrapper,
         "COMPAS": compas_score_high,
         # Initial policies
@@ -650,8 +900,7 @@ def compute_subdominance(
     relative=True,
     sum_agg=True,
 ):
-    # Computation taken from https://proceedings.mlr.press/v162/ziebart22a/ziebart22a.pdf eq. 5-8 and def. 5
-    # lamda = 0.001  # I assume this is the correct lambda value to use, but it is not specified in the paper.
+    # Computation based on https://proceedings.mlr.press/v162/ziebart22a/ziebart22a.pdf eq. 5-8 and def. 5
     beta = 1.0
     num_perf_metrics = len(exp_info["SUBDOMINANCE_PERF_METRICS_LIST"])
     num_fair_metrics = len(exp_info["SUBDOMINANCE_FAIR_METRICS_LIST"])
@@ -694,6 +943,71 @@ def compute_subdominance(
     # Since we are using subdominance as an evaluation metric, we don't need to add regularization.
     # final_subdom += (lamda / 2.0) * (np.linalg.norm(alphas) ** 2)
     return final_subdom
+
+
+# Helper to compute subdominance for a specific set
+def compute_iteration_subdominance(
+    exp_info,
+    raw_demo_ref,
+    clf_demo_cur,
+):
+    # Compute subdominance metric for the learned policy
+    raw_demo = raw_demo_ref.copy()
+    clf_demo = clf_demo_cur.copy()
+    # raw_demo = raw_demo.sample(frac=1).reset_index(drop=True)
+    # clf_demo = clf_demo.sample(frac=1).reset_index(drop=True)
+    raw_demos = np.array_split(raw_demo, exp_info["N_SUBDOMINANCE_GROUPS"])
+    clf_demos = np.array_split(clf_demo, exp_info["N_SUBDOMINANCE_GROUPS"])
+    raw_demos_feat_loss = np.array(
+        [
+            compute_relevant_feat_loss(exp_info, raw_demo_group)
+            for raw_demo_group in raw_demos
+        ]
+    )
+    clf_demos_feat_loss = np.array(
+        [
+            compute_relevant_feat_loss(exp_info, clf_demo_group)
+            for clf_demo_group in clf_demos
+        ]
+    )
+    alphas = compute_alphas(raw_demos_feat_loss, clf_demos_feat_loss)
+    # Compute max-aggregated absolute subdominance:
+    max_abs_subdom = compute_subdominance(
+        exp_info,
+        alphas,
+        raw_demos_feat_loss,
+        clf_demos_feat_loss,
+        relative=False,
+        sum_agg=False,
+    )
+    # Compute sum-aggregated absolute subdominance:
+    sum_abs_subdom = compute_subdominance(
+        exp_info,
+        alphas,
+        raw_demos_feat_loss,
+        clf_demos_feat_loss,
+        relative=False,
+        sum_agg=True,
+    )
+    # Compute max-aggregated relative subdominance:
+    max_rel_subdom = compute_subdominance(
+        exp_info,
+        alphas,
+        raw_demos_feat_loss,
+        clf_demos_feat_loss,
+        relative=True,
+        sum_agg=False,
+    )
+    # Compute sum-aggregated relative subdominance:
+    sum_rel_subdom = compute_subdominance(
+        exp_info,
+        alphas,
+        raw_demos_feat_loss,
+        clf_demos_feat_loss,
+        relative=True,
+        sum_agg=True,
+    )
+    return max_abs_subdom, sum_abs_subdom, max_rel_subdom, sum_rel_subdom
 
 
 def run_trial_source_domain(
@@ -810,7 +1124,7 @@ def run_trial_source_domain(
     # holdout, otherwise it messes up interpretations.
     #
     split_is_okay = False
-    max_muE_cosine_dist_split = 0.002
+    max_muE_cosine_dist_split = 0.005
 
     # Hold variables for later use in IRL loop
     demoE_val = None
@@ -897,23 +1211,19 @@ def run_trial_source_domain(
         bias_types=[],
     )
     # For subdominance calculations later
-    raw_clf = copy.deepcopy(expert_algo_lookup[exp_info["EXPERT_ALGO"]])
-    raw_clf.fit(X_train, y_train)
-    raw_clf = add_classifier_bias(raw_clf, bias_types)
-    ref_demo = generate_demo(raw_clf, X_train, y_train)
-    ref_demo = add_demo_bias(
-        ref_demo, unfairness_types=bias_types, dataset=exp_info["DATASET"]
+    expert_train_clf = copy.deepcopy(expert_algo_lookup[exp_info["EXPERT_ALGO"]])
+    expert_train_clf.fit(X_train, y_train)
+    expert_train_clf = add_classifier_bias(expert_train_clf, bias_types)
+    demoE_train = generate_demo(expert_train_clf, X_train, y_train)
+    demoE_train = add_demo_bias(
+        demoE_train, unfairness_types=bias_types, dataset=exp_info["DATASET"]
     )
-
-    # Prepare validation and test raw demos for subdominance
-    raw_demo_val = demoE_val
-    raw_demo_test = demoE_test
 
     logging.info(f"muE_dataset:\n{muE_dataset}")
     logging.info(f"muE:\n{muE}")
     logging.info(f"muE_val:\n{muE_val}")
     logging.info(f"muE_test:\n{muE_test}")
-    logging.info(f"muE_perf_val:\n{muE_perf}")
+    logging.info(f"muE_perf:\n{muE_perf}")
     logging.info(f"muE_perf_val:\n{muE_perf_val}")
     logging.info(f"muE_perf_test:\n{muE_perf_test}")
 
@@ -1220,77 +1530,13 @@ def run_trial_source_domain(
             )
 
             # --- Subdominance Calculations ---
-
-            # Helper to compute subdominance for a specific set
-            def compute_iteration_subdominance(
-                raw_demo_ref,
-                clf_demo_cur,
-            ):
-                # Compute subdominance metric for the learned policy
-                raw_demo = raw_demo_ref.copy()
-                clf_demo = clf_demo_cur.copy()
-                # raw_demo = raw_demo.sample(frac=1).reset_index(drop=True)
-                # clf_demo = clf_demo.sample(frac=1).reset_index(drop=True)
-                raw_demos = np.array_split(raw_demo, exp_info["N_SUBDOMINANCE_GROUPS"])
-                clf_demos = np.array_split(clf_demo, exp_info["N_SUBDOMINANCE_GROUPS"])
-                raw_demos_feat_loss = np.array(
-                    [
-                        compute_relevant_feat_loss(exp_info, raw_demo_group)
-                        for raw_demo_group in raw_demos
-                    ]
-                )
-                clf_demos_feat_loss = np.array(
-                    [
-                        compute_relevant_feat_loss(exp_info, clf_demo_group)
-                        for clf_demo_group in clf_demos
-                    ]
-                )
-                alphas = compute_alphas(raw_demos_feat_loss, clf_demos_feat_loss)
-                # Compute max-aggregated absolute subdominance:
-                max_abs_subdom = compute_subdominance(
-                    exp_info,
-                    alphas,
-                    raw_demos_feat_loss,
-                    clf_demos_feat_loss,
-                    relative=False,
-                    sum_agg=False,
-                )
-                # Compute sum-aggregated absolute subdominance:
-                sum_abs_subdom = compute_subdominance(
-                    exp_info,
-                    alphas,
-                    raw_demos_feat_loss,
-                    clf_demos_feat_loss,
-                    relative=False,
-                    sum_agg=True,
-                )
-                # Compute max-aggregated relative subdominance:
-                max_rel_subdom = compute_subdominance(
-                    exp_info,
-                    alphas,
-                    raw_demos_feat_loss,
-                    clf_demos_feat_loss,
-                    relative=True,
-                    sum_agg=False,
-                )
-                # Compute sum-aggregated relative subdominance:
-                sum_rel_subdom = compute_subdominance(
-                    exp_info,
-                    alphas,
-                    raw_demos_feat_loss,
-                    clf_demos_feat_loss,
-                    relative=True,
-                    sum_agg=True,
-                )
-                return max_abs_subdom, sum_abs_subdom, max_rel_subdom, sum_rel_subdom
-
             # Train
             (
                 max_abs_subdominance,
                 sum_abs_subdominance,
                 max_rel_subdominance,
                 sum_rel_subdominance,
-            ) = compute_iteration_subdominance(ref_demo, demo)
+            ) = compute_iteration_subdominance(exp_info, demoE_train, demo)
             max_abs_subdom_hist.append(max_abs_subdominance)
             sum_abs_subdom_hist.append(sum_abs_subdominance)
             max_rel_subdom_hist.append(max_rel_subdominance)
@@ -1298,7 +1544,7 @@ def run_trial_source_domain(
 
             # Val
             max_abs_subdom_v, sum_abs_subdom_v, max_rel_subdom_v, sum_rel_subdom_v = (
-                compute_iteration_subdominance(raw_demo_val, demo_val)
+                compute_iteration_subdominance(exp_info, demoE_val, demo_val)
             )
             max_abs_subdom_val_hist.append(max_abs_subdom_v)
             sum_abs_subdom_val_hist.append(sum_abs_subdom_v)
@@ -1307,7 +1553,7 @@ def run_trial_source_domain(
 
             # Test
             max_abs_subdom_t, sum_abs_subdom_t, max_rel_subdom_t, sum_rel_subdom_t = (
-                compute_iteration_subdominance(raw_demo_test, demo_test)
+                compute_iteration_subdominance(exp_info, demoE_test, demo_test)
             )
             max_abs_subdom_test_hist.append(max_abs_subdom_t)
             sum_abs_subdom_test_hist.append(sum_abs_subdom_t)

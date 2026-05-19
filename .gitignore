@@ -6,6 +6,7 @@ experiments/**/resources/*
 */**/data/**/*.zip
 */**/experiment_output/**/*.csv
 */**/experiment_output/**/*.json
+*/**/experiment_output/**/*.pdf
 data/**/*.csv
 data/**/*.p
 dist/

@@ -171,7 +171,7 @@ def add_demo_bias(demo, unfairness_types=(), dataset=None):
 
     percent = 0.2
     for unfairness_type in unfairness_types:
-        demo.reset_index(inplace=True)
+        demo.reset_index(inplace=True, drop=True)
         match unfairness_type:
             case "unbalanced_redlining":
                 # wherever Z==rz, set yhat = ry with 20% probability. Otherwise, keep yhat the same
@@ -221,14 +221,14 @@ def add_demo_bias(demo, unfairness_types=(), dataset=None):
                 demo.loc[rz_indices, "yhat"] = ry
                 # Set yhat to nry for sampled rows
                 demo.loc[nrz_indices, "yhat"] = nry
-            case "broken_redlining":
-                # This code is bugged, don't use it. It's only still here for replicating old results.
-                minority_z = demo["z"].value_counts(ascending=True).index[0]
-                minority_yhat = demo["yhat"].value_counts(ascending=True).index[0]
-                z_mask = demo["z"] == minority_z
-                random_mask = np.zeros(len(demo), dtype=bool)
-                random_mask[z_mask] = np.random.random(z_mask.sum()) < percent
-                demo.loc[random_mask, "yhat"] = minority_yhat
+            # case "broken_redlining":
+            #     # This code is bugged, don't use it. It's only still here for replicating old results.
+            #     minority_z = demo["z"].value_counts(ascending=True).index[0]
+            #     minority_yhat = demo["yhat"].value_counts(ascending=True).index[0]
+            #     z_mask = demo["z"] == minority_z
+            #     random_mask = np.zeros(len(demo), dtype=bool)
+            #     random_mask[z_mask] = np.random.random(z_mask.sum()) < percent
+            #     demo.loc[random_mask, "yhat"] = minority_yhat
         demo.set_index("index", inplace=True)
         demo.index.name = None
     return demo
@@ -241,13 +241,9 @@ def add_classifier_bias(clf, bias_types=[]):
         match bias_type:
             case "threshold_swapping":
                 # try: # Commenting out the try except because I want it to fail if it doesn't work, since this is only meant to be used with postprocessing classifiers where it should work
-                thresholds = (
-                    clf.clf.interpolated_thresholder_.interpolation_dict
-                )
+                thresholds = clf.clf.interpolated_thresholder_.interpolation_dict
                 thresholds[0], thresholds[1] = thresholds[1], thresholds[0]
-                clf.clf.interpolated_thresholder_.interpolation_dict = (
-                    thresholds
-                )
+                clf.clf.interpolated_thresholder_.interpolation_dict = thresholds
                 # except AttributeError:
                 #     pass
     # Access clf
