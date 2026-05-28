@@ -1,3 +1,4 @@
+import copy
 import logging
 import numpy as np
 import os
@@ -171,7 +172,7 @@ def add_demo_bias(demo, unfairness_types=(), dataset=None):
 
     percent = 0.2
     for unfairness_type in unfairness_types:
-        demo.reset_index(inplace=True, drop=True)
+        demo.reset_index(inplace=True)
         match unfairness_type:
             case "unbalanced_redlining":
                 # wherever Z==rz, set yhat = ry with 20% probability. Otherwise, keep yhat the same
@@ -345,12 +346,95 @@ def generate_demos_k_folds(exp_info, X, y, clf, obj_set, n_demos=3, bias_types=(
     return mu, demos
 
 
+def generate_mu_and_demos(
+    exp_info,
+    X,
+    y,
+    clf,
+    obj_set,
+    n_demos=3,
+    bias_types=(),
+):
+    """
+    Improved implementation of `generate_demos_k_folds` that uses k-folds to generate
+    demonstrations for all data samples without overlap and also without overfitting.
+    Returns demos as the combined demonstrations from all folds, and mu as the feature
+    expectations of all demos. Additionally, this implementation returns versions of mu and demos
+    with no bias added, which can be used to sanity-check that the bias is behaving as expected.
+
+    Parameters
+    ----------
+    X : numpy.ndarray
+        The X training data reserved for generating the demonstrations.
+    y : array-like
+        The y training data reserved for generating the demonstrations.
+    clf : sklearn.pipeline.Pipeline, ClassifierMixin
+        Sklearn classifier pipeline.
+    obj_set : ObjectiveSet
+        The objective set.
+    n_demos : int, default 3
+        The number of demonstrations to generate (also the k in k folds).
+
+    Returns
+    -------
+    mu : numpy.ndarray, shape(1, len(obj_set.objectives))
+        The feature expectations across all demonstrations with bias added.
+    demos : pandas.DataFrame
+        A dataframe of all the demonstrations across the K-folds with bias added.
+    mu_unbiased : numpy.ndarray, shape(1, len(obj_set.objectives))
+        The feature expectations across all demonstrations with no bias added.
+    demos_unbiased : pandas.DataFrame
+        A dataframe of all the demonstrations across the K-folds with no bias added.
+    """
+    mu = np.zeros((1, len(obj_set.objectives)))  # demo feat exp with bias
+    demos = []  # list of demo dataframes with bias
+
+    mu_unbiased = np.zeros((1, len(obj_set.objectives)))  # demo feat exp no bias
+    demos_unbiased = []  # list of demo dataframes with no bias
+
+    if n_demos < 2:
+        n_demos = 2  # KFold requires at least 2 splits
+
+    k_fold = KFold(n_demos)
+    for k, (train, test) in enumerate(k_fold.split(X, y)):
+        _X_train, _y_train = X.iloc[train], y.iloc[train]
+        _X_test, _y_test = X.iloc[test], y.iloc[test]
+
+        # Generate demo with bias
+        clf_new = copy.deepcopy(clf)
+        clf_new.fit(_X_train, _y_train)
+        clf_biased = add_classifier_bias(clf_new, bias_types)
+        demo_biased = generate_demo(clf_biased, _X_test, _y_test)
+        demo_biased = add_demo_bias(
+            demo_biased, unfairness_types=bias_types, dataset=exp_info["DATASET"]
+        )
+        # mu += obj_set.compute_demo_feature_exp(demo_biased)
+        demos.append(demo_biased)
+
+        # Generate demo without bias
+        clf_new = copy.deepcopy(clf)
+        clf_new.fit(_X_train, _y_train)
+        demo_unbiased = generate_demo(clf_new, _X_test, _y_test)
+        # mu_unbiased += obj_set.compute_demo_feature_exp(demo_unbiased)
+        demos_unbiased.append(demo_unbiased)
+
+    # Combine all the biased demos into one dataframe and all the unbiased demos into another dataframe
+    # Preserves the original data sample order from the dataset.
+    demos_combined = pd.concat(demos)
+    demos_unbiased_combined = pd.concat(demos_unbiased)
+
+    # Compute mu for the combined demos and combinded unbiased demos
+    mu[0] = obj_set.compute_demo_feature_exp(demos_combined)
+    mu_unbiased[0] = obj_set.compute_demo_feature_exp(demos_unbiased_combined)
+
+    return mu, demos_combined, mu_unbiased, demos_unbiased_combined
+
+
 def irl_error(
     w,
     muE,
     muL,
     dot_weights_feat_exp=True,
-    allow_neg_weights=False,
     svm_margin=None,
 ):
     """
@@ -378,79 +462,29 @@ def irl_error(
 
     Returns
     -------
-    best_err : float
-        The error of the best policy, and therefore the IRL error.
-    best_j : int
-        The index of the best policy in muL.
-    mu_deltas[best_j] : array<float>
-        The array of differences between muE and muL[best_j].
-    l2_mu_delta[best_j] : float
+    mu_deltas : array<float>
+        The array of differences between muE and muL.
+    l2_mu_delta : float
         The l2 norm of the muE and muL deltas.
+    abs_l2_mu_delta : float
+        The l2 norm of the muE and muL deltas, without normalizing by muE.
+    err : float
+        The IRL error of the current policy.
+    svm_margin : float
+        The margin of the SVM separating the expert and learned feature expectations.
     """
-    # mu_deltas = np.zeros((len(muL), muE.shape[1]))
-    # l2_mu_deltas = np.zeros(len(muL))
-    # best_err = np.inf
-    # best_j = None
-
-    # # Find best muj
-    # for j, muj in enumerate(muL):
-    #     # JDB 01/07/2024
-    #     # Trying this out. Make mu delta errors RELATIVE to their magnitude. So
-    #     # adding the muE.mean(axis=0) as a denominator
-    #     mu_deltas[j] = muE.mean(axis=0) - muj
-    #     # JDB 12/05/2023
-    #     # Trying this out. If muj is better, reduce the amount it's considered
-    #     # as an error for feature expectations deltas.
-    #     # But first, check if all weights are positive. Don't want anything
-    #     # to converge to zero error if weights are negative.
-    #     if allow_neg_weights or  np.all(w > -1e-5):
-    #         mu_deltas[j][mu_deltas[j] < 0] = 1 * mu_deltas[j][mu_deltas[j] < 0]
-
-    #     if dot_weights_feat_exp:
-    #         err = np.linalg.norm(np.abs(w) * mu_deltas[j], ord=2)
-    #     else:
-    #         err = np.linalg.norm(np.abs(mu_deltas[j])) * np.linalg.norm(w, ord=2)
-
-    #     if err < best_err:
-    #         best_err = err
-    #         best_j = j
-
-    # 01/08/2024
-    # Trying this out: don't find best muj. Just compute error with most recent
-    # muj and weights.
-    l2_mu_deltas = np.zeros([])
-    best_err = np.inf
-    best_j = len(muL) - 1
-
     # Trying this out. Make mu delta errors RELATIVE to their magnitude. So
     # adding the muE.mean(axis=0) as a denominator
     mu_deltas = (muE.mean(axis=0) - muL[-1]) / muE.mean(axis=0)
 
-    # JDB 01/20/2024
-    # Trying this out: use SVM hyperplane margin as error
-    if svm_margin is not None:
-        err = svm_margin
+    abs_mu_deltas = muE.mean(axis=0) - muL[-1]
+
+    if dot_weights_feat_exp:
+        err = np.linalg.norm(w * mu_deltas, ord=2)
     else:
+        err = np.linalg.norm(mu_deltas) * np.linalg.norm(w, ord=2)
 
-        # JDB 01/07/2024
-        # Trying this out. Make mu delta errors RELATIVE to their magnitude. So
-        # adding the muE.mean(axis=0) as a denominator
-        if allow_neg_weights or np.all(w > -1e-5):
-            mu_deltas[mu_deltas < 0] = 1 * mu_deltas[mu_deltas < 0]
+    l2_mu_delta = np.linalg.norm(mu_deltas, ord=2)
+    abs_l2_mu_delta = np.linalg.norm(abs_mu_deltas, ord=2)
 
-        if dot_weights_feat_exp:
-            err = np.linalg.norm(w * mu_deltas, ord=2)
-        else:
-            err = np.linalg.norm(mu_deltas) * np.linalg.norm(w, ord=2)
-
-    best_err = err
-
-    # If accuracy weight is zero, return infinite error
-    # TODO: remove this
-    if np.allclose(w[0], 0, atol=1e-5):
-        logging.info("\t\tAccuracy weight is zero, infinite error")
-        best_err = np.inf
-
-    l2_mu_deltas = np.linalg.norm(mu_deltas, ord=2)
-
-    return best_err, best_j, mu_deltas, l2_mu_deltas
+    return mu_deltas, l2_mu_delta, abs_l2_mu_delta, err, svm_margin

@@ -9,7 +9,17 @@ import numpy as np
 import pandas as pd
 import seaborn as sns
 import sklearn.base
-from fairlearn.metrics import MetricFrame, selection_rate, true_positive_rate
+from fairlearn.metrics import (
+    MetricFrame,
+    selection_rate,
+    true_positive_rate,
+    demographic_parity_difference,
+    demographic_parity_ratio,
+    equalized_odds_difference,
+    equalized_odds_ratio,
+    equal_opportunity_difference,
+    equal_opportunity_ratio,
+)
 from fairlearn.postprocessing import ThresholdOptimizer
 from fairlearn.reductions import (
     ClassificationMoment,
@@ -34,6 +44,7 @@ from sklearn.datasets import make_classification
 from sklearn.linear_model import LogisticRegression
 from sklearn.model_selection import train_test_split
 from xgboost import XGBClassifier
+from catboost import CatBoostClassifier
 
 from research.irl.fair_irl import *
 from research.ml.svm import SVM
@@ -197,6 +208,22 @@ def generate_expert_algo_lookup(feature_types):
         # clf_inst=DecisionTreeClassifier(min_samples_leaf=10, max_depth=4),
         # clf_inst=DecisionTreeClassifier(min_samples_leaf=5, max_depth=10),
         # RandomForestClassifier(),
+        CatBoostClassifier(allow_writing_files=False, logging_level="Silent"),
+    )
+
+    catboost_opt_acc_pipe = sklearn_clf_pipeline(
+        feature_types,
+        # clf_inst=DecisionTreeClassifier(min_samples_leaf=10, max_depth=4),
+        # clf_inst=DecisionTreeClassifier(min_samples_leaf=5, max_depth=10),
+        # RandomForestClassifier(),
+        CatBoostClassifier(allow_writing_files=False, logging_level="Silent"),
+    )
+
+    xgboost_opt_acc_pipe = sklearn_clf_pipeline(
+        feature_types,
+        # clf_inst=DecisionTreeClassifier(min_samples_leaf=10, max_depth=4),
+        # clf_inst=DecisionTreeClassifier(min_samples_leaf=5, max_depth=10),
+        # RandomForestClassifier(),
         XGBClassifier(),
     )
 
@@ -209,7 +236,7 @@ def generate_expert_algo_lookup(feature_types):
             feature_types=feature_types,
             # clf_inst=DecisionTreeClassifier(min_samples_leaf=10, max_depth=4),
             # clf_inst=RandomForestClassifier(), # Messes up DemPar. Why?
-            clf_inst=XGBClassifier(),
+            clf_inst=CatBoostClassifier(allow_writing_files=False, logging_level="Silent"),
         ),
     )
     dem_par_wrapper = FairLearnSkLearnWrapper(
@@ -226,7 +253,7 @@ def generate_expert_algo_lookup(feature_types):
             feature_types=feature_types,
             # clf_inst=DecisionTreeClassifier(min_samples_leaf=10, max_depth=4),
             # clf_inst=RandomForestClassifier(),
-            clf_inst=XGBClassifier(),
+            clf_inst=CatBoostClassifier(allow_writing_files=False, logging_level="Silent"),
         ),
     )
     eq_opp_wrapper = FairLearnSkLearnWrapper(
@@ -242,7 +269,7 @@ def generate_expert_algo_lookup(feature_types):
         estimator=sklearn_clf_pipeline(
             feature_types=feature_types,
             # clf_inst=RandomForestClassifier(),
-            clf_inst=XGBClassifier(),
+            clf_inst=CatBoostClassifier(allow_writing_files=False, logging_level="Silent"),
             # clf_inst=DecisionTreeClassifier(min_samples_leaf=10000, max_depth=20),
         ),
     )
@@ -260,7 +287,7 @@ def generate_expert_algo_lookup(feature_types):
             feature_types=feature_types,
             # clf_inst=DecisionTreeClassifier(min_samples_leaf=10, max_depth=4),
             # clf_inst=RandomForestClassifier(),
-            clf_inst=XGBClassifier(),
+            clf_inst=CatBoostClassifier(allow_writing_files=False, logging_level="Silent"),
         ),
     )
     dem_par_red_wrapper = FairLearnSkLearnWrapper(
@@ -279,7 +306,7 @@ def generate_expert_algo_lookup(feature_types):
             feature_types=feature_types,
             # clf_inst=DecisionTreeClassifier(min_samples_leaf=10, max_depth=4),
             # clf_inst=RandomForestClassifier(),
-            clf_inst=XGBClassifier(),
+            clf_inst=CatBoostClassifier(allow_writing_files=False, logging_level="Silent"),
         ),
     )
     dem_par_red_wrapper_1 = FairLearnSkLearnWrapper(
@@ -298,7 +325,7 @@ def generate_expert_algo_lookup(feature_types):
             feature_types=feature_types,
             # clf_inst=DecisionTreeClassifier(min_samples_leaf=10, max_depth=4),
             # clf_inst=RandomForestClassifier(),
-            clf_inst=XGBClassifier(),
+            clf_inst=CatBoostClassifier(allow_writing_files=False, logging_level="Silent"),
         ),
     )
     dem_par_red_wrapper_2 = FairLearnSkLearnWrapper(
@@ -317,7 +344,7 @@ def generate_expert_algo_lookup(feature_types):
             feature_types=feature_types,
             # clf_inst=DecisionTreeClassifier(min_samples_leaf=10, max_depth=4),
             # clf_inst=RandomForestClassifier(),
-            clf_inst=XGBClassifier(),
+            clf_inst=CatBoostClassifier(allow_writing_files=False, logging_level="Silent"),
         ),
     )
     dem_par_red_wrapper_3 = FairLearnSkLearnWrapper(
@@ -336,7 +363,7 @@ def generate_expert_algo_lookup(feature_types):
             feature_types=feature_types,
             # clf_inst=DecisionTreeClassifier(min_samples_leaf=10, max_depth=4),
             # clf_inst=RandomForestClassifier(),
-            clf_inst=XGBClassifier(),
+            clf_inst=CatBoostClassifier(allow_writing_files=False, logging_level="Silent"),
         ),
     )
     dem_par_red_wrapper_4 = FairLearnSkLearnWrapper(
@@ -355,7 +382,7 @@ def generate_expert_algo_lookup(feature_types):
             feature_types=feature_types,
             # clf_inst=DecisionTreeClassifier(min_samples_leaf=10, max_depth=4),
             # clf_inst=RandomForestClassifier(),
-            clf_inst=XGBClassifier(),
+            clf_inst=CatBoostClassifier(allow_writing_files=False, logging_level="Silent"),
         ),
     )
     dem_par_red_wrapper_5 = FairLearnSkLearnWrapper(
@@ -374,7 +401,7 @@ def generate_expert_algo_lookup(feature_types):
             feature_types=feature_types,
             # clf_inst=DecisionTreeClassifier(min_samples_leaf=10, max_depth=4),
             # clf_inst=RandomForestClassifier(),
-            clf_inst=XGBClassifier(),
+            clf_inst=CatBoostClassifier(allow_writing_files=False, logging_level="Silent"),
         ),
     )
     dem_par_red_wrapper_6 = FairLearnSkLearnWrapper(
@@ -393,7 +420,7 @@ def generate_expert_algo_lookup(feature_types):
             feature_types=feature_types,
             # clf_inst=DecisionTreeClassifier(min_samples_leaf=10, max_depth=4),
             # clf_inst=RandomForestClassifier(),
-            clf_inst=XGBClassifier(),
+            clf_inst=CatBoostClassifier(allow_writing_files=False, logging_level="Silent"),
         ),
     )
     dem_par_red_wrapper_7 = FairLearnSkLearnWrapper(
@@ -412,7 +439,7 @@ def generate_expert_algo_lookup(feature_types):
             feature_types=feature_types,
             # clf_inst=DecisionTreeClassifier(min_samples_leaf=10, max_depth=4),
             # clf_inst=RandomForestClassifier(),
-            clf_inst=XGBClassifier(),
+            clf_inst=CatBoostClassifier(allow_writing_files=False, logging_level="Silent"),
         ),
     )
     dem_par_red_wrapper_8 = FairLearnSkLearnWrapper(
@@ -431,7 +458,7 @@ def generate_expert_algo_lookup(feature_types):
             feature_types=feature_types,
             # clf_inst=DecisionTreeClassifier(min_samples_leaf=10, max_depth=4),
             # clf_inst=RandomForestClassifier(),
-            clf_inst=XGBClassifier(),
+            clf_inst=CatBoostClassifier(allow_writing_files=False, logging_level="Silent"),
         ),
     )
     dem_par_red_wrapper_9 = FairLearnSkLearnWrapper(
@@ -450,7 +477,7 @@ def generate_expert_algo_lookup(feature_types):
             feature_types=feature_types,
             # clf_inst=DecisionTreeClassifier(min_samples_leaf=10, max_depth=4),
             # clf_inst=RandomForestClassifier(),
-            clf_inst=XGBClassifier(),
+            clf_inst=CatBoostClassifier(allow_writing_files=False, logging_level="Silent"),
         ),
     )
     dem_par_red_wrapper_10 = FairLearnSkLearnWrapper(
@@ -469,7 +496,7 @@ def generate_expert_algo_lookup(feature_types):
             feature_types=feature_types,
             # clf_inst=DecisionTreeClassifier(min_samples_leaf=10, max_depth=4),
             # clf_inst=RandomForestClassifier(),
-            clf_inst=XGBClassifier(),
+            clf_inst=CatBoostClassifier(allow_writing_files=False, logging_level="Silent"),
         ),
     )
     eq_opp_red_wrapper = FairLearnSkLearnWrapper(
@@ -488,7 +515,7 @@ def generate_expert_algo_lookup(feature_types):
             feature_types=feature_types,
             # clf_inst=DecisionTreeClassifier(min_samples_leaf=10, max_depth=4),
             # clf_inst=RandomForestClassifier(),
-            clf_inst=XGBClassifier(),
+            clf_inst=CatBoostClassifier(allow_writing_files=False, logging_level="Silent"),
         ),
     )
     eq_odds_red_wrapper = FairLearnSkLearnWrapper(
@@ -507,7 +534,7 @@ def generate_expert_algo_lookup(feature_types):
             feature_types=feature_types,
             # clf_inst=DecisionTreeClassifier(min_samples_leaf=5, max_depth=10),
             # clf_inst=RandomForestClassifier(),
-            clf_inst=XGBClassifier(),
+            clf_inst=CatBoostClassifier(allow_writing_files=False, logging_level="Silent"),
         ),
     )
     bgl_wrapper = FairLearnSkLearnWrapper(
@@ -526,7 +553,7 @@ def generate_expert_algo_lookup(feature_types):
             feature_types=feature_types,
             # clf_inst=DecisionTreeClassifier(min_samples_leaf=10, max_depth=4),
             # clf_inst=RandomForestClassifier(),
-            clf_inst=XGBClassifier(),
+            clf_inst=CatBoostClassifier(allow_writing_files=False, logging_level="Silent"),
         ),
     )
     fpr_wrapper = FairLearnSkLearnWrapper(
@@ -543,7 +570,7 @@ def generate_expert_algo_lookup(feature_types):
             feature_types=feature_types,
             # clf_inst=DecisionTreeClassifier(min_samples_leaf=10, max_depth=4),
             # clf_inst=RandomForestClassifier(),
-            clf_inst=XGBClassifier(),
+            clf_inst=CatBoostClassifier(allow_writing_files=False, logging_level="Silent"),
         ),
     )
     tnr_wrapper = FairLearnSkLearnWrapper(
@@ -560,7 +587,7 @@ def generate_expert_algo_lookup(feature_types):
             feature_types=feature_types,
             # clf_inst=DecisionTreeClassifier(min_samples_leaf=10, max_depth=4),
             # clf_inst=RandomForestClassifier(),
-            clf_inst=XGBClassifier(),
+            clf_inst=CatBoostClassifier(allow_writing_files=False, logging_level="Silent"),
         ),
     )
     fnr_wrapper = FairLearnSkLearnWrapper(
@@ -578,6 +605,8 @@ def generate_expert_algo_lookup(feature_types):
     expert_algo_lookup = {
         # Experts
         "OptAcc": opt_acc_pipe,
+        "CatBoostOptAcc": catboost_opt_acc_pipe,
+        "XGBoostOptAcc": xgboost_opt_acc_pipe,
         "HardtDemPar": dem_par_wrapper,
         "HardtEqOpp": eq_opp_wrapper,
         "HardtEqOdds": eq_odds_thresh_wrapper,
@@ -638,12 +667,8 @@ def generate_single_exp_results_df(feat_obj_set, perf_obj_set, results):
     exp_df_cols = []
 
     for obj in feat_obj_set.objectives:
-        exp_df_cols.append(f"muE_dataset_{obj.name}_mean")
-        exp_df_cols.append(f"muE_dataset_{obj.name}_std")
-
-    for obj in feat_obj_set.objectives:
-        exp_df_cols.append(f"muE_{obj.name}_mean")
-        exp_df_cols.append(f"muE_{obj.name}_std")
+        exp_df_cols.append(f"muE_train_{obj.name}_mean")
+        exp_df_cols.append(f"muE_train_{obj.name}_std")
 
     for obj in feat_obj_set.objectives:
         exp_df_cols.append(f"muE_val_{obj.name}_mean")
@@ -654,23 +679,35 @@ def generate_single_exp_results_df(feat_obj_set, perf_obj_set, results):
         exp_df_cols.append(f"muE_test_{obj.name}_std")
 
     for obj in feat_obj_set.objectives:
+        exp_df_cols.append(f"muE_train_unbiased_{obj.name}_mean")
+        exp_df_cols.append(f"muE_train_unbiased_{obj.name}_std")
+
+    for obj in feat_obj_set.objectives:
+        exp_df_cols.append(f"muE_val_unbiased_{obj.name}_mean")
+        exp_df_cols.append(f"muE_val_unbiased_{obj.name}_std")
+
+    for obj in feat_obj_set.objectives:
+        exp_df_cols.append(f"muE_test_unbiased_{obj.name}_mean")
+        exp_df_cols.append(f"muE_test_unbiased_{obj.name}_std")
+
+    for obj in feat_obj_set.objectives:
         exp_df_cols.append(f"wL_{obj.name}")
 
     for obj in feat_obj_set.objectives:
-        exp_df_cols.append(f"muL_{obj.name}")
+        exp_df_cols.append(f"muL_train_{obj.name}")
         exp_df_cols.append(f"muL_val_{obj.name}")
         exp_df_cols.append(f"muL_test_{obj.name}")
 
     for obj in feat_obj_set.objectives:
-        exp_df_cols.append(f"muL_err_{obj.name}")
+        exp_df_cols.append(f"muL_train_err_{obj.name}")
         exp_df_cols.append(f"muL_val_err_{obj.name}")
         exp_df_cols.append(f"muL_test_err_{obj.name}")
 
     # Subdominance (Train, Val, Test)
-    exp_df_cols.append("max_abs_subdominance")
-    exp_df_cols.append("sum_abs_subdominance")
-    exp_df_cols.append("max_rel_subdominance")
-    exp_df_cols.append("sum_rel_subdominance")
+    exp_df_cols.append("max_abs_subdominance_train")
+    exp_df_cols.append("sum_abs_subdominance_train")
+    exp_df_cols.append("max_rel_subdominance_train")
+    exp_df_cols.append("sum_rel_subdominance_train")
 
     exp_df_cols.append("max_abs_subdominance_val")
     exp_df_cols.append("sum_abs_subdominance_val")
@@ -682,9 +719,13 @@ def generate_single_exp_results_df(feat_obj_set, perf_obj_set, results):
     exp_df_cols.append("max_rel_subdominance_test")
     exp_df_cols.append("sum_rel_subdominance_test")
 
-    exp_df_cols.append("muL_err_l2norm")
-    exp_df_cols.append("muL_val_err_l2norm")
-    exp_df_cols.append("muL_test_err_l2norm")
+    exp_df_cols.append("svm_margin")
+    exp_df_cols.append("muL_train_err_l2")
+    exp_df_cols.append("muL_val_err_l2")
+    exp_df_cols.append("muL_test_err_l2")
+    exp_df_cols.append("mu_delta_abs_l2_train")
+    exp_df_cols.append("mu_delta_abs_l2_val")
+    exp_df_cols.append("mu_delta_abs_l2_test")
 
     # Training Errors (Train, Val, Test) for best iteration
     exp_df_cols.append("best_t_train")
@@ -692,10 +733,13 @@ def generate_single_exp_results_df(feat_obj_set, perf_obj_set, results):
     exp_df_cols.append("best_t_test")
 
     for obj in perf_obj_set.objectives:
-        exp_df_cols.append(f"muE_perf_{obj.name}")
+        exp_df_cols.append(f"muE_perf_train_{obj.name}")
+        exp_df_cols.append(f"muE_perf_train_unbiased_{obj.name}")
         exp_df_cols.append(f"muE_perf_val_{obj.name}")
+        exp_df_cols.append(f"muE_perf_val_unbiased_{obj.name}")
         exp_df_cols.append(f"muE_perf_test_{obj.name}")
-        exp_df_cols.append(f"muL_perf_{obj.name}")
+        exp_df_cols.append(f"muE_perf_test_unbiased_{obj.name}")
+        exp_df_cols.append(f"muL_perf_train_{obj.name}")
         exp_df_cols.append(f"muL_perf_val_{obj.name}")
         exp_df_cols.append(f"muL_perf_test_{obj.name}")
 
@@ -712,13 +756,18 @@ def new_trial_result(
     best_row_idx,
     feat_obj_set,
     perf_obj_set,
-    muE_dataset,
-    muE,
+    muE_train,
+    muE_train_unbiased,
     muE_val,
+    muE_val_unbiased,
     muE_test,
-    muE_perf,
+    muE_test_unbiased,
+    muE_perf_train,
+    muE_perf_train_unbiased,
     muE_perf_val,
+    muE_perf_val_unbiased,
     muE_perf_test,
+    muE_perf_test_unbiased,
     df_irl,
     trial_runtime,
     avg_runtime_per_irl_loop,
@@ -734,7 +783,7 @@ def new_trial_result(
         The set of objectives for the feature expectations.
     perf_obj_set : research.irl.fair_irl.ObjectiveSet
         The set of objectives for the performance measures.
-    muE : array-like<float>, shape(n_expert_demos, n_objectives)
+    muE_train : array-like<float>, shape(n_expert_demos, n_objectives)
         The feature expectations of the expert demonstrations, specifically on
         the demo set.
     muE_val : array-like<float>, shape(n_expert_demos, n_objectives)
@@ -765,15 +814,9 @@ def new_trial_result(
     """
     result = []
 
-    # Do this for feature expectation obj set
     for i, obj in enumerate(feat_obj_set.objectives):
-        muE_dataset_mean = np.mean(muE_dataset[:, i])
-        muE_dataset_std = np.std(muE_dataset[:, i])
-        result += [muE_dataset_mean, muE_dataset_std]
-
-    for i, obj in enumerate(feat_obj_set.objectives):
-        muE_mean = np.mean(muE[:, i])
-        muE_std = np.std(muE[:, i])
+        muE_mean = np.mean(muE_train[:, i])
+        muE_std = np.std(muE_train[:, i])
         result += [muE_mean, muE_std]
 
     for i, obj in enumerate(feat_obj_set.objectives):
@@ -786,29 +829,47 @@ def new_trial_result(
         muE_test_std = np.std(muE_test[:, i])
         result += [muE_test_mean, muE_test_std]
 
+    # Unbiased feature expectations (train, val, test)
+    for i, obj in enumerate(feat_obj_set.objectives):
+        muE_unbiased_mean = np.mean(muE_train_unbiased[:, i])
+        muE_unbiased_std = np.std(muE_train_unbiased[:, i])
+        result += [muE_unbiased_mean, muE_unbiased_std]
+
+    for i, obj in enumerate(feat_obj_set.objectives):
+        muE_val_unbiased_mean = np.mean(muE_val_unbiased[:, i])
+        muE_val_unbiased_std = np.std(muE_val_unbiased[:, i])
+        result += [muE_val_unbiased_mean, muE_val_unbiased_std]
+
+    for i, obj in enumerate(feat_obj_set.objectives):
+        muE_test_unbiased_mean = np.mean(muE_test_unbiased[:, i])
+        muE_test_unbiased_std = np.std(muE_test_unbiased[:, i])
+        result += [muE_test_unbiased_mean, muE_test_unbiased_std]
+
     best_row = df_irl.loc[best_row_idx]
 
     for i, obj in enumerate(feat_obj_set.objectives):
         result.append(best_row[f"{obj.name}_weight"])
 
     for obj in feat_obj_set.objectives:
-        result.append(best_row[f"muL_{obj.name}"])
+        result.append(best_row[f"muL_train_{obj.name}"])
         result.append(best_row[f"muL_val_{obj.name}"])
         result.append(best_row[f"muL_test_{obj.name}"])
 
     for i, obj in enumerate(feat_obj_set.objectives):
-        _muL_err = abs(best_row[f"muL_{obj.name}"] - np.mean(muE_val[:, i]))
+        _muL_train_err = abs(
+            best_row[f"muL_train_{obj.name}"] - np.mean(muE_train[:, i])
+        )
         _muL_val_err = abs(best_row[f"muL_val_{obj.name}"] - np.mean(muE_val[:, i]))
         _muL_test_err = abs(best_row[f"muL_test_{obj.name}"] - np.mean(muE_test[:, i]))
-        result.append(_muL_err)
+        result.append(_muL_train_err)
         result.append(_muL_val_err)
         result.append(_muL_test_err)
 
     # Subdominance (Train, Val, Test)
-    result.append(best_row["max_abs_subdominance"])
-    result.append(best_row["sum_abs_subdominance"])
-    result.append(best_row["max_rel_subdominance"])
-    result.append(best_row["sum_rel_subdominance"])
+    result.append(best_row["max_abs_subdominance_train"])
+    result.append(best_row["sum_abs_subdominance_train"])
+    result.append(best_row["max_rel_subdominance_train"])
+    result.append(best_row["sum_rel_subdominance_train"])
 
     result.append(best_row["max_abs_subdominance_val"])
     result.append(best_row["sum_abs_subdominance_val"])
@@ -820,24 +881,34 @@ def new_trial_result(
     result.append(best_row["max_rel_subdominance_test"])
     result.append(best_row["sum_rel_subdominance_test"])
 
-    result.append(best_row["mu_delta_l2norm"])
-    result.append(best_row["mu_delta_l2norm_val"])
-    result.append(best_row["mu_delta_l2norm_test"])
+    result.append(best_row["svm_margin"])
+    result.append(best_row["mu_delta_l2_train"])
+    result.append(best_row["mu_delta_l2_val"])
+    result.append(best_row["mu_delta_l2_test"])
+    result.append(best_row["mu_delta_abs_l2_train"])
+    result.append(best_row["mu_delta_abs_l2_val"])
+    result.append(best_row["mu_delta_abs_l2_test"])
 
     # Training Errors (Train, Val, Test)
-    result.append(best_row["t"])
+    result.append(best_row["t_train"])
     result.append(best_row["t_val"])
     result.append(best_row["t_test"])
 
     # Append performance measures of expert_val, expert_test and best learned policies
     for i, obj in enumerate(perf_obj_set.objectives):
-        perf_mean = np.mean(muE_perf[:, i])
+        perf_train_mean = np.mean(muE_perf_train[:, i])
+        perf_train_unbiased_mean = np.mean(muE_perf_train_unbiased[:, i])
         perf_val_mean = np.mean(muE_perf_val[:, i])
+        perf_val_unbiased_mean = np.mean(muE_perf_val_unbiased[:, i])
         perf_test_mean = np.mean(muE_perf_test[:, i])
-        result.append(perf_mean)
+        perf_test_unbiased_mean = np.mean(muE_perf_test_unbiased[:, i])
+        result.append(perf_train_mean)
+        result.append(perf_train_unbiased_mean)
         result.append(perf_val_mean)
+        result.append(perf_val_unbiased_mean)
         result.append(perf_test_mean)
-        result.append(best_row[f"muL_perf_{obj.name}"])
+        result.append(perf_test_unbiased_mean)
+        result.append(best_row[f"muL_perf_train_{obj.name}"])
         result.append(best_row[f"muL_perf_val_{obj.name}"])
         result.append(best_row[f"muL_perf_test_{obj.name}"])
 
@@ -1046,10 +1117,22 @@ def run_trial_source_domain(
         Expert feature expectations on the validation set.
     muE_test : array-like<float>. Shape(n_expert_demos, n_objectives)
         Expert feature expectations on the test set.
+    muE_train_unbiased : array-like<float>. Shape(n_expert_demos, n_objectives)
+        Expert demonstration feature expectations computed on unbiased train demos.
+    muE_val_unbiased : array-like<float>. Shape(n_expert_demos, n_objectives)
+        Expert feature expectations on the validation set (unbiased).
+    muE_test_unbiased : array-like<float>. Shape(n_expert_demos, n_objectives)
+        Expert feature expectations on the test set (unbiased).
     muE_perf_val : pandas.DataFrame
         Results of the performance measure during the expert's validation demos.
     muE_perf_test : pandas.DataFrame
         Results of the performance measure during the expert's test demos.
+    muE_perf_train_unbiased : pandas.DataFrame
+        Performance measures computed on unbiased train demos.
+    muE_perf_val_unbiased : pandas.DataFrame
+        Performance measures computed on unbiased validation demos.
+    muE_perf_test_unbiased : pandas.DataFrame
+        Performance measures computed on unbiased test demos.
     df_irl : pandas.DataFrame
         A collection of results where each row represents either an expert demo
         (and therefore a positive SVM training example) or a learned policy
@@ -1124,7 +1207,7 @@ def run_trial_source_domain(
     # holdout, otherwise it messes up interpretations.
     #
     split_is_okay = False
-    max_muE_cosine_dist_split = 0.005
+    max_muE_cosine_dist_split = 0.001
 
     # Hold variables for later use in IRL loop
     demoE_val = None
@@ -1136,94 +1219,143 @@ def run_trial_source_domain(
             X, y, train_size=0.60
         )
 
-        # 2. Second split: Split the training_val set 50/50 between val and test
+        # 2. Second split: Split the val_test set 50/50 between val and test
         # (In total, this results in 60% for train, 20% for val, and 20% for test)
         X_val, X_test, y_val, y_test = train_test_split(
             X_val_test, y_val_test, test_size=0.50
         )
 
         # Generate expert demonstrations to learn from
-        muE, demoE = generate_demos_k_folds(
-            exp_info,
-            X=X_train,
-            y=y_train,
-            clf=copy.deepcopy(expert_algo_lookup[exp_info["EXPERT_ALGO"]]),
-            obj_set=feat_obj_set,
-            n_demos=exp_info["N_EXPERT_DEMOS"],
-            bias_types=bias_types,
+        logging.info(
+            f"Generating expert demonstrations and feature expectations for training set..."
         )
-        muE_perf = np.array([perf_obj_set.compute_demo_feature_exp(demoE[0])])
+        muE_train, demoE_train, muE_train_unbiased, demoE_train_unbiased = (
+            generate_mu_and_demos(
+                exp_info,
+                X=X_train,
+                y=y_train,
+                clf=copy.deepcopy(expert_algo_lookup[exp_info["EXPERT_ALGO"]]),
+                obj_set=feat_obj_set,
+                n_demos=exp_info["N_EXPERT_DEMOS"],
+                bias_types=bias_types,
+            )
+        )
+        muE_perf_train = np.array([perf_obj_set.compute_demo_feature_exp(demoE_train)])
+        muE_perf_train_unbiased = np.array(
+            [perf_obj_set.compute_demo_feature_exp(demoE_train_unbiased)]
+        )
+
+        # perf_demo_par = 1-demographic_parity_difference(y_true=demoE[0]["y"], y_pred=demoE[0]["yhat"], sensitive_features=demoE[0]["z"])
+        # perf_eq_opp = 1-equal_opportunity_difference(y_true=demoE[0]["y"], y_pred=demoE[0]["yhat"], sensitive_features=demoE[0]["z"])
+        # perf_eq_odds = 1-equalized_odds_difference(y_true=demoE[0]["y"], y_pred=demoE[0]["yhat"], sensitive_features=demoE[0]["z"])
 
         # Expert validation set computations
-        expert_val_clf = copy.deepcopy(expert_algo_lookup[exp_info["EXPERT_ALGO"]])
-        expert_val_clf.fit(X_val, y_val)
-        expert_val_clf = add_classifier_bias(expert_val_clf, bias_types)
-        demoE_val = generate_demo(
-            clf=expert_val_clf,
-            X_test=X_val,
-            y_test=y_val,
-            can_observe_y=CAN_OBSERVE_Y,
+        # expert_val_clf = copy.deepcopy(expert_algo_lookup[exp_info["EXPERT_ALGO"]])
+        # expert_val_clf.fit(X_val, y_val)
+        # expert_val_clf = add_classifier_bias(expert_val_clf, bias_types)
+        # demoE_val = generate_demo(
+        #     clf=expert_val_clf,
+        #     X_test=X_val,
+        #     y_test=y_val,
+        #     can_observe_y=CAN_OBSERVE_Y,
+        # )
+        # demoE_val = add_demo_bias(
+        #     demoE_val, unfairness_types=bias_types, dataset=exp_info["DATASET"]
+        # )
+        # muE_val = np.array([feat_obj_set.compute_demo_feature_exp(demoE_val)])
+        logging.info(
+            f"Generating expert demonstrations and feature expectations for validation set..."
         )
-        demoE_val = add_demo_bias(
-            demoE_val, unfairness_types=bias_types, dataset=exp_info["DATASET"]
+        muE_val, demoE_val, muE_val_unbiased, demoE_val_unbiased = (
+            generate_mu_and_demos(
+                exp_info,
+                X=X_val,
+                y=y_val,
+                clf=copy.deepcopy(expert_algo_lookup[exp_info["EXPERT_ALGO"]]),
+                obj_set=feat_obj_set,
+                n_demos=exp_info["N_EXPERT_DEMOS"],
+                bias_types=bias_types,
+            )
         )
-        muE_val = np.array([feat_obj_set.compute_demo_feature_exp(demoE_val)])
         muE_perf_val = np.array([perf_obj_set.compute_demo_feature_exp(demoE_val)])
+        muE_perf_val_unbiased = np.array(
+            [perf_obj_set.compute_demo_feature_exp(demoE_val_unbiased)]
+        )
 
         # Expert test set computations
-        expert_test_clf = copy.deepcopy(expert_algo_lookup[exp_info["EXPERT_ALGO"]])
-        expert_test_clf.fit(X_test, y_test)
-        expert_test_clf = add_classifier_bias(expert_test_clf, bias_types)
-        demoE_test = generate_demo(
-            clf=expert_test_clf,
-            X_test=X_test,
-            y_test=y_test,
-            can_observe_y=CAN_OBSERVE_Y,
+        # expert_test_clf = copy.deepcopy(expert_algo_lookup[exp_info["EXPERT_ALGO"]])
+        # expert_test_clf.fit(X_test, y_test)
+        # expert_test_clf = add_classifier_bias(expert_test_clf, bias_types)
+        # demoE_test = generate_demo(
+        #     clf=expert_test_clf,
+        #     X_test=X_test,
+        #     y_test=y_test,
+        #     can_observe_y=CAN_OBSERVE_Y,
+        # )
+        # demoE_test = add_demo_bias(
+        #     demoE_test, unfairness_types=bias_types, dataset=exp_info["DATASET"]
+        # )
+        # muE_test = np.array([feat_obj_set.compute_demo_feature_exp(demoE_test)])
+        logging.info(
+            f"Generating expert demonstrations and feature expectations for test set..."
         )
-        demoE_test = add_demo_bias(
-            demoE_test, unfairness_types=bias_types, dataset=exp_info["DATASET"]
+        muE_test, demoE_test, muE_test_unbiased, demoE_test_unbiased = (
+            generate_mu_and_demos(
+                exp_info,
+                X=X_test,
+                y=y_test,
+                clf=copy.deepcopy(expert_algo_lookup[exp_info["EXPERT_ALGO"]]),
+                obj_set=feat_obj_set,
+                n_demos=exp_info["N_EXPERT_DEMOS"],
+                bias_types=bias_types,
+            )
         )
-        muE_test = np.array([feat_obj_set.compute_demo_feature_exp(demoE_test)])
         muE_perf_test = np.array([perf_obj_set.compute_demo_feature_exp(demoE_test)])
+        muE_perf_test_unbiased = np.array(
+            [perf_obj_set.compute_demo_feature_exp(demoE_test_unbiased)]
+        )
 
         split_is_okay = True
-        for demo_i in range(len(muE)):
-            if cosine(muE[demo_i], muE_val[0]) > max_muE_cosine_dist_split:
+        for demo_i in range(len(muE_train)):
+            if cosine(muE_train[demo_i], muE_val[0]) > max_muE_cosine_dist_split:
                 split_is_okay = False
                 logging.info(
-                    f"INFO: muE_val Split check failed: {cosine(muE[demo_i], muE_val[0])} > {max_muE_cosine_dist_split}, retrying split..."
+                    f"INFO: muE_val Split check failed: {cosine(muE_train[demo_i], muE_val[0])} > {max_muE_cosine_dist_split}, retrying split..."
                 )
                 break
-            if cosine(muE[demo_i], muE_test[0]) > max_muE_cosine_dist_split:
+            if cosine(muE_train[demo_i], muE_test[0]) > max_muE_cosine_dist_split:
                 split_is_okay = False
                 logging.info(
-                    f"INFO: muE_test Split check failed: {cosine(muE[demo_i], muE_test[0])} > {max_muE_cosine_dist_split}, retrying split..."
+                    f"INFO: muE_test Split check failed: {cosine(muE_train[demo_i], muE_test[0])} > {max_muE_cosine_dist_split}, retrying split..."
                 )
                 break
 
-    muE_dataset, _ = generate_demos_k_folds(
-        exp_info,
-        X=X,
-        y=y,
-        clf=copy.deepcopy(expert_algo_lookup[exp_info["EXPERT_ALGO"]]),
-        obj_set=feat_obj_set,
-        n_demos=exp_info["N_EXPERT_DEMOS"],
-        bias_types=[],
-    )
-    # For subdominance calculations later
-    expert_train_clf = copy.deepcopy(expert_algo_lookup[exp_info["EXPERT_ALGO"]])
-    expert_train_clf.fit(X_train, y_train)
-    expert_train_clf = add_classifier_bias(expert_train_clf, bias_types)
-    demoE_train = generate_demo(expert_train_clf, X_train, y_train)
-    demoE_train = add_demo_bias(
-        demoE_train, unfairness_types=bias_types, dataset=exp_info["DATASET"]
-    )
+    # muE_dataset, _, _, _ = generate_mu_and_demos(
+    #     exp_info,
+    #     X=X,
+    #     y=y,
+    #     clf=copy.deepcopy(expert_algo_lookup[exp_info["EXPERT_ALGO"]]),
+    #     obj_set=feat_obj_set,
+    #     n_demos=exp_info["N_EXPERT_DEMOS"],
+    #     bias_types=[],
+    # )
 
-    logging.info(f"muE_dataset:\n{muE_dataset}")
-    logging.info(f"muE:\n{muE}")
+    # # For subdominance calculations later
+    # expert_train_clf = copy.deepcopy(expert_algo_lookup[exp_info["EXPERT_ALGO"]])
+    # expert_train_clf.fit(X_train, y_train)
+    # expert_train_clf = add_classifier_bias(expert_train_clf, bias_types)
+    # demoE_train = generate_demo(expert_train_clf, X_train, y_train)
+    # demoE_train = add_demo_bias(
+    #     demoE_train, unfairness_types=bias_types, dataset=exp_info["DATASET"]
+    # )
+    # muE_train = np.array([feat_obj_set.compute_demo_feature_exp(demoE_train)])
+    # muE_perf_train = np.array([perf_obj_set.compute_demo_feature_exp(demoE_train)])
+
+    # logging.info(f"muE_dataset:\n{muE_dataset}")
+    logging.info(f"muE_train:\n{muE_train}")
     logging.info(f"muE_val:\n{muE_val}")
     logging.info(f"muE_test:\n{muE_test}")
-    logging.info(f"muE_perf:\n{muE_perf}")
+    logging.info(f"muE_perf_train:\n{muE_perf_train}")
     logging.info(f"muE_perf_val:\n{muE_perf_val}")
     logging.info(f"muE_perf_test:\n{muE_perf_test}")
 
@@ -1267,30 +1399,34 @@ def run_trial_source_domain(
     max_rel_subdom_test_hist = []
     sum_rel_subdom_test_hist = []
 
-    t = []  # Errors for each iteration
+    svm_margin_hist = []
+    t_train = []  # Errors for each iteration
     t_val = []  # Errors on validation set for each iteration
     t_test = []  # Errors on test set for each iteration
-    muL_delta_l2norm_hist = []
-    muL_delta_l2norm_val_hist = []
-    muL_delta_l2norm_test_hist = []
+    muL_delta_l2_train_hist = []
+    muL_delta_l2_val_hist = []
+    muL_delta_l2_test_hist = []
+    muL_delta_abs_l2_train_hist = []
+    muL_delta_abs_l2_val_hist = []
+    muL_delta_abs_l2_test_hist = []
     weights = []
     i = 0
-    demo_history = []
+    demo_train_history = []
     demo_val_history = []
     demo_test_history = []
-    muL_history = []
+    muL_train_history = []
     muL_val_history = []
     muL_test_history = []
-    muL_perf_history = []
+    muL_perf_train_history = []
     muL_perf_val_history = []
     muL_perf_test_history = []
 
     # Generate initial learned policies to serve as negative training examples
     # for the SVM IRL classifier.
-    muL = []
+    muL_train_iters = []
     for non_expert_algo in exp_info["NON_EXPERT_ALGOS"]:
         # Training set
-        _muL, _demos = generate_demos_k_folds(
+        _muL_train, _demos_train, _, _ = generate_mu_and_demos(
             exp_info,
             X=X_train,
             y=y_train,
@@ -1299,10 +1435,10 @@ def run_trial_source_domain(
             n_demos=1,
             bias_types=bias_types,
         )
-        muL.append(_muL[0])
+        muL_train_iters.append(_muL_train[0])
 
         # Validation set
-        _muL_val, _demos_val = generate_demos_k_folds(
+        _muL_val, _demos_val, _, _ = generate_mu_and_demos(
             exp_info,
             X=X_val,
             y=y_val,
@@ -1312,11 +1448,11 @@ def run_trial_source_domain(
             bias_types=bias_types,
         )
         # muL_deltas_val = _muL_val - muE_val
-        # muL_deltas_val_l2norm = np.linalg.norm(muL_deltas_val, ord=2)
-        # muL_delta_l2norm_val_hist.append(muL_deltas_val_l2norm)
+        # muL_deltas_val_l2 = np.linalg.norm(muL_deltas_val, ord=2)
+        # muL_delta_l2_val_hist.append(muL_deltas_val_l2)
 
         # Test set
-        _muL_test, _demos_test = generate_demos_k_folds(
+        _muL_test, _demos_test, _, _ = generate_mu_and_demos(
             exp_info,
             X=X_test,
             y=y_test,
@@ -1326,18 +1462,18 @@ def run_trial_source_domain(
             bias_types=bias_types,
         )
         # muL_deltas_test = _muL_test - muE_test
-        # muL_deltas_test_l2norm = np.linalg.norm(muL_deltas_test, ord=2)
-        # muL_delta_l2norm_test_hist.append(muL_deltas_test_l2norm)
+        # muL_deltas_test_l2 = np.linalg.norm(muL_deltas_test, ord=2)
+        # muL_delta_l2_test_hist.append(muL_deltas_test_l2)
 
-    # muL_delta_l2norm_val_hist_backup = muL_delta_l2norm_val_hist.copy()
-    # muL_delta_l2norm_test_hist_backup = muL_delta_l2norm_test_hist.copy()
+    # muL_delta_l2_val_hist_backup = muL_delta_l2_val_hist.copy()
+    # muL_delta_l2_test_hist_backup = muL_delta_l2_test_hist.copy()
 
-    muL = np.array(muL)
-    logging.info(f"muL:\n{muL}")
-    X_irl_exp = pd.DataFrame(muE, columns=feat_obj_set_cols)
+    muL_train_iters = np.array(muL_train_iters)
+    logging.info(f"muL_train:\n{muL_train_iters}")
+    X_irl_exp = pd.DataFrame(muE_train, columns=feat_obj_set_cols)
     y_irl_exp = pd.Series(np.ones(exp_info["N_EXPERT_DEMOS"]), dtype=int)
-    X_irl_learn = pd.DataFrame(muL, columns=feat_obj_set_cols)
-    y_irl_learn = pd.Series(np.zeros(len(muL)), dtype=int)
+    X_irl_learn = pd.DataFrame(muL_train_iters, columns=feat_obj_set_cols)
+    y_irl_learn = pd.Series(np.zeros(len(muL_train_iters)), dtype=int)
 
     # Start the IRL Loop
     logging.debug("")
@@ -1406,29 +1542,31 @@ def run_trial_source_domain(
                 max_rel_subdom_test_hist = []
                 sum_rel_subdom_test_hist = []
 
-                t = []  # Errors for each iteration
+                svm_margin_hist = []
+                t_train = []  # Errors for each iteration
                 t_val = []  # Errors on validation set for each iteration
                 t_test = []  # Errors on test set for each iteration
-                muL_delta_l2norm_hist = []
-                # muL_delta_l2norm_val_hist = muL_delta_l2norm_val_hist_backup.copy()
-                # muL_delta_l2norm_test_hist = muL_delta_l2norm_test_hist_backup.copy()
-                muL_delta_l2norm_val_hist = []
-                muL_delta_l2norm_test_hist = []
+                muL_delta_l2_train_hist = []
+                muL_delta_l2_val_hist = []
+                muL_delta_l2_test_hist = []
+                muL_delta_abs_l2_train_hist = []
+                muL_delta_abs_l2_val_hist = []
+                muL_delta_abs_l2_test_hist = []
                 weights = []
                 i = 0
-                demo_history = []
+                demo_train_history = []
                 demo_val_history = []
                 demo_test_history = []
-                muL_history = []
+                muL_train_history = []
                 muL_val_history = []
                 muL_test_history = []
-                muL_perf_history = []
+                muL_perf_train_history = []
                 muL_perf_val_history = []
                 muL_perf_test_history = []
-                X_irl_exp = pd.DataFrame(muE, columns=feat_obj_set_cols)
+                X_irl_exp = pd.DataFrame(muE_train, columns=feat_obj_set_cols)
                 y_irl_exp = pd.Series(np.ones(exp_info["N_EXPERT_DEMOS"]), dtype=int)
-                X_irl_learn = pd.DataFrame(muL, columns=feat_obj_set_cols)
-                y_irl_learn = pd.Series(np.zeros(len(muL)), dtype=int)
+                X_irl_learn = pd.DataFrame(muL_train_iters, columns=feat_obj_set_cols)
+                y_irl_learn = pd.Series(np.zeros(len(muL_train_iters)), dtype=int)
                 wi = unadjusted_best_weight.copy()
                 for weight_adjust in weight_adjusts:
                     mul_factor = weight_adjust[1]
@@ -1460,32 +1598,36 @@ def run_trial_source_domain(
 
             # Compute feature expectations of the learned policy
             logging.debug("\tGenerating learned demostration...")
-            demo = generate_demo(clf_pol, X_train, y_train, can_observe_y=CAN_OBSERVE_Y)
+            demo_train = generate_demo(
+                clf_pol, X_train, y_train, can_observe_y=CAN_OBSERVE_Y
+            )
             demo_val = generate_demo(clf_pol, X_val, y_val, can_observe_y=False)
             demo_test = generate_demo(clf_pol, X_test, y_test, can_observe_y=False)
-            demo_history.append(demo)
+            demo_train_history.append(demo_train)
             demo_val_history.append(demo_val)
             demo_test_history.append(demo_test)
-            muL_ = feat_obj_set.compute_demo_feature_exp(demo)
+            muL_train = feat_obj_set.compute_demo_feature_exp(demo_train)
             muL_val = feat_obj_set.compute_demo_feature_exp(demo_val)
             muL_test = feat_obj_set.compute_demo_feature_exp(demo_test)
-            muL_perf = perf_obj_set.compute_demo_feature_exp(demo)
+            muL_perf_train = perf_obj_set.compute_demo_feature_exp(demo_train)
             muL_perf_val = perf_obj_set.compute_demo_feature_exp(demo_val)
             muL_perf_test = perf_obj_set.compute_demo_feature_exp(demo_test)
-            muL_history.append(muL_)
+            muL_train_history.append(muL_train)
             muL_val_history.append(muL_val)
             muL_test_history.append(muL_test)
-            muL_perf_history.append(muL_perf)
+            muL_perf_train_history.append(muL_perf_train)
             muL_perf_val_history.append(muL_perf_val)
             muL_perf_test_history.append(muL_perf_test)
             logging.info(
-                f"\t\t muL[{i}] \t\t= {str(np.round(muL_, 2)).replace('0.', '.')}"
+                f"\t\t muL_train[{i}] \t\t= {str(np.round(muL_train, 2)).replace('0.', '.')}"
             )
             logging.debug(f"\t\t muL_val[{i}] = {np.round(muL_val, 2)}")
             logging.debug(f"\t\t muL_test[{i}] = {np.round(muL_test, 2)}")
 
             # Append policy's feature expectations to irl clf dataset
-            X_irl_learn_i = pd.DataFrame(np.array([muL_]), columns=feat_obj_set_cols)
+            X_irl_learn_i = pd.DataFrame(
+                np.array([muL_train]), columns=feat_obj_set_cols
+            )
             y_irl_learn_i = pd.Series(np.zeros(1), dtype=int)
             X_irl_learn = pd.concat([X_irl_learn, X_irl_learn_i], axis=0)
             y_irl_learn = pd.concat([y_irl_learn, y_irl_learn_i], axis=0)
@@ -1496,37 +1638,36 @@ def run_trial_source_domain(
             # the ti values returned here are incorrect when weights are being adjusted.
             # However, this does not practically matter since there is only one iteration
             # when weights are being adjusted. Also they are never actually used for anything.
-            # NOTE: the best_j values returned here are sometimes incorrect, instead of returning
-            # the index of the lowest error iteration, it just returns the most recent index.
-            # However, this also does not practically matter since best_j is only used to select
-            # the data to put in the muL_best_ lists, which are only ever used for diagnostics.
-            # Honestly, the names muL_"best" and "best"_j are misleading since they are not
-            # necessarily referencing the best performing iteration, just the most recent iteration.
-            # But I can't be bothered to change the name at this point, so it shall stay for now.
-            ti, best_j, muL_delta, muL_delta_l2norm = irl_error(
+            (
+                muL_delta_train,
+                muL_delta_l2_train,
+                muL_delta_abs_l2_train,
+                ti_train,
+                svm_margin,
+            ) = irl_error(
                 wi,
-                muE,
-                muL_history,
+                muE_train,
+                muL_train_history,
                 dot_weights_feat_exp=exp_info["DOT_WEIGHTS_FEAT_EXP"],
                 svm_margin=svm.margin(),
             )
-            if len(t) >= 1 and ti > t[-1]:  # This is the final IRL loop iteration
-                pass
             # Do it for the validation set as well.
-            ti_val, best_j_val, muL_delta_val, muL_delta_l2norm_val = irl_error(
-                wi,
-                muE_val,
-                muL_val_history,
-                dot_weights_feat_exp=exp_info["DOT_WEIGHTS_FEAT_EXP"],
-                svm_margin=svm.margin(),
+            muL_delta_val, muL_delta_l2_val, muL_delta_abs_l2_val, ti_val, _ = (
+                irl_error(
+                    wi,
+                    muE_val,
+                    muL_val_history,
+                    dot_weights_feat_exp=exp_info["DOT_WEIGHTS_FEAT_EXP"],
+                )
             )
             # Do it for the test set as well.
-            ti_test, best_j_test, muL_delta_test, muL_delta_l2norm_test = irl_error(
-                wi,
-                muE_test,
-                muL_test_history,
-                dot_weights_feat_exp=exp_info["DOT_WEIGHTS_FEAT_EXP"],
-                svm_margin=svm.margin(),
+            muL_delta_test, muL_delta_l2_test, muL_delta_abs_l2_test, ti_test, _ = (
+                irl_error(
+                    wi,
+                    muE_test,
+                    muL_test_history,
+                    dot_weights_feat_exp=exp_info["DOT_WEIGHTS_FEAT_EXP"],
+                )
             )
 
             # --- Subdominance Calculations ---
@@ -1536,7 +1677,7 @@ def run_trial_source_domain(
                 sum_abs_subdominance,
                 max_rel_subdominance,
                 sum_rel_subdominance,
-            ) = compute_iteration_subdominance(exp_info, demoE_train, demo)
+            ) = compute_iteration_subdominance(exp_info, demoE_train, demo_train)
             max_abs_subdom_hist.append(max_abs_subdominance)
             sum_abs_subdom_hist.append(sum_abs_subdominance)
             max_rel_subdom_hist.append(max_rel_subdominance)
@@ -1562,24 +1703,33 @@ def run_trial_source_domain(
 
             # -------------------------------
 
-            t.append(ti)
+            svm_margin_hist.append(svm_margin)
+            t_train.append(ti_train)
             t_val.append(ti_val)
             t_test.append(ti_test)
-            muL_delta_l2norm_hist.append(muL_delta_l2norm)
-            muL_delta_l2norm_val_hist.append(muL_delta_l2norm_val)
-            muL_delta_l2norm_test_hist.append(muL_delta_l2norm_test)
+            muL_delta_l2_train_hist.append(muL_delta_l2_train)
+            muL_delta_l2_val_hist.append(muL_delta_l2_val)
+            muL_delta_l2_test_hist.append(muL_delta_l2_test)
+            muL_delta_abs_l2_train_hist.append(muL_delta_abs_l2_train)
+            muL_delta_abs_l2_val_hist.append(muL_delta_abs_l2_val)
+            muL_delta_abs_l2_test_hist.append(muL_delta_abs_l2_test)
+
+            # CHOOSE YOUR ERROR VARIABLE HERE:
+            error_variable_hist = svm_margin_hist
+
+            error_variable = error_variable_hist[-1]
+
             logging.info(
-                f"\t\t Best muL_delta[{i}] \t= {str(np.round(muL_delta, 2)).replace('0.', '.')}"
+                f"\t\t svm_margin[{i}] (innacurate for weight adjust iters) \t= {svm_margin:.10f}"
+            )
+            logging.info(f"\t\t t_train[{i}] \t\t= {t_train[i]:.5f}")
+            logging.info(f"\t\t muL_delta_l2_train[{i}] \t= {muL_delta_l2_train:.5f}")
+            logging.info(
+                f"\t\t muL_delta_abs_l2_train[{i}] \t= {muL_delta_abs_l2_train:.5f}"
             )
             logging.info(
-                f"\t\t Best muL_delta_val[{i}] \t= {str(np.round(muL_delta_val, 2)).replace('0.', '.')}"
+                f"\t\t muL_delta_train[{i}] \t= {str(np.round(muL_delta_train, 2)).replace('0.', '.')}"
             )
-            logging.info(
-                f"\t\t Best muL_delta_test[{i}] \t= {str(np.round(muL_delta_test, 2)).replace('0.', '.')}"
-            )
-            logging.info(f"\t\t t[{i}] \t\t= {t[i]:.5f}")
-            logging.info(f"\t\t t_val[{i}] \t= {t_val[i]:.5f}")
-            logging.info(f"\t\t t_test[{i}] \t= {t_test[i]:.5f}")
             logging.info(
                 f"\t\t weights[{i}] \t= {str(np.round(weights[i], 2)).replace('0.', '.')}"
             )
@@ -1589,51 +1739,66 @@ def run_trial_source_domain(
             ).total_seconds()
             logging.info(f"\t\t Runtime for this IRL loop: {runtime_this_irl_loop}")
 
-            # If reached maximum iterations
-            if i >= exp_info["MAX_ITER"] - 1:
-                logging.info(f"\nReached max iters.")
-                done = True
-                break
-
-            # Check if error is below epsilon
-            elif ti < exp_info["EPSILON"] and ti <= min(t):
-                if np.allclose(weights[i][0], 0, atol=1e-5):
-                    logging.info("\t\tAccuracy weight is zero, continuing")
-                    i += 1
-                    continue
-
-                if exp_info["ALLOW_NEG_WEIGHTS"] or np.all(wi > -1e-5):
+            if weight_adjusts == ():
+                # If reached maximum iterations
+                if i >= exp_info["MAX_ITER"] - 1:
+                    logging.info(f"\n\t\tReached max iters.")
                     done = True
                     break
 
-            # If error is going back up, stop
-            elif len(t) > 1 and ti > t[-2]:
-                logging.info(f"\n\nError is going back up. Stoping.")
-                done = True
-                break
-            # Check if a new best error has been found in last i/2 iterations.
-            elif (i - np.argsort(t)[0]) > exp_info["EARLY_STOP_NO_NEW_BEST_ITERS"]:
-                logging.info(
-                    f"\n\t\tNo new best in last {exp_info['EARLY_STOP_NO_NEW_BEST_ITERS']} iterations, so stopping early."
-                )
-                done = True
-                break
-            # Check if loop is stuck in local optimum
-            elif (
-                i > 0
-                and abs(t[i] - t[i - 1]) < 1e-3
-                and np.allclose(weights[i], weights[i - 1], atol=1e-3)
-            ):
-                logging.info("\t\tStuck in loop")
-                is_stuck_in_loop = True
-                i += 1
-            # Check if error is infinite
-            elif i > 0 and t[i] == np.inf:
-                logging.info("\t\tInfinite error: Treating like stuck in loop")
-                is_stuck_in_loop = True
-                i += 1
-            else:
-                i += 1
+                # Check if error is below epsilon
+                elif error_variable < exp_info["EPSILON"] and error_variable <= min(
+                    error_variable_hist
+                ):
+                    if np.allclose(weights[i][0], 0, atol=1e-5):
+                        logging.info("\t\tAccuracy weight is zero, continuing")
+                        i += 1
+                        continue
+
+                    if exp_info["ALLOW_NEG_WEIGHTS"] or np.all(wi > -1e-5):
+                        logging.info(
+                            f"\n\t\tError {error_variable:.5f} is less than epsilon {exp_info['EPSILON']:.5f}. Stopping."
+                        )
+                        done = True
+                        break
+
+                # If error is going back up, stop
+                elif (
+                    len(error_variable_hist) > 1
+                    and error_variable > error_variable_hist[-2]
+                ):
+                    logging.info(f"\n\t\tError is going back up. Stoping.")
+                    done = True
+                    break
+                # Check if a new best error has been found in last i/2 iterations.
+                elif (i - np.argsort(error_variable_hist)[0]) > exp_info[
+                    "EARLY_STOP_NO_NEW_BEST_ITERS"
+                ]:
+                    logging.info(
+                        f"\n\t\tNo new best in last {exp_info['EARLY_STOP_NO_NEW_BEST_ITERS']} iterations, so stopping early."
+                    )
+                    done = True
+                    break
+                # Check if loop is stuck in local optimum
+                elif (
+                    i > 0
+                    and abs(error_variable_hist[i] - error_variable_hist[i - 1]) < 1e-3
+                    and np.allclose(weights[i], weights[i - 1], atol=1e-3)
+                ):
+                    logging.info("\t\tStuck in loop")
+                    is_stuck_in_loop = True
+                    i += 1
+                # Check if error is infinite
+                elif i > 0 and error_variable_hist[i] == np.inf:
+                    logging.info("\t\tInfinite error: Treating like stuck in loop")
+                    is_stuck_in_loop = True
+                    i += 1
+                else:
+                    i += 1
+                if is_stuck_in_loop:
+                    logging.info(
+                        f"WARNING: STUCK IN LOOP DETECTED!!!!!!!!!!!. Error history: {error_variable_hist}"
+                    )
 
             # End IRL Loop
         done = False
@@ -1642,66 +1807,82 @@ def run_trial_source_domain(
             datetime.datetime.now() - all_irl_loop_start
         ).total_seconds() / num_loops
 
-        # If solution not sufficient for use, exit early
-        if min(muL_delta_l2norm_hist) > exp_info["IGNORE_RESULTS_EPSILON"]:
+        if weight_adjusts == ():
             logging.info(
-                f"IGNORING RESULTS BECAUSE BEST ERROR {min(muL_delta_l2norm_hist):.3f} > {exp_info['IGNORE_RESULTS_EPSILON']:.3f}"
+                "IRL Loop finished. Now proceeding with weight adjustment iterations (if any) ..."
+            )
+
+        # If solution not sufficient for use, exit early
+        if min(muL_delta_l2_train_hist) > exp_info["IGNORE_RESULTS_EPSILON"]:
+            logging.info(
+                f"IGNORING RESULTS BECAUSE BEST ERROR {min(muL_delta_l2_train_hist):.3f} > {exp_info['IGNORE_RESULTS_EPSILON']:.3f}"
             )
             return_val = (
-                None,  # best_row_idx
-                None,  # muE_dataset
-                None,  # muE
-                None,  # muE_val
-                None,  # muE_test
-                None,  # muE_perf
-                None,  # muE_perf_val
-                None,  # muE_perf_test
-                None,  # df_irl
-                None,  # clf_pol
-                None,  # avg_runtime_per_irl_loop
+                None,  # best_row_idx,
+                None,  # muE_train,
+                None,  # muE_train_unbiased,
+                None,  # muE_val,
+                None,  # muE_val_unbiased,
+                None,  # muE_test,
+                None,  # muE_test_unbiased,
+                None,  # muE_perf_train,
+                None,  # muE_perf_train_unbiased,
+                None,  # muE_perf_val,
+                None,  # muE_perf_val_unbiased,
+                None,  # muE_perf_test,
+                None,  # muE_perf_test_unbiased,
+                None,  # df_irl,
+                None,  # clf_pol,
+                None,  # avg_runtime_per_irl_loop,
             )
             return_vals.append(return_val)
             return return_vals
 
-        # Find best weights based on smallest subdominance error
-        # Using the validation set for selection since it is never seen in training
-        # and therefore should give the most unbiased estimate of true error.
-        # MODIFIED: Using sum_abs_subdominance_val for best_iter selection
-        t_val_arg_smallest_to_largest = np.argsort(t_val)
-        muL_delta_l2_norm_val_arg_smallest_to_largest = np.argsort(
-            muL_delta_l2norm_val_hist
-        )
-        sum_abs_subdominance_val_arg_smallest_to_largest = np.argsort(
-            sum_abs_subdom_val_hist
-        )
-        # best_iter = muL_delta_l2_norm_val_arg_smallest_to_largest[0]
-        # best_iter = t_val_arg_smallest_to_largest[0]
-        best_iter = sum_abs_subdominance_val_arg_smallest_to_largest[0]
+        # Find best weights
+        # muL_delta_l2_train_arg_smallest_to_largest = np.argsort(muL_delta_l2_train_hist)
+        # muL_delta_l2_train_arg_smallest_to_largest = np.argsort(
+        #     muL_delta_abs_l2_train_hist
+        # )
+        # t_train_arg_smallest_to_largest = np.argsort(t_train)
+        # svm_margin_arg_smallest_to_largest = np.argsort(svm_margin_hist)
+        # sum_abs_subdominance_train_arg_smallest_to_largest = np.argsort(
+        #     sum_abs_subdom_hist
+        # )
+        error_variable_arg_smallest_to_largest = np.argsort(error_variable_hist)
+        # best_iter = muL_delta_l2_train_arg_smallest_to_largest[0]
+        # best_iter = muL_delta_l2_train_arg_smallest_to_largest[0]
+        # best_iter = t_train_arg_smallest_to_largest[0]
+        # best_iter = svm_margin_arg_smallest_to_largest[0]
+        # best_iter = sum_abs_subdominance_train_arg_smallest_to_largest[0]
+        best_iter = error_variable_arg_smallest_to_largest[0]
 
         if not exp_info["ALLOW_NEG_WEIGHTS"]:
-            best_t_val = None
-            best_t_val_i = 0
-            best_t_val_done = False
-            while not best_t_val_done:
-                if best_t_val_i >= len(t_val):
+            raise ValueError(
+                "In order to disable negative weights, you need to understand/fix this part of the code"
+            )
+            best_t_train = None
+            best_t_train_i = 0
+            best_t_train_done = False
+            while not best_t_train_done:
+                if best_t_train_i >= len(t_train):
                     logging.info(f"best_weight:\t {np.round(weights[best_iter], 3)}")
                     raise ValueError("Only negative weights learned")
-                best_iter = t_val_arg_smallest_to_largest[best_t_val_i]
-                best_t_val = t_val[best_iter]
+                best_iter = t_train_arg_smallest_to_largest[best_t_train_i]
+                best_t_train = t_train[best_iter]
                 if (
                     np.all(weights[best_iter] > -1e-5)
-                    and muL_delta_l2norm_hist[best_iter]
+                    and muL_delta_l2_train_hist[best_iter]
                     <= exp_info["IGNORE_RESULTS_EPSILON"]
                 ):
-                    best_t_val_done = True
-                best_t_val_i += 1
+                    best_t_train_done = True
+                best_t_train_i += 1
 
         ##
         # Book keeping stuff for the trial.
         ##
 
         # Compare the best learned policy with the expert demonstrations
-        best_demo = demo_history[best_iter]
+        best_demo = demo_train_history[best_iter]
         best_weight = weights[best_iter]
         if weight_adjusts == ():
             unadjusted_best_weight = weights[best_iter].copy()
@@ -1719,7 +1900,7 @@ def run_trial_source_domain(
         df_irl = X_irl.copy()
         df_irl["is_expert"] = y_irl.copy()
         for i, col in enumerate(feat_obj_set_cols):
-            df_irl.columns.values[i] = f"muL_{col}"
+            df_irl.columns.values[i] = f"muL_train_{col}"
             # df_irl[f"muL_{col}"] = (
             #     np.zeros(exp_info["N_EXPERT_DEMOS"] + n_init_policies).tolist()
             #     + np.array(muL_history)[:, i].tolist()
@@ -1733,9 +1914,9 @@ def run_trial_source_domain(
                 + np.array(muL_test_history)[:, i].tolist()
             )
         for i, col in enumerate(perf_obj_set_cols):
-            df_irl[f"muL_perf_{col}"] = (
+            df_irl[f"muL_perf_train_{col}"] = (
                 np.zeros(exp_info["N_EXPERT_DEMOS"] + n_init_policies).tolist()
-                + np.array(muL_perf_history)[:, i].tolist()
+                + np.array(muL_perf_train_history)[:, i].tolist()
             )
             df_irl[f"muL_perf_val_{col}"] = (
                 np.zeros(exp_info["N_EXPERT_DEMOS"] + n_init_policies).tolist()
@@ -1748,25 +1929,25 @@ def run_trial_source_domain(
         df_irl["is_init_policy"] = (
             np.zeros(exp_info["N_EXPERT_DEMOS"]).tolist()
             + np.ones(n_init_policies).tolist()
-            + np.zeros(len(t)).tolist()
+            + np.zeros(len(t_train)).tolist()
         )
         df_irl["learn_idx"] = list(-1 * np.ones(exp_info["N_EXPERT_DEMOS"])) + list(
-            np.arange(n_init_policies + len(t))
+            np.arange(n_init_policies + len(t_train))
         )
         for i, col in enumerate(feat_obj_set_cols):
             df_irl[f"{col}_weight"] = np.zeros(
                 exp_info["N_EXPERT_DEMOS"] + n_init_policies
             ).tolist() + [w[i] for w in weights]
-        df_irl["max_abs_subdominance"] = (
+        df_irl["max_abs_subdominance_train"] = (
             np.inf * np.ones(exp_info["N_EXPERT_DEMOS"] + n_init_policies, dtype=float)
         ).tolist() + max_abs_subdom_hist
-        df_irl["sum_abs_subdominance"] = (
+        df_irl["sum_abs_subdominance_train"] = (
             np.inf * np.ones(exp_info["N_EXPERT_DEMOS"] + n_init_policies, dtype=float)
         ).tolist() + sum_abs_subdom_hist
-        df_irl["max_rel_subdominance"] = (
+        df_irl["max_rel_subdominance_train"] = (
             np.inf * np.ones(exp_info["N_EXPERT_DEMOS"] + n_init_policies, dtype=float)
         ).tolist() + max_rel_subdom_hist
-        df_irl["sum_rel_subdominance"] = (
+        df_irl["sum_rel_subdominance_train"] = (
             np.inf * np.ones(exp_info["N_EXPERT_DEMOS"] + n_init_policies, dtype=float)
         ).tolist() + sum_rel_subdom_hist
 
@@ -1797,8 +1978,13 @@ def run_trial_source_domain(
             np.inf * np.ones(exp_info["N_EXPERT_DEMOS"] + n_init_policies, dtype=float)
         ).tolist() + sum_rel_subdom_test_hist
 
-        df_irl["t"] = (
-            list(np.inf * (np.ones(exp_info["N_EXPERT_DEMOS"] + n_init_policies))) + t
+        df_irl["svm_margin"] = (
+            list(np.inf * (np.ones(exp_info["N_EXPERT_DEMOS"] + n_init_policies)))
+            + svm_margin_hist
+        )
+        df_irl["t_train"] = (
+            list(np.inf * (np.ones(exp_info["N_EXPERT_DEMOS"] + n_init_policies)))
+            + t_train
         )
         df_irl["t_val"] = (
             list(np.inf * (np.ones(exp_info["N_EXPERT_DEMOS"] + n_init_policies)))
@@ -1808,28 +1994,42 @@ def run_trial_source_domain(
             list(np.inf * (np.ones(exp_info["N_EXPERT_DEMOS"] + n_init_policies)))
             + t_test
         )
-        df_irl["mu_delta_l2norm"] = (
+        df_irl["mu_delta_l2_train"] = (
             np.inf * np.ones(exp_info["N_EXPERT_DEMOS"] + n_init_policies, dtype=float)
-        ).tolist() + muL_delta_l2norm_hist
-        df_irl["mu_delta_l2norm_val"] = (
+        ).tolist() + muL_delta_l2_train_hist
+        df_irl["mu_delta_l2_val"] = (
             np.inf * np.ones(exp_info["N_EXPERT_DEMOS"] + n_init_policies, dtype=float)
-        ).tolist() + muL_delta_l2norm_val_hist
-        df_irl["mu_delta_l2norm_test"] = (
+        ).tolist() + muL_delta_l2_val_hist
+        df_irl["mu_delta_l2_test"] = (
             np.inf * np.ones(exp_info["N_EXPERT_DEMOS"] + n_init_policies, dtype=float)
-        ).tolist() + muL_delta_l2norm_test_hist
+        ).tolist() + muL_delta_l2_test_hist
+        df_irl["mu_delta_abs_l2_train"] = (
+            np.inf * np.ones(exp_info["N_EXPERT_DEMOS"] + n_init_policies, dtype=float)
+        ).tolist() + muL_delta_abs_l2_train_hist
+        df_irl["mu_delta_abs_l2_val"] = (
+            np.inf * np.ones(exp_info["N_EXPERT_DEMOS"] + n_init_policies, dtype=float)
+        ).tolist() + muL_delta_abs_l2_val_hist
+        df_irl["mu_delta_abs_l2_test"] = (
+            np.inf * np.ones(exp_info["N_EXPERT_DEMOS"] + n_init_policies, dtype=float)
+        ).tolist() + muL_delta_abs_l2_test_hist
 
         logging.debug("Experiment Summary")
 
         # End regular IRL trial
         return_val = (
             best_row_idx,
-            muE_dataset,
-            muE,
+            muE_train,
+            muE_train_unbiased,
             muE_val,
+            muE_val_unbiased,
             muE_test,
-            muE_perf,
+            muE_test_unbiased,
+            muE_perf_train,
+            muE_perf_train_unbiased,
             muE_perf_val,
+            muE_perf_val_unbiased,
             muE_perf_test,
+            muE_perf_test_unbiased,
             df_irl,
             clf_pol,
             avg_runtime_per_irl_loop,
@@ -1940,13 +2140,18 @@ def run_bias_experiment(
         ):
             (
                 best_row_idx,
-                muE_dataset,
-                muE,
+                muE_train,
+                muE_train_unbiased,
                 muE_val,
+                muE_val_unbiased,
                 muE_test,
-                muE_perf,
+                muE_test_unbiased,
+                muE_perf_train,
+                muE_perf_train_unbiased,
                 muE_perf_val,
+                muE_perf_val_unbiased,
                 muE_perf_test,
+                muE_perf_test_unbiased,
                 df_irl,
                 clf_pol,
                 avg_runtime_per_irl_loop,
@@ -1968,13 +2173,18 @@ def run_bias_experiment(
                 best_row_idx,
                 feat_obj_set,
                 perf_obj_set,
-                muE_dataset,
-                muE,
+                muE_train,
+                muE_train_unbiased,
                 muE_val,
+                muE_val_unbiased,
                 muE_test,
-                muE_perf,
+                muE_test_unbiased,
+                muE_perf_train,
+                muE_perf_train_unbiased,
                 muE_perf_val,
+                muE_perf_val_unbiased,
                 muE_perf_test,
+                muE_perf_test_unbiased,
                 df_irl,
                 trial_runtime,
                 avg_runtime_per_irl_loop,
