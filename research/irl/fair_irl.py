@@ -143,7 +143,7 @@ def generate_demo(clf, X_test, y_test, can_observe_y=False):
     return demo
 
 
-def add_demo_bias(demo, unfairness_types=(), dataset=None):
+def add_demo_bias(demo, bias_types=(), dataset=None):
     # Z = 0 is discriminated against, Y = 0 is "bad" outcome (except for COMPAS where Y=1 is "bad" outcome)
     # rz - redlined Z value
     # ry - redline Y outcome
@@ -170,10 +170,13 @@ def add_demo_bias(demo, unfairness_types=(), dataset=None):
         nrz = 1
         nry = 0
 
-    percent = 0.2
-    for unfairness_type in unfairness_types:
+    for bias_type in bias_types:
+        percent = 0.2
+        bias_type_name = bias_type[0]
+        if len(bias_type) > 1:
+            percent = bias_type[1]
         demo.reset_index(inplace=True)
-        match unfairness_type:
+        match bias_type_name:
             case "unbalanced_redlining":
                 # wherever Z==rz, set yhat = ry with 20% probability. Otherwise, keep yhat the same
                 # Count how many rows have z == rz
@@ -295,7 +298,7 @@ def generate_demos_k_folds(exp_info, X, y, clf, obj_set, n_demos=3, bias_types=(
         logging.debug("\t\tGenerating demo...")
         demo = generate_demo(clf, X_test, y_test)
         demo = add_demo_bias(
-            demo, unfairness_types=bias_types, dataset=exp_info["DATASET"]
+            demo, bias_types=bias_types, dataset=exp_info["DATASET"]
         )
         logging.debug(
             df_to_log(demo.groupby(["z", "y"])[["yhat"]].agg(["count", "mean"]))
@@ -406,7 +409,7 @@ def generate_mu_and_demos(
         clf_biased = add_classifier_bias(clf_new, bias_types)
         demo_biased = generate_demo(clf_biased, _X_test, _y_test)
         demo_biased = add_demo_bias(
-            demo_biased, unfairness_types=bias_types, dataset=exp_info["DATASET"]
+            demo_biased, bias_types=bias_types, dataset=exp_info["DATASET"]
         )
         # mu += obj_set.compute_demo_feature_exp(demo_biased)
         demos.append(demo_biased)
@@ -428,6 +431,62 @@ def generate_mu_and_demos(
     mu_unbiased[0] = obj_set.compute_demo_feature_exp(demos_unbiased_combined)
 
     return mu, demos_combined, mu_unbiased, demos_unbiased_combined
+
+
+def init_muL_from_muE(non_expert_algo, muE):
+    """
+    Initializes the learned feature expectations list (muL) with a single element
+    that is equal to the learned expert feature expectations (muE), with some
+    "degrading factor" applied to represent a worse initial policy than the expert.
+    The main advantage of initializing muL this way as opposed to training a
+    separate non-expert classifier is that this ensures that the initial muL value
+    contains the same pattern of error as muE, which should reduce the noise in
+    the learned feature weights and improve fairness preference matching between
+    muE and the final muL.
+
+    Parameters    ----------
+    non_expert_algo : str
+        The name of the non-expert algorithm. This is used to determine the degrading
+        factor applied to muE to get the initial muL.
+    muE : numpy.ndarray, shape (n_expert_demos, len(len(objective_set.objectives)))
+        Array of all expert feature expectations.
+    Returns
+    -------
+    muL : array-like<array-like<float>>
+        A numpy array containing a single element which is the initialized learned feature expectations.
+    """
+
+    absolute_degrading_factor = (
+        0.05  # reduce the magnitude of each feature expectation by 0.05.
+    )
+    relative_degrading_factor = 0.9333333333333
+
+    muE_avg = muE.mean(axis=0)
+    # # Calculate relative_degrading_factor such that the final magnitude of degredation is the same as
+    # # the absolute_degrading_factor.
+    # pre_muL = np.array([muE_avg - absolute_degrading_factor])
+    # muE_sum = np.sum(muE_avg)
+    # pre_muL_sum = np.sum(pre_muL)
+    # relative_degrading_factor = pre_muL_sum / muE_sum
+
+    if non_expert_algo == "DegradeAbsolute":
+        muL = np.array([muE_avg - absolute_degrading_factor])
+    elif non_expert_algo == "DegradeRelative":
+        muL = np.array([muE_avg * relative_degrading_factor])
+    elif non_expert_algo == "DegradeNoisy":
+        noise = np.random.uniform(
+            -absolute_degrading_factor, absolute_degrading_factor, size=muE_avg.shape
+        )
+        muL = np.array([muE_avg + noise])
+    elif non_expert_algo == "DegradeNoisyAbsolute":
+        noise = np.random.uniform(-absolute_degrading_factor * 2, 0, size=muE_avg.shape)
+        muL = np.array([muE_avg + noise])
+    elif non_expert_algo == "DegradeNoisyRelative":
+        noise = np.random.uniform(
+            2 * relative_degrading_factor - 1, 1, size=muE_avg.shape
+        )
+        muL = np.array([muE_avg * noise])
+    return muL
 
 
 def irl_error(

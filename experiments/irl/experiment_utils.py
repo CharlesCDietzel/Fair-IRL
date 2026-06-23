@@ -236,7 +236,9 @@ def generate_expert_algo_lookup(feature_types):
             feature_types=feature_types,
             # clf_inst=DecisionTreeClassifier(min_samples_leaf=10, max_depth=4),
             # clf_inst=RandomForestClassifier(), # Messes up DemPar. Why?
-            clf_inst=CatBoostClassifier(allow_writing_files=False, logging_level="Silent"),
+            clf_inst=CatBoostClassifier(
+                allow_writing_files=False, logging_level="Silent"
+            ),
         ),
     )
     dem_par_wrapper = FairLearnSkLearnWrapper(
@@ -253,7 +255,9 @@ def generate_expert_algo_lookup(feature_types):
             feature_types=feature_types,
             # clf_inst=DecisionTreeClassifier(min_samples_leaf=10, max_depth=4),
             # clf_inst=RandomForestClassifier(),
-            clf_inst=CatBoostClassifier(allow_writing_files=False, logging_level="Silent"),
+            clf_inst=CatBoostClassifier(
+                allow_writing_files=False, logging_level="Silent"
+            ),
         ),
     )
     eq_opp_wrapper = FairLearnSkLearnWrapper(
@@ -269,7 +273,9 @@ def generate_expert_algo_lookup(feature_types):
         estimator=sklearn_clf_pipeline(
             feature_types=feature_types,
             # clf_inst=RandomForestClassifier(),
-            clf_inst=CatBoostClassifier(allow_writing_files=False, logging_level="Silent"),
+            clf_inst=CatBoostClassifier(
+                allow_writing_files=False, logging_level="Silent"
+            ),
             # clf_inst=DecisionTreeClassifier(min_samples_leaf=10000, max_depth=20),
         ),
     )
@@ -287,7 +293,9 @@ def generate_expert_algo_lookup(feature_types):
             feature_types=feature_types,
             # clf_inst=DecisionTreeClassifier(min_samples_leaf=10, max_depth=4),
             # clf_inst=RandomForestClassifier(),
-            clf_inst=CatBoostClassifier(allow_writing_files=False, logging_level="Silent"),
+            clf_inst=CatBoostClassifier(
+                allow_writing_files=False, logging_level="Silent"
+            ),
         ),
     )
     dem_par_red_wrapper = FairLearnSkLearnWrapper(
@@ -306,7 +314,9 @@ def generate_expert_algo_lookup(feature_types):
             feature_types=feature_types,
             # clf_inst=DecisionTreeClassifier(min_samples_leaf=10, max_depth=4),
             # clf_inst=RandomForestClassifier(),
-            clf_inst=CatBoostClassifier(allow_writing_files=False, logging_level="Silent"),
+            clf_inst=CatBoostClassifier(
+                allow_writing_files=False, logging_level="Silent"
+            ),
         ),
     )
     dem_par_red_wrapper_1 = FairLearnSkLearnWrapper(
@@ -325,7 +335,9 @@ def generate_expert_algo_lookup(feature_types):
             feature_types=feature_types,
             # clf_inst=DecisionTreeClassifier(min_samples_leaf=10, max_depth=4),
             # clf_inst=RandomForestClassifier(),
-            clf_inst=CatBoostClassifier(allow_writing_files=False, logging_level="Silent"),
+            clf_inst=CatBoostClassifier(
+                allow_writing_files=False, logging_level="Silent"
+            ),
         ),
     )
     dem_par_red_wrapper_2 = FairLearnSkLearnWrapper(
@@ -344,7 +356,9 @@ def generate_expert_algo_lookup(feature_types):
             feature_types=feature_types,
             # clf_inst=DecisionTreeClassifier(min_samples_leaf=10, max_depth=4),
             # clf_inst=RandomForestClassifier(),
-            clf_inst=CatBoostClassifier(allow_writing_files=False, logging_level="Silent"),
+            clf_inst=CatBoostClassifier(
+                allow_writing_files=False, logging_level="Silent"
+            ),
         ),
     )
     dem_par_red_wrapper_3 = FairLearnSkLearnWrapper(
@@ -363,7 +377,9 @@ def generate_expert_algo_lookup(feature_types):
             feature_types=feature_types,
             # clf_inst=DecisionTreeClassifier(min_samples_leaf=10, max_depth=4),
             # clf_inst=RandomForestClassifier(),
-            clf_inst=CatBoostClassifier(allow_writing_files=False, logging_level="Silent"),
+            clf_inst=CatBoostClassifier(
+                allow_writing_files=False, logging_level="Silent"
+            ),
         ),
     )
     dem_par_red_wrapper_4 = FairLearnSkLearnWrapper(
@@ -382,7 +398,9 @@ def generate_expert_algo_lookup(feature_types):
             feature_types=feature_types,
             # clf_inst=DecisionTreeClassifier(min_samples_leaf=10, max_depth=4),
             # clf_inst=RandomForestClassifier(),
-            clf_inst=CatBoostClassifier(allow_writing_files=False, logging_level="Silent"),
+            clf_inst=CatBoostClassifier(
+                allow_writing_files=False, logging_level="Silent"
+            ),
         ),
     )
     dem_par_red_wrapper_5 = FairLearnSkLearnWrapper(
@@ -401,7 +419,9 @@ def generate_expert_algo_lookup(feature_types):
             feature_types=feature_types,
             # clf_inst=DecisionTreeClassifier(min_samples_leaf=10, max_depth=4),
             # clf_inst=RandomForestClassifier(),
-            clf_inst=CatBoostClassifier(allow_writing_files=False, logging_level="Silent"),
+            clf_inst=CatBoostClassifier(
+                allow_writing_files=False, logging_level="Silent"
+            ),
         ),
     )
     dem_par_red_wrapper_6 = FairLearnSkLearnWrapper(
@@ -420,7 +440,9 @@ def generate_expert_algo_lookup(feature_types):
             feature_types=feature_types,
             # clf_inst=DecisionTreeClassifier(min_samples_leaf=10, max_depth=4),
             # clf_inst=RandomForestClassifier(),
-            clf_inst=CatBoostClassifier(allow_writing_files=False, logging_level="Silent"),
+            clf_inst=CatBoostClassifier(
+                allow_writing_files=False, logging_level="Silent"
+            ),
         ),
     )
     dem_par_red_wrapper_7 = FairLearnSkLearnWrapper(
@@ -439,7 +461,9 @@ def generate_expert_algo_lookup(feature_types):
             feature_types=feature_types,
             # clf_inst=DecisionTreeClassifier(min_samples_leaf=10, max_depth=4),
             # clf_inst=RandomForestClassifier(),
-            clf_inst=CatBoostClassifier(allow_writing_files=False, logging_level="Silent"),
+            clf_inst=CatBoostClassifier(
+                allow_writing_files=False, logging_level="Silent"
+            ),
         ),
     )
     dem_par_red_wrapper_8 = FairLearnSkLearnWrapper(
@@ -458,7 +482,9 @@ def generate_expert_algo_lookup(feature_types):
             feature_types=feature_types,
             # clf_inst=DecisionTreeClassifier(min_samples_leaf=10, max_depth=4),
             # clf_inst=RandomForestClassifier(),
-            clf_inst=CatBoostClassifier(allow_writing_files=False, logging_level="Silent"),
+            clf_inst=CatBoostClassifier(
+                allow_writing_files=False, logging_level="Silent"
+            ),
         ),
     )
     dem_par_red_wrapper_9 = FairLearnSkLearnWrapper(
@@ -477,7 +503,9 @@ def generate_expert_algo_lookup(feature_types):
             feature_types=feature_types,
             # clf_inst=DecisionTreeClassifier(min_samples_leaf=10, max_depth=4),
             # clf_inst=RandomForestClassifier(),
-            clf_inst=CatBoostClassifier(allow_writing_files=False, logging_level="Silent"),
+            clf_inst=CatBoostClassifier(
+                allow_writing_files=False, logging_level="Silent"
+            ),
         ),
     )
     dem_par_red_wrapper_10 = FairLearnSkLearnWrapper(
@@ -496,7 +524,9 @@ def generate_expert_algo_lookup(feature_types):
             feature_types=feature_types,
             # clf_inst=DecisionTreeClassifier(min_samples_leaf=10, max_depth=4),
             # clf_inst=RandomForestClassifier(),
-            clf_inst=CatBoostClassifier(allow_writing_files=False, logging_level="Silent"),
+            clf_inst=CatBoostClassifier(
+                allow_writing_files=False, logging_level="Silent"
+            ),
         ),
     )
     eq_opp_red_wrapper = FairLearnSkLearnWrapper(
@@ -515,7 +545,9 @@ def generate_expert_algo_lookup(feature_types):
             feature_types=feature_types,
             # clf_inst=DecisionTreeClassifier(min_samples_leaf=10, max_depth=4),
             # clf_inst=RandomForestClassifier(),
-            clf_inst=CatBoostClassifier(allow_writing_files=False, logging_level="Silent"),
+            clf_inst=CatBoostClassifier(
+                allow_writing_files=False, logging_level="Silent"
+            ),
         ),
     )
     eq_odds_red_wrapper = FairLearnSkLearnWrapper(
@@ -534,7 +566,9 @@ def generate_expert_algo_lookup(feature_types):
             feature_types=feature_types,
             # clf_inst=DecisionTreeClassifier(min_samples_leaf=5, max_depth=10),
             # clf_inst=RandomForestClassifier(),
-            clf_inst=CatBoostClassifier(allow_writing_files=False, logging_level="Silent"),
+            clf_inst=CatBoostClassifier(
+                allow_writing_files=False, logging_level="Silent"
+            ),
         ),
     )
     bgl_wrapper = FairLearnSkLearnWrapper(
@@ -553,7 +587,9 @@ def generate_expert_algo_lookup(feature_types):
             feature_types=feature_types,
             # clf_inst=DecisionTreeClassifier(min_samples_leaf=10, max_depth=4),
             # clf_inst=RandomForestClassifier(),
-            clf_inst=CatBoostClassifier(allow_writing_files=False, logging_level="Silent"),
+            clf_inst=CatBoostClassifier(
+                allow_writing_files=False, logging_level="Silent"
+            ),
         ),
     )
     fpr_wrapper = FairLearnSkLearnWrapper(
@@ -570,7 +606,9 @@ def generate_expert_algo_lookup(feature_types):
             feature_types=feature_types,
             # clf_inst=DecisionTreeClassifier(min_samples_leaf=10, max_depth=4),
             # clf_inst=RandomForestClassifier(),
-            clf_inst=CatBoostClassifier(allow_writing_files=False, logging_level="Silent"),
+            clf_inst=CatBoostClassifier(
+                allow_writing_files=False, logging_level="Silent"
+            ),
         ),
     )
     tnr_wrapper = FairLearnSkLearnWrapper(
@@ -587,7 +625,9 @@ def generate_expert_algo_lookup(feature_types):
             feature_types=feature_types,
             # clf_inst=DecisionTreeClassifier(min_samples_leaf=10, max_depth=4),
             # clf_inst=RandomForestClassifier(),
-            clf_inst=CatBoostClassifier(allow_writing_files=False, logging_level="Silent"),
+            clf_inst=CatBoostClassifier(
+                allow_writing_files=False, logging_level="Silent"
+            ),
         ),
     )
     fnr_wrapper = FairLearnSkLearnWrapper(
@@ -856,11 +896,9 @@ def new_trial_result(
         result.append(best_row[f"muL_test_{obj.name}"])
 
     for i, obj in enumerate(feat_obj_set.objectives):
-        _muL_train_err = abs(
-            best_row[f"muL_train_{obj.name}"] - np.mean(muE_train[:, i])
-        )
-        _muL_val_err = abs(best_row[f"muL_val_{obj.name}"] - np.mean(muE_val[:, i]))
-        _muL_test_err = abs(best_row[f"muL_test_{obj.name}"] - np.mean(muE_test[:, i]))
+        _muL_train_err = best_row[f"muL_train_{obj.name}"] - np.mean(muE_train[:, i])
+        _muL_val_err = best_row[f"muL_val_{obj.name}"] - np.mean(muE_val[:, i])
+        _muL_test_err = best_row[f"muL_test_{obj.name}"] - np.mean(muE_test[:, i])
         result.append(_muL_train_err)
         result.append(_muL_val_err)
         result.append(_muL_test_err)
@@ -1207,7 +1245,7 @@ def run_trial_source_domain(
     # holdout, otherwise it messes up interpretations.
     #
     split_is_okay = False
-    max_muE_cosine_dist_split = 0.001
+    max_muE_cosine_dist_split = 0.002
 
     # Hold variables for later use in IRL loop
     demoE_val = None
@@ -1425,48 +1463,20 @@ def run_trial_source_domain(
     # for the SVM IRL classifier.
     muL_train_iters = []
     for non_expert_algo in exp_info["NON_EXPERT_ALGOS"]:
-        # Training set
-        _muL_train, _demos_train, _, _ = generate_mu_and_demos(
-            exp_info,
-            X=X_train,
-            y=y_train,
-            clf=copy.deepcopy(expert_algo_lookup[non_expert_algo]),
-            obj_set=feat_obj_set,
-            n_demos=1,
-            bias_types=bias_types,
-        )
+        if non_expert_algo in expert_algo_lookup:
+            _muL_train, _, _, _ = generate_mu_and_demos(
+                exp_info,
+                X=X_train,
+                y=y_train,
+                clf=copy.deepcopy(expert_algo_lookup[non_expert_algo]),
+                obj_set=feat_obj_set,
+                n_demos=1,
+                bias_types=bias_types,
+            )
+        else:
+            _muL_train = init_muL_from_muE(non_expert_algo, muE_train)
         muL_train_iters.append(_muL_train[0])
 
-        # Validation set
-        _muL_val, _demos_val, _, _ = generate_mu_and_demos(
-            exp_info,
-            X=X_val,
-            y=y_val,
-            clf=copy.deepcopy(expert_algo_lookup[non_expert_algo]),
-            obj_set=feat_obj_set,
-            n_demos=1,
-            bias_types=bias_types,
-        )
-        # muL_deltas_val = _muL_val - muE_val
-        # muL_deltas_val_l2 = np.linalg.norm(muL_deltas_val, ord=2)
-        # muL_delta_l2_val_hist.append(muL_deltas_val_l2)
-
-        # Test set
-        _muL_test, _demos_test, _, _ = generate_mu_and_demos(
-            exp_info,
-            X=X_test,
-            y=y_test,
-            clf=copy.deepcopy(expert_algo_lookup[non_expert_algo]),
-            obj_set=feat_obj_set,
-            n_demos=1,
-            bias_types=bias_types,
-        )
-        # muL_deltas_test = _muL_test - muE_test
-        # muL_deltas_test_l2 = np.linalg.norm(muL_deltas_test, ord=2)
-        # muL_delta_l2_test_hist.append(muL_deltas_test_l2)
-
-    # muL_delta_l2_val_hist_backup = muL_delta_l2_val_hist.copy()
-    # muL_delta_l2_test_hist_backup = muL_delta_l2_test_hist.copy()
 
     muL_train_iters = np.array(muL_train_iters)
     logging.info(f"muL_train:\n{muL_train_iters}")
