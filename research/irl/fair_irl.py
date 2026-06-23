@@ -297,9 +297,7 @@ def generate_demos_k_folds(exp_info, X, y, clf, obj_set, n_demos=3, bias_types=(
 
         logging.debug("\t\tGenerating demo...")
         demo = generate_demo(clf, X_test, y_test)
-        demo = add_demo_bias(
-            demo, bias_types=bias_types, dataset=exp_info["DATASET"]
-        )
+        demo = add_demo_bias(demo, bias_types=bias_types, dataset=exp_info["DATASET"])
         logging.debug(
             df_to_log(demo.groupby(["z", "y"])[["yhat"]].agg(["count", "mean"]))
         )
