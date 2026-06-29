@@ -1049,7 +1049,7 @@ def compute_subdominance(
         total_subdom_list.append(total_subdom)
 
     final_subdom = sum(total_subdom_list) / len(total_subdom_list)
-    # Since we are using subdominance as an evaluation metric, we don't need to add regularization.
+    # Since we are using subdominance as an evaluation metric (not a training objective), we don't need to add regularization.
     # final_subdom += (lamda / 2.0) * (np.linalg.norm(alphas) ** 2)
     return final_subdom
 
