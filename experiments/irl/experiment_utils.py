@@ -1462,6 +1462,190 @@ def _compute_irl_errors_and_metrics(
     )
 
 
+def _irl_find_weights(X_irl_exp, y_irl_exp, X_irl_learn, y_irl_learn, exp_info):
+    """Fit SVM on expert/learned feature expectations and return l1-normalized weights."""
+    X_irl = pd.concat([X_irl_exp, X_irl_learn], axis=0).reset_index(drop=True)
+    y_irl = pd.concat([y_irl_exp, y_irl_learn], axis=0).reset_index(drop=True)
+    try:
+        allow_pos_weights = not exp_info["ALLOW_NEG_WEIGHTS"]
+        svm = SVM(positive_weights_only=allow_pos_weights).fit(X_irl, y_irl)
+    except ValueError as e:
+        if e.args[0] != "No support vectors found.":
+            raise (e)
+        logging.info("\t\tAllowing negative weights.")
+        svm = SVM(positive_weights_only=False).fit(X_irl, y_irl)
+    wi = svm.weights(norm="l1")
+    return wi, svm
+
+
+def _irl_fit_clf_and_demo_df(feature_types, X_train, y_train):
+    """Fit a y|x predictor and build the demo DataFrame used by compute_optimal_policy."""
+    clf = sklearn_clf_pipeline(
+        feature_types=feature_types,
+        clf_inst=RandomForestClassifier(),
+    )
+    clf.fit(X_train, y_train)
+    demo_df = pd.DataFrame(X_train)
+    demo_df["y"] = y_train
+    return clf, demo_df
+
+
+def _irl_apply_weight_adjustments(wi, weight_adjusts):
+    """Apply a sequence of weight adjustment operations to wi and return the result."""
+    for weight_adjust in weight_adjusts:
+        mul_factor = weight_adjust[1]
+        if weight_adjust[0] == "mul_negative_weights":
+            wi[wi < 0] = wi[wi < 0] * mul_factor
+    return wi
+
+
+def _irl_compute_optimal_policy(wi, feat_obj_set, demo_df, clf, x_cols, exp_info):
+    """Build reward weights from wi and return the corresponding optimal classifier policy."""
+    reward_weights = {
+        obj.name: wi[j] for j, obj in enumerate(feat_obj_set.objectives)
+    }
+    clf_pol = compute_optimal_policy(
+        clf_df=demo_df,
+        clf=clf,
+        x_cols=x_cols,
+        obj_set=feat_obj_set,
+        reward_weights=reward_weights,
+        skip_error_terms=True,
+        method=exp_info["METHOD"],
+        min_freq_fill_pct=exp_info["MIN_FREQ_FILL_PCT"],
+        restrict_y=exp_info["RESTRICT_Y_ACTION"],
+    )
+    return clf_pol
+
+
+def _irl_evaluate_policy(
+    clf_pol,
+    wi,
+    svm,
+    feat_obj_set,
+    perf_obj_set,
+    X_train,
+    X_val,
+    X_test,
+    y_train,
+    y_val,
+    y_test,
+    demoE_train,
+    demoE_val,
+    demoE_test,
+    muE_train,
+    muE_val,
+    muE_test,
+    muL_train_history,
+    muL_val_history,
+    muL_test_history,
+    exp_info,
+    CAN_OBSERVE_Y,
+):
+    """Generate demos from clf_pol, evaluate errors via _compute_irl_errors_and_metrics,
+    and compute subdominance via compute_iteration_subdominance for train/val/test sets.
+
+    muL_train_history, muL_val_history, muL_test_history should NOT yet contain the
+    current iteration's muL values; this function appends them internally before calling
+    _compute_irl_errors_and_metrics without mutating the caller's lists.
+    """
+    logging.debug("\tGenerating learned demostration...")
+    demo_train = generate_demo(clf_pol, X_train, y_train, can_observe_y=CAN_OBSERVE_Y)
+    demo_val = generate_demo(clf_pol, X_val, y_val, can_observe_y=False)
+    demo_test = generate_demo(clf_pol, X_test, y_test, can_observe_y=False)
+
+    muL_train = feat_obj_set.compute_demo_feature_exp(demo_train)
+    muL_val = feat_obj_set.compute_demo_feature_exp(demo_val)
+    muL_test = feat_obj_set.compute_demo_feature_exp(demo_test)
+    muL_perf_train = perf_obj_set.compute_demo_feature_exp(demo_train)
+    muL_perf_val = perf_obj_set.compute_demo_feature_exp(demo_val)
+    muL_perf_test = perf_obj_set.compute_demo_feature_exp(demo_test)
+
+    (
+        muL_delta_train,
+        muL_delta_l2_train,
+        muL_delta_abs_l2_train,
+        ti_train,
+        svm_margin,
+        muL_delta_val,
+        muL_delta_l2_val,
+        muL_delta_abs_l2_val,
+        ti_val,
+        muL_delta_test,
+        muL_delta_l2_test,
+        muL_delta_abs_l2_test,
+        ti_test,
+    ) = _compute_irl_errors_and_metrics(
+        wi,
+        svm,
+        muE_train,
+        muE_val,
+        muE_test,
+        muL_train_history + [muL_train],
+        muL_val_history + [muL_val],
+        muL_test_history + [muL_test],
+        exp_info,
+    )
+
+    (
+        max_abs_subdominance,
+        sum_abs_subdominance,
+        max_rel_subdominance,
+        sum_rel_subdominance,
+    ) = compute_iteration_subdominance(exp_info, demoE_train, demo_train)
+
+    (
+        max_abs_subdom_v,
+        sum_abs_subdom_v,
+        max_rel_subdom_v,
+        sum_rel_subdom_v,
+    ) = compute_iteration_subdominance(exp_info, demoE_val, demo_val)
+
+    (
+        max_abs_subdom_t,
+        sum_abs_subdom_t,
+        max_rel_subdom_t,
+        sum_rel_subdom_t,
+    ) = compute_iteration_subdominance(exp_info, demoE_test, demo_test)
+
+    return (
+        demo_train,
+        demo_val,
+        demo_test,
+        muL_train,
+        muL_val,
+        muL_test,
+        muL_perf_train,
+        muL_perf_val,
+        muL_perf_test,
+        muL_delta_train,
+        muL_delta_l2_train,
+        muL_delta_abs_l2_train,
+        ti_train,
+        svm_margin,
+        muL_delta_val,
+        muL_delta_l2_val,
+        muL_delta_abs_l2_val,
+        ti_val,
+        muL_delta_test,
+        muL_delta_l2_test,
+        muL_delta_abs_l2_test,
+        ti_test,
+        max_abs_subdominance,
+        sum_abs_subdominance,
+        max_rel_subdominance,
+        sum_rel_subdominance,
+        max_abs_subdom_v,
+        sum_abs_subdom_v,
+        max_rel_subdom_v,
+        sum_rel_subdom_v,
+        max_abs_subdom_t,
+        sum_abs_subdom_t,
+        max_rel_subdom_t,
+        sum_rel_subdom_t,
+    )
+
+
 def run_trial_source_domain(
     exp_info,
     X=None,
@@ -1535,7 +1719,7 @@ def run_trial_source_domain(
     n_init_policies = len(exp_info["NON_EXPERT_ALGOS"])
 
     feat_obj_set, perf_obj_set = _build_objective_sets(exp_info)
-    CAN_OBSERVE_Y = "FO" in exp_info["IRL_METHOD"]
+    can_observe_y = "FO" in exp_info["IRL_METHOD"]
     X, y, feature_types = _load_or_generate_dataset(exp_info, X, y, feature_types)
     bias_types = exp_info["BIAS_TYPES"]
 
@@ -1676,40 +1860,17 @@ def run_trial_source_domain(
             if weight_adjusts == ():
                 logging.info(f"\tIRL Loop iteration {i+1}/{exp_info['MAX_ITER']} ...")
 
-                # Train SVM classifier that distinguishes which demonstrations are
-                # expert and which were generated from this loop.
                 logging.debug("\tFitting SVM classifier...")
-                X_irl = pd.concat([X_irl_exp, X_irl_learn], axis=0).reset_index(
-                    drop=True
+                wi, svm = _irl_find_weights(
+                    X_irl_exp, y_irl_exp, X_irl_learn, y_irl_learn, exp_info
                 )
-                y_irl = pd.concat([y_irl_exp, y_irl_learn], axis=0).reset_index(
-                    drop=True
-                )
-                try:
-                    allow_pos_weights = not exp_info["ALLOW_NEG_WEIGHTS"]
-                    svm = SVM(positive_weights_only=allow_pos_weights).fit(X_irl, y_irl)
-                except ValueError as e:
-                    if e.args[0] != "No support vectors found.":
-                        raise (e)
-                    logging.info("\t\tAllowing negative weights.")
-                    svm = SVM(positive_weights_only=False).fit(X_irl, y_irl)
-
-                wi = svm.weights(norm="l1")
 
                 ##
                 # Learn a policy (clf_pol) from the reward (SVM) weights.
                 ##
 
-                # Fit a classifier that predicts `y` from `X`.
                 logging.debug("\tFitting `y|x` predictor for clf policy...")
-                clf = sklearn_clf_pipeline(
-                    feature_types=feature_types,
-                    clf_inst=RandomForestClassifier(),
-                )
-                clf.fit(X_train, y_train)
-
-                demo_df = pd.DataFrame(X_train)
-                demo_df["y"] = y_train
+                clf, demo_df = _irl_fit_clf_and_demo_df(feature_types, X_train, y_train)
             else:
                 # Reset IRL loop history vars
                 max_abs_subdom_hist = []
@@ -1752,28 +1913,15 @@ def run_trial_source_domain(
                 y_irl_exp = pd.Series(np.ones(exp_info["N_EXPERT_DEMOS"]), dtype=int)
                 X_irl_learn = pd.DataFrame(muL_train_iters, columns=feat_obj_set_cols)
                 y_irl_learn = pd.Series(np.zeros(len(muL_train_iters)), dtype=int)
-                wi = unadjusted_best_weight.copy()
-                for weight_adjust in weight_adjusts:
-                    mul_factor = weight_adjust[1]
-                    if weight_adjust[0] == "mul_negative_weights":
-                        wi[wi < 0] = wi[wi < 0] * mul_factor
+                wi = _irl_apply_weight_adjustments(
+                    unadjusted_best_weight.copy(), weight_adjusts
+                )
                 done = True
             # Learn a policy that maximizes the reward function.
             weights.append(wi)
 
-            reward_weights = {
-                obj.name: wi[j] for j, obj in enumerate(feat_obj_set.objectives)
-            }
-            clf_pol = compute_optimal_policy(
-                clf_df=demo_df,
-                clf=clf,
-                x_cols=x_cols,
-                obj_set=feat_obj_set,
-                reward_weights=reward_weights,
-                skip_error_terms=True,
-                method=exp_info["METHOD"],
-                min_freq_fill_pct=exp_info["MIN_FREQ_FILL_PCT"],
-                restrict_y=exp_info["RESTRICT_Y_ACTION"],
+            clf_pol = _irl_compute_optimal_policy(
+                wi, feat_obj_set, demo_df, clf, x_cols, exp_info
             )
 
             ##
@@ -1781,28 +1929,76 @@ def run_trial_source_domain(
             # a negative training example for next IRL Loop iteration.
             ##
 
-            # Compute feature expectations of the learned policy
-            logging.debug("\tGenerating learned demostration...")
-            demo_train = generate_demo(
-                clf_pol, X_train, y_train, can_observe_y=CAN_OBSERVE_Y
+            (
+                demo_train,
+                demo_val,
+                demo_test,
+                muL_train,
+                muL_val,
+                muL_test,
+                muL_perf_train,
+                muL_perf_val,
+                muL_perf_test,
+                muL_delta_train,
+                muL_delta_l2_train,
+                muL_delta_abs_l2_train,
+                ti_train,
+                svm_margin,
+                muL_delta_val,
+                muL_delta_l2_val,
+                muL_delta_abs_l2_val,
+                ti_val,
+                muL_delta_test,
+                muL_delta_l2_test,
+                muL_delta_abs_l2_test,
+                ti_test,
+                max_abs_subdominance,
+                sum_abs_subdominance,
+                max_rel_subdominance,
+                sum_rel_subdominance,
+                max_abs_subdom_v,
+                sum_abs_subdom_v,
+                max_rel_subdom_v,
+                sum_rel_subdom_v,
+                max_abs_subdom_t,
+                sum_abs_subdom_t,
+                max_rel_subdom_t,
+                sum_rel_subdom_t,
+            ) = _irl_evaluate_policy(
+                clf_pol,
+                wi,
+                svm,
+                feat_obj_set,
+                perf_obj_set,
+                X_train,
+                X_val,
+                X_test,
+                y_train,
+                y_val,
+                y_test,
+                demoE_train,
+                demoE_val,
+                demoE_test,
+                muE_train,
+                muE_val,
+                muE_test,
+                muL_train_history,
+                muL_val_history,
+                muL_test_history,
+                exp_info,
+                can_observe_y,
             )
-            demo_val = generate_demo(clf_pol, X_val, y_val, can_observe_y=False)
-            demo_test = generate_demo(clf_pol, X_test, y_test, can_observe_y=False)
+
             demo_train_history.append(demo_train)
             demo_val_history.append(demo_val)
             demo_test_history.append(demo_test)
-            muL_train = feat_obj_set.compute_demo_feature_exp(demo_train)
-            muL_val = feat_obj_set.compute_demo_feature_exp(demo_val)
-            muL_test = feat_obj_set.compute_demo_feature_exp(demo_test)
-            muL_perf_train = perf_obj_set.compute_demo_feature_exp(demo_train)
-            muL_perf_val = perf_obj_set.compute_demo_feature_exp(demo_val)
-            muL_perf_test = perf_obj_set.compute_demo_feature_exp(demo_test)
             muL_train_history.append(muL_train)
             muL_val_history.append(muL_val)
             muL_test_history.append(muL_test)
             muL_perf_train_history.append(muL_perf_train)
             muL_perf_val_history.append(muL_perf_val)
             muL_perf_test_history.append(muL_perf_test)
+
             logging.info(
                 f"\t\t muL_train[{i}] \t\t= {str(np.round(muL_train, 2)).replace('0.', '.')}"
             )
@@ -1817,63 +2013,16 @@ def run_trial_source_domain(
             X_irl_learn = pd.concat([X_irl_learn, X_irl_learn_i], axis=0)
             y_irl_learn = pd.concat([y_irl_learn, y_irl_learn_i], axis=0)
 
-            # Compute error of the learned policy: t[i] = wT(muE-muL[j])
-            # This is equivalent to computing the SVM margin.
-            (
-                muL_delta_train,
-                muL_delta_l2_train,
-                muL_delta_abs_l2_train,
-                ti_train,
-                svm_margin,
-                muL_delta_val,
-                muL_delta_l2_val,
-                muL_delta_abs_l2_val,
-                ti_val,
-                muL_delta_test,
-                muL_delta_l2_test,
-                muL_delta_abs_l2_test,
-                ti_test,
-            ) = _compute_irl_errors_and_metrics(
-                wi,
-                svm,
-                muE_train,
-                muE_val,
-                muE_test,
-                muL_train_history,
-                muL_val_history,
-                muL_test_history,
-                exp_info,
-            )
-
-            # Subdominance calculations
-            (
-                max_abs_subdominance,
-                sum_abs_subdominance,
-                max_rel_subdominance,
-                sum_rel_subdominance,
-            ) = compute_iteration_subdominance(exp_info, demoE_train, demo_train)
             max_abs_subdom_hist.append(max_abs_subdominance)
             sum_abs_subdom_hist.append(sum_abs_subdominance)
             max_rel_subdom_hist.append(max_rel_subdominance)
             sum_rel_subdom_hist.append(sum_rel_subdominance)
 
-            (
-                max_abs_subdom_v,
-                sum_abs_subdom_v,
-                max_rel_subdom_v,
-                sum_rel_subdom_v,
-            ) = compute_iteration_subdominance(exp_info, demoE_val, demo_val)
             max_abs_subdom_val_hist.append(max_abs_subdom_v)
             sum_abs_subdom_val_hist.append(sum_abs_subdom_v)
             max_rel_subdom_val_hist.append(max_rel_subdom_v)
             sum_rel_subdom_val_hist.append(sum_rel_subdom_v)
 
-            (
-                max_abs_subdom_t,
-                sum_abs_subdom_t,
-                max_rel_subdom_t,
-                sum_rel_subdom_t,
-            ) = compute_iteration_subdominance(exp_info, demoE_test, demo_test)
             max_abs_subdom_test_hist.append(max_abs_subdom_t)
             sum_abs_subdom_test_hist.append(sum_abs_subdom_t)
             max_rel_subdom_test_hist.append(max_rel_subdom_t)
