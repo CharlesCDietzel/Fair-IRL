@@ -1347,9 +1347,9 @@ def _check_irl_stopping_criteria(
     weights,
     wi,
 ):
-    """Check if IRL loop should stop. Returns True if done, False if should continue."""
+    """Check if IRL loop should stop. Returns True if done, False to continue."""
     if i >= exp_info["MAX_ITER"] - 1:
-        logging.info(f"\n\t\tReached max iters.")
+        logging.info("\n\t\tReached max iters.")
         return True
 
     if error_variable < exp_info["EPSILON"] and error_variable <= min(
@@ -1357,7 +1357,7 @@ def _check_irl_stopping_criteria(
     ):
         if np.allclose(weights[i][0], 0, atol=1e-5):
             logging.info("\t\tAccuracy weight is zero, continuing")
-            return None  # Continue, don't stop
+            return False
 
         if exp_info["ALLOW_NEG_WEIGHTS"] or np.all(wi > -1e-5):
             logging.info(
@@ -1366,7 +1366,7 @@ def _check_irl_stopping_criteria(
             return True
 
     if len(error_variable_hist) > 1 and error_variable > error_variable_hist[-2]:
-        logging.info(f"\n\t\tError is going back up. Stoping.")
+        logging.info("\n\t\tError is going back up. Stopping.")
         return True
 
     if (i - np.argsort(error_variable_hist)[0]) > exp_info[
@@ -1386,13 +1386,13 @@ def _check_irl_stopping_criteria(
         logging.info(
             f"WARNING: STUCK IN LOOP DETECTED!!!!!!!!!!!. Error history: {error_variable_hist}"
         )
-        return None  # Mark stuck but continue
+        return False
 
     if i > 0 and error_variable_hist[i] == np.inf:
         logging.info("\t\tInfinite error: Treating like stuck in loop")
-        return None  # Continue despite infinite error
+        return False
 
-    return False  # Continue normally
+    return False
 
 
 def _compute_irl_errors_and_metrics(
@@ -1471,7 +1471,7 @@ def _irl_find_weights(X_irl_exp, y_irl_exp, X_irl_learn, y_irl_learn, exp_info):
         svm = SVM(positive_weights_only=allow_pos_weights).fit(X_irl, y_irl)
     except ValueError as e:
         if e.args[0] != "No support vectors found.":
-            raise (e)
+            raise e
         logging.info("\t\tAllowing negative weights.")
         svm = SVM(positive_weights_only=False).fit(X_irl, y_irl)
     wi = svm.weights(norm="l1")
@@ -1540,7 +1540,7 @@ def _irl_evaluate_policy(
     muL_val_history,
     muL_test_history,
     exp_info,
-    CAN_OBSERVE_Y,
+    can_observe_y,
 ):
     """Generate demos from clf_pol, evaluate errors via _compute_irl_errors_and_metrics,
     and compute subdominance via compute_iteration_subdominance for train/val/test sets.
@@ -1550,7 +1550,7 @@ def _irl_evaluate_policy(
     _compute_irl_errors_and_metrics without mutating the caller's lists.
     """
     logging.debug("\tGenerating learned demostration...")
-    demo_train = generate_demo(clf_pol, X_train, y_train, can_observe_y=CAN_OBSERVE_Y)
+    demo_train = generate_demo(clf_pol, X_train, y_train, can_observe_y=can_observe_y)
     demo_val = generate_demo(clf_pol, X_val, y_val, can_observe_y=False)
     demo_test = generate_demo(clf_pol, X_test, y_test, can_observe_y=False)
 
@@ -1646,6 +1646,97 @@ def _irl_evaluate_policy(
     )
 
 
+def _build_df_irl(
+    X_irl_exp,
+    y_irl_exp,
+    X_irl_learn,
+    y_irl_learn,
+    feat_obj_set_cols,
+    perf_obj_set_cols,
+    n_expert_demos,
+    n_init_policies,
+    muL_val_history,
+    muL_test_history,
+    muL_perf_train_history,
+    muL_perf_val_history,
+    muL_perf_test_history,
+    weights,
+    t_train,
+    t_val,
+    t_test,
+    svm_margin_hist,
+    subdom_train_hists,
+    subdom_val_hists,
+    subdom_test_hists,
+    muL_delta_l2_train_hist,
+    muL_delta_l2_val_hist,
+    muL_delta_l2_test_hist,
+    muL_delta_abs_l2_train_hist,
+    muL_delta_abs_l2_val_hist,
+    muL_delta_abs_l2_test_hist,
+):
+    """Build the df_irl results DataFrame from IRL loop history.
+
+    subdom_train/val/test_hists are each a 4-tuple of
+    (max_abs, sum_abs, max_rel, sum_rel) subdominance history lists.
+    """
+    n_prefix = n_expert_demos + n_init_policies
+    n_iter = len(t_train)
+
+    X_irl = pd.concat([X_irl_exp, X_irl_learn], axis=0).reset_index(drop=True)
+    y_irl = pd.concat([y_irl_exp, y_irl_learn], axis=0).reset_index(drop=True)
+    df_irl = X_irl.copy()
+    df_irl["is_expert"] = y_irl.copy()
+
+    for i, col in enumerate(feat_obj_set_cols):
+        df_irl.columns.values[i] = f"muL_train_{col}"
+        df_irl[f"muL_val_{col}"] = [0.0] * n_prefix + np.array(muL_val_history)[:, i].tolist()
+        df_irl[f"muL_test_{col}"] = [0.0] * n_prefix + np.array(muL_test_history)[:, i].tolist()
+
+    for i, col in enumerate(perf_obj_set_cols):
+        df_irl[f"muL_perf_train_{col}"] = [0.0] * n_prefix + np.array(muL_perf_train_history)[:, i].tolist()
+        df_irl[f"muL_perf_val_{col}"] = [0.0] * n_prefix + np.array(muL_perf_val_history)[:, i].tolist()
+        df_irl[f"muL_perf_test_{col}"] = [0.0] * n_prefix + np.array(muL_perf_test_history)[:, i].tolist()
+
+    df_irl["is_init_policy"] = [0.0] * n_expert_demos + [1.0] * n_init_policies + [0.0] * n_iter
+    df_irl["learn_idx"] = [-1.0] * n_expert_demos + list(np.arange(n_init_policies + n_iter))
+
+    for i, col in enumerate(feat_obj_set_cols):
+        df_irl[f"{col}_weight"] = [0.0] * n_prefix + [w[i] for w in weights]
+
+    (max_abs_subdom_hist, sum_abs_subdom_hist, max_rel_subdom_hist, sum_rel_subdom_hist) = subdom_train_hists
+    (max_abs_subdom_val_hist, sum_abs_subdom_val_hist, max_rel_subdom_val_hist, sum_rel_subdom_val_hist) = subdom_val_hists
+    (max_abs_subdom_test_hist, sum_abs_subdom_test_hist, max_rel_subdom_test_hist, sum_rel_subdom_test_hist) = subdom_test_hists
+
+    df_irl["max_abs_subdominance_train"] = [np.inf] * n_prefix + max_abs_subdom_hist
+    df_irl["sum_abs_subdominance_train"] = [np.inf] * n_prefix + sum_abs_subdom_hist
+    df_irl["max_rel_subdominance_train"] = [np.inf] * n_prefix + max_rel_subdom_hist
+    df_irl["sum_rel_subdominance_train"] = [np.inf] * n_prefix + sum_rel_subdom_hist
+
+    df_irl["max_abs_subdominance_val"] = [np.inf] * n_prefix + max_abs_subdom_val_hist
+    df_irl["sum_abs_subdominance_val"] = [np.inf] * n_prefix + sum_abs_subdom_val_hist
+    df_irl["max_rel_subdominance_val"] = [np.inf] * n_prefix + max_rel_subdom_val_hist
+    df_irl["sum_rel_subdominance_val"] = [np.inf] * n_prefix + sum_rel_subdom_val_hist
+
+    df_irl["max_abs_subdominance_test"] = [np.inf] * n_prefix + max_abs_subdom_test_hist
+    df_irl["sum_abs_subdominance_test"] = [np.inf] * n_prefix + sum_abs_subdom_test_hist
+    df_irl["max_rel_subdominance_test"] = [np.inf] * n_prefix + max_rel_subdom_test_hist
+    df_irl["sum_rel_subdominance_test"] = [np.inf] * n_prefix + sum_rel_subdom_test_hist
+
+    df_irl["svm_margin"] = [np.inf] * n_prefix + svm_margin_hist
+    df_irl["t_train"] = [np.inf] * n_prefix + t_train
+    df_irl["t_val"] = [np.inf] * n_prefix + t_val
+    df_irl["t_test"] = [np.inf] * n_prefix + t_test
+    df_irl["mu_delta_l2_train"] = [np.inf] * n_prefix + muL_delta_l2_train_hist
+    df_irl["mu_delta_l2_val"] = [np.inf] * n_prefix + muL_delta_l2_val_hist
+    df_irl["mu_delta_l2_test"] = [np.inf] * n_prefix + muL_delta_l2_test_hist
+    df_irl["mu_delta_abs_l2_train"] = [np.inf] * n_prefix + muL_delta_abs_l2_train_hist
+    df_irl["mu_delta_abs_l2_val"] = [np.inf] * n_prefix + muL_delta_abs_l2_val_hist
+    df_irl["mu_delta_abs_l2_test"] = [np.inf] * n_prefix + muL_delta_abs_l2_test_hist
+
+    return df_irl
+
+
 def run_trial_source_domain(
     exp_info,
     X=None,
@@ -1669,50 +1760,17 @@ def run_trial_source_domain(
     feature_types : dict<str, array-like>, Optional
         Mapping of column names to their type of feature. Used to when
         constructing sklearn pipelines.
-    plot_svm_iters : bool, default False
-        If True, plots the SVM iterations.
 
     Returns
     -------
-    did_converge : bool
-        If true, irl loop converged and results returned are non-null.
-    muE : array-like<float>. Shape(n_expert_demos, n_objectives)
-        Expert demonstration feature expectations.
-    muE_val : array-like<float>. Shape(n_expert_demos, n_objectives)
-        Expert feature expectations on the validation set.
-    muE_test : array-like<float>. Shape(n_expert_demos, n_objectives)
-        Expert feature expectations on the test set.
-    muE_train_unbiased : array-like<float>. Shape(n_expert_demos, n_objectives)
-        Expert demonstration feature expectations computed on unbiased train demos.
-    muE_val_unbiased : array-like<float>. Shape(n_expert_demos, n_objectives)
-        Expert feature expectations on the validation set (unbiased).
-    muE_test_unbiased : array-like<float>. Shape(n_expert_demos, n_objectives)
-        Expert feature expectations on the test set (unbiased).
-    muE_perf_val : pandas.DataFrame
-        Results of the performance measure during the expert's validation demos.
-    muE_perf_test : pandas.DataFrame
-        Results of the performance measure during the expert's test demos.
-    muE_perf_train_unbiased : pandas.DataFrame
-        Performance measures computed on unbiased train demos.
-    muE_perf_val_unbiased : pandas.DataFrame
-        Performance measures computed on unbiased validation demos.
-    muE_perf_test_unbiased : pandas.DataFrame
-        Performance measures computed on unbiased test demos.
-    df_irl : pandas.DataFrame
-        A collection of results where each row represents either an expert demo
-        (and therefore a positive SVM training example) or a learned policy
-        (and therefore a negative SVM training example). Includes relevant
-        items like learned weights, feature expectations, error, etc.
-    weights : array-like<float>. Shape(n_irl_loop_iters,  n_objectives).
-        The learned weights for each iteration of the IRL loop.
-    t_val : array-like<float>. Shape(n_irl_loop_iters)
-        The irl error on the validation set.
-    t_test : array-like<float>. Shape(n_irl_loop_iters)
-        The irl error on the test set.
-    clf_pol : research.rl.env.clf_mdp.ClassificationMDPPolicy
-        The classification MDP optimal policy.
-    avg_runtime_per_irl_loop : float
-        The runtime of the IRL loop, in seconds.
+    return_vals : list of tuple
+        One tuple per entry in exp_info["WEIGHT_ADJUSTS_LIST"]. Each tuple
+        contains (best_row_idx, muE_train, muE_train_unbiased, muE_val,
+        muE_val_unbiased, muE_test, muE_test_unbiased, muE_perf_train,
+        muE_perf_train_unbiased, muE_perf_val, muE_perf_val_unbiased,
+        muE_perf_test, muE_perf_test_unbiased, df_irl, clf_pol,
+        avg_runtime_per_irl_loop). All values are None if the IRL loop did
+        not converge within exp_info["IGNORE_RESULTS_EPSILON"].
 
     """
     weight_adjusts_list = exp_info["WEIGHT_ADJUSTS_LIST"]
@@ -1796,7 +1854,6 @@ def run_trial_source_domain(
     max_rel_subdom_hist = []
     sum_rel_subdom_hist = []
 
-    # Added for Val and Test subdominance
     max_abs_subdom_val_hist = []
     sum_abs_subdom_val_hist = []
     max_rel_subdom_val_hist = []
@@ -1848,7 +1905,6 @@ def run_trial_source_domain(
     logging.debug("Starting IRL Loop ...")
 
     done = False  # When true, breaks IRL loop
-    is_stuck_in_loop = False
     num_loops = 0
     return_vals = []
     unadjusted_best_weight = None
@@ -2068,11 +2124,9 @@ def run_trial_source_domain(
                 should_stop = _check_irl_stopping_criteria(
                     i, exp_info, error_variable, error_variable_hist, weights, wi
                 )
-                if should_stop is True:
+                if should_stop:
                     done = True
                     break
-                elif should_stop is None:
-                    i += 1
                 else:
                     i += 1
         done = False
@@ -2112,44 +2166,12 @@ def run_trial_source_domain(
             return_vals.append(return_val)
             return return_vals
 
-        # Find best weights
-        # muL_delta_l2_train_arg_smallest_to_largest = np.argsort(muL_delta_l2_train_hist)
-        # muL_delta_l2_train_arg_smallest_to_largest = np.argsort(
-        #     muL_delta_abs_l2_train_hist
-        # )
-        # t_train_arg_smallest_to_largest = np.argsort(t_train)
-        # svm_margin_arg_smallest_to_largest = np.argsort(svm_margin_hist)
-        # sum_abs_subdominance_train_arg_smallest_to_largest = np.argsort(
-        #     sum_abs_subdom_hist
-        # )
-        error_variable_arg_smallest_to_largest = np.argsort(error_variable_hist)
-        # best_iter = muL_delta_l2_train_arg_smallest_to_largest[0]
-        # best_iter = muL_delta_l2_train_arg_smallest_to_largest[0]
-        # best_iter = t_train_arg_smallest_to_largest[0]
-        # best_iter = svm_margin_arg_smallest_to_largest[0]
-        # best_iter = sum_abs_subdominance_train_arg_smallest_to_largest[0]
-        best_iter = error_variable_arg_smallest_to_largest[0]
+        best_iter = np.argsort(error_variable_hist)[0]
 
         if not exp_info["ALLOW_NEG_WEIGHTS"]:
             raise ValueError(
                 "In order to disable negative weights, you need to understand/fix this part of the code"
             )
-            best_t_train = None
-            best_t_train_i = 0
-            best_t_train_done = False
-            while not best_t_train_done:
-                if best_t_train_i >= len(t_train):
-                    logging.info(f"best_weight:\t {np.round(weights[best_iter], 3)}")
-                    raise ValueError("Only negative weights learned")
-                best_iter = t_train_arg_smallest_to_largest[best_t_train_i]
-                best_t_train = t_train[best_iter]
-                if (
-                    np.all(weights[best_iter] > -1e-5)
-                    and muL_delta_l2_train_hist[best_iter]
-                    <= exp_info["IGNORE_RESULTS_EPSILON"]
-                ):
-                    best_t_train_done = True
-                best_t_train_i += 1
 
         ##
         # Book keeping stuff for the trial.
@@ -2168,124 +2190,35 @@ def run_trial_source_domain(
 
         best_row_idx = exp_info["N_EXPERT_DEMOS"] + n_init_policies + best_iter
 
-        # Generate a dataframe for results gathering.
-        X_irl = pd.concat([X_irl_exp, X_irl_learn], axis=0).reset_index(drop=True)
-        y_irl = pd.concat([y_irl_exp, y_irl_learn], axis=0).reset_index(drop=True)
-        df_irl = X_irl.copy()
-        df_irl["is_expert"] = y_irl.copy()
-        for i, col in enumerate(feat_obj_set_cols):
-            df_irl.columns.values[i] = f"muL_train_{col}"
-            # df_irl[f"muL_{col}"] = (
-            #     np.zeros(exp_info["N_EXPERT_DEMOS"] + n_init_policies).tolist()
-            #     + np.array(muL_history)[:, i].tolist()
-            # )
-            df_irl[f"muL_val_{col}"] = (
-                np.zeros(exp_info["N_EXPERT_DEMOS"] + n_init_policies).tolist()
-                + np.array(muL_val_history)[:, i].tolist()
-            )
-            df_irl[f"muL_test_{col}"] = (
-                np.zeros(exp_info["N_EXPERT_DEMOS"] + n_init_policies).tolist()
-                + np.array(muL_test_history)[:, i].tolist()
-            )
-        for i, col in enumerate(perf_obj_set_cols):
-            df_irl[f"muL_perf_train_{col}"] = (
-                np.zeros(exp_info["N_EXPERT_DEMOS"] + n_init_policies).tolist()
-                + np.array(muL_perf_train_history)[:, i].tolist()
-            )
-            df_irl[f"muL_perf_val_{col}"] = (
-                np.zeros(exp_info["N_EXPERT_DEMOS"] + n_init_policies).tolist()
-                + np.array(muL_perf_val_history)[:, i].tolist()
-            )
-            df_irl[f"muL_perf_test_{col}"] = (
-                np.zeros(exp_info["N_EXPERT_DEMOS"] + n_init_policies).tolist()
-                + np.array(muL_perf_test_history)[:, i].tolist()
-            )
-        df_irl["is_init_policy"] = (
-            np.zeros(exp_info["N_EXPERT_DEMOS"]).tolist()
-            + np.ones(n_init_policies).tolist()
-            + np.zeros(len(t_train)).tolist()
+        df_irl = _build_df_irl(
+            X_irl_exp,
+            y_irl_exp,
+            X_irl_learn,
+            y_irl_learn,
+            feat_obj_set_cols,
+            perf_obj_set_cols,
+            exp_info["N_EXPERT_DEMOS"],
+            n_init_policies,
+            muL_val_history,
+            muL_test_history,
+            muL_perf_train_history,
+            muL_perf_val_history,
+            muL_perf_test_history,
+            weights,
+            t_train,
+            t_val,
+            t_test,
+            svm_margin_hist,
+            (max_abs_subdom_hist, sum_abs_subdom_hist, max_rel_subdom_hist, sum_rel_subdom_hist),
+            (max_abs_subdom_val_hist, sum_abs_subdom_val_hist, max_rel_subdom_val_hist, sum_rel_subdom_val_hist),
+            (max_abs_subdom_test_hist, sum_abs_subdom_test_hist, max_rel_subdom_test_hist, sum_rel_subdom_test_hist),
+            muL_delta_l2_train_hist,
+            muL_delta_l2_val_hist,
+            muL_delta_l2_test_hist,
+            muL_delta_abs_l2_train_hist,
+            muL_delta_abs_l2_val_hist,
+            muL_delta_abs_l2_test_hist,
         )
-        df_irl["learn_idx"] = list(-1 * np.ones(exp_info["N_EXPERT_DEMOS"])) + list(
-            np.arange(n_init_policies + len(t_train))
-        )
-        for i, col in enumerate(feat_obj_set_cols):
-            df_irl[f"{col}_weight"] = np.zeros(
-                exp_info["N_EXPERT_DEMOS"] + n_init_policies
-            ).tolist() + [w[i] for w in weights]
-        df_irl["max_abs_subdominance_train"] = (
-            np.inf * np.ones(exp_info["N_EXPERT_DEMOS"] + n_init_policies, dtype=float)
-        ).tolist() + max_abs_subdom_hist
-        df_irl["sum_abs_subdominance_train"] = (
-            np.inf * np.ones(exp_info["N_EXPERT_DEMOS"] + n_init_policies, dtype=float)
-        ).tolist() + sum_abs_subdom_hist
-        df_irl["max_rel_subdominance_train"] = (
-            np.inf * np.ones(exp_info["N_EXPERT_DEMOS"] + n_init_policies, dtype=float)
-        ).tolist() + max_rel_subdom_hist
-        df_irl["sum_rel_subdominance_train"] = (
-            np.inf * np.ones(exp_info["N_EXPERT_DEMOS"] + n_init_policies, dtype=float)
-        ).tolist() + sum_rel_subdom_hist
-
-        # Added Subdominance for Val and Test
-        df_irl["max_abs_subdominance_val"] = (
-            np.inf * np.ones(exp_info["N_EXPERT_DEMOS"] + n_init_policies, dtype=float)
-        ).tolist() + max_abs_subdom_val_hist
-        df_irl["sum_abs_subdominance_val"] = (
-            np.inf * np.ones(exp_info["N_EXPERT_DEMOS"] + n_init_policies, dtype=float)
-        ).tolist() + sum_abs_subdom_val_hist
-        df_irl["max_rel_subdominance_val"] = (
-            np.inf * np.ones(exp_info["N_EXPERT_DEMOS"] + n_init_policies, dtype=float)
-        ).tolist() + max_rel_subdom_val_hist
-        df_irl["sum_rel_subdominance_val"] = (
-            np.inf * np.ones(exp_info["N_EXPERT_DEMOS"] + n_init_policies, dtype=float)
-        ).tolist() + sum_rel_subdom_val_hist
-
-        df_irl["max_abs_subdominance_test"] = (
-            np.inf * np.ones(exp_info["N_EXPERT_DEMOS"] + n_init_policies, dtype=float)
-        ).tolist() + max_abs_subdom_test_hist
-        df_irl["sum_abs_subdominance_test"] = (
-            np.inf * np.ones(exp_info["N_EXPERT_DEMOS"] + n_init_policies, dtype=float)
-        ).tolist() + sum_abs_subdom_test_hist
-        df_irl["max_rel_subdominance_test"] = (
-            np.inf * np.ones(exp_info["N_EXPERT_DEMOS"] + n_init_policies, dtype=float)
-        ).tolist() + max_rel_subdom_test_hist
-        df_irl["sum_rel_subdominance_test"] = (
-            np.inf * np.ones(exp_info["N_EXPERT_DEMOS"] + n_init_policies, dtype=float)
-        ).tolist() + sum_rel_subdom_test_hist
-
-        df_irl["svm_margin"] = (
-            list(np.inf * (np.ones(exp_info["N_EXPERT_DEMOS"] + n_init_policies)))
-            + svm_margin_hist
-        )
-        df_irl["t_train"] = (
-            list(np.inf * (np.ones(exp_info["N_EXPERT_DEMOS"] + n_init_policies)))
-            + t_train
-        )
-        df_irl["t_val"] = (
-            list(np.inf * (np.ones(exp_info["N_EXPERT_DEMOS"] + n_init_policies)))
-            + t_val
-        )
-        df_irl["t_test"] = (
-            list(np.inf * (np.ones(exp_info["N_EXPERT_DEMOS"] + n_init_policies)))
-            + t_test
-        )
-        df_irl["mu_delta_l2_train"] = (
-            np.inf * np.ones(exp_info["N_EXPERT_DEMOS"] + n_init_policies, dtype=float)
-        ).tolist() + muL_delta_l2_train_hist
-        df_irl["mu_delta_l2_val"] = (
-            np.inf * np.ones(exp_info["N_EXPERT_DEMOS"] + n_init_policies, dtype=float)
-        ).tolist() + muL_delta_l2_val_hist
-        df_irl["mu_delta_l2_test"] = (
-            np.inf * np.ones(exp_info["N_EXPERT_DEMOS"] + n_init_policies, dtype=float)
-        ).tolist() + muL_delta_l2_test_hist
-        df_irl["mu_delta_abs_l2_train"] = (
-            np.inf * np.ones(exp_info["N_EXPERT_DEMOS"] + n_init_policies, dtype=float)
-        ).tolist() + muL_delta_abs_l2_train_hist
-        df_irl["mu_delta_abs_l2_val"] = (
-            np.inf * np.ones(exp_info["N_EXPERT_DEMOS"] + n_init_policies, dtype=float)
-        ).tolist() + muL_delta_abs_l2_val_hist
-        df_irl["mu_delta_abs_l2_test"] = (
-            np.inf * np.ones(exp_info["N_EXPERT_DEMOS"] + n_init_policies, dtype=float)
-        ).tolist() + muL_delta_abs_l2_test_hist
 
         logging.debug("Experiment Summary")
 
