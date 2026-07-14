@@ -3,6 +3,8 @@ import datetime
 import itertools
 import json
 import logging
+import os
+import tempfile
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -37,13 +39,17 @@ from fairlearn.reductions import (
 from matplotlib.ticker import FormatStrFormatter
 from scipy.spatial.distance import cosine
 from sklearn.dummy import DummyClassifier
-from sklearn.ensemble import RandomForestClassifier
+from sklearn.ensemble import RandomForestClassifier, RandomForestRegressor
 from sklearn.model_selection import KFold, train_test_split
+from sklearn.multioutput import MultiOutputRegressor
+from sklearn.neighbors import KNeighborsRegressor
+from sklearn.neural_network import MLPClassifier, MLPRegressor
+from sklearn.svm import SVC, SVR
 from sklearn.tree import DecisionTreeClassifier
 from sklearn.datasets import make_classification
 from sklearn.linear_model import LogisticRegression
 from sklearn.model_selection import train_test_split
-from xgboost import XGBClassifier
+from xgboost import XGBClassifier, XGBRegressor
 from catboost import CatBoostClassifier
 
 from research.irl.fair_irl import *
@@ -1490,20 +1496,543 @@ def _irl_fit_clf_and_demo_df(feature_types, X_train, y_train):
     return clf, demo_df
 
 
-def _irl_apply_weight_adjustments(wi, weight_adjusts):
-    """Apply a sequence of weight adjustment operations to wi and return the result."""
+def _ml_make_base_clf(exp_info, feature_types):
+    """Return a fresh, unfitted sklearn pipeline for the configured classifier type."""
+    clf_type = exp_info.get("ML_WEIGHT_ADJUST_CLF_TYPE", "MLP")
+    if clf_type == "MLP":
+        clf_inst = MLPClassifier(
+            hidden_layer_sizes=(100, 50), max_iter=500, random_state=42
+        )
+    elif clf_type == "CatBoost":
+        clf_inst = CatBoostClassifier(allow_writing_files=False, logging_level="Silent")
+    elif clf_type == "XGBoost":
+        clf_inst = XGBClassifier(eval_metric="logloss", verbosity=0)
+    elif clf_type == "SVM":
+        clf_inst = SVC(kernel="rbf")
+    else:
+        raise ValueError(f"Unknown ML_WEIGHT_ADJUST_CLF_TYPE: {clf_type}")
+    return sklearn_clf_pipeline(feature_types, clf_inst)
+
+
+def _ml_xgb_get_leaf_values(clf_inner):
+    """Extract XGBoost leaf node values as a flat numpy array via JSON serialisation."""
+    with tempfile.NamedTemporaryFile(suffix=".json", delete=False) as f:
+        temp_path = f.name
+    try:
+        clf_inner.get_booster().save_model(temp_path)
+        with open(temp_path) as f:
+            model_dict = json.load(f)
+    finally:
+        if os.path.exists(temp_path):
+            os.unlink(temp_path)
+
+    leaves = []
+    for tree in (
+        model_dict.get("learner", {})
+        .get("gradient_booster", {})
+        .get("model", {})
+        .get("trees", [])
+    ):
+        left_children = tree.get("left_children", [])
+        base_weights = tree.get("base_weights", [])
+        for j, lc in enumerate(left_children):
+            # -1 or very large positive value signals a leaf (no left child)
+            if (lc == -1 or lc > 1_000_000_000) and j < len(base_weights):
+                leaves.append(float(base_weights[j]))
+    return np.array(leaves)
+
+
+def _ml_xgb_set_leaf_values(clf_inner, new_values):
+    """Overwrite XGBoost leaf values in-place via JSON save/load."""
+    with tempfile.NamedTemporaryFile(suffix=".json", delete=False) as f:
+        temp_path = f.name
+    try:
+        clf_inner.get_booster().save_model(temp_path)
+        with open(temp_path) as f:
+            model_dict = json.load(f)
+
+        leaf_idx = 0
+        for tree in (
+            model_dict.get("learner", {})
+            .get("gradient_booster", {})
+            .get("model", {})
+            .get("trees", [])
+        ):
+            left_children = tree.get("left_children", [])
+            for j, lc in enumerate(left_children):
+                if (lc == -1 or lc > 1_000_000_000) and leaf_idx < len(new_values):
+                    lv = float(new_values[leaf_idx])
+                    if j < len(tree.get("base_weights", [])):
+                        tree["base_weights"][j] = lv
+                    if j < len(tree.get("split_conditions", [])):
+                        tree["split_conditions"][j] = lv
+                    leaf_idx += 1
+
+        with open(temp_path, "w") as f:
+            json.dump(model_dict, f)
+        clf_inner.get_booster().load_model(temp_path)
+    finally:
+        if os.path.exists(temp_path):
+            os.unlink(temp_path)
+
+
+def _ml_get_flat_params(clf_pipeline, clf_type):
+    """Return the learnable parameters of the inner classifier as a flat numpy array."""
+    inner = clf_pipeline.named_steps["classifier"]
+    if clf_type == "MLP":
+        return np.concatenate(
+            [c.flatten() for c in inner.coefs_]
+            + [b.flatten() for b in inner.intercepts_]
+        )
+    elif clf_type == "CatBoost":
+        return inner.get_leaf_values().copy()
+    elif clf_type == "XGBoost":
+        return _ml_xgb_get_leaf_values(inner)
+    elif clf_type == "SVM":
+        return np.concatenate([inner.dual_coef_.flatten(), inner.intercept_.flatten()])
+    raise ValueError(f"Unknown clf_type: {clf_type}")
+
+
+def _ml_set_flat_params(clf_pipeline, clf_type, biased_params):
+    """Return a deep copy of clf_pipeline with biased_params installed."""
+    new_clf = copy.deepcopy(clf_pipeline)
+    orig_inner = clf_pipeline.named_steps["classifier"]
+    new_inner = new_clf.named_steps["classifier"]
+
+    if clf_type == "MLP":
+        idx = 0
+        for coef in new_inner.coefs_:
+            n = coef.size
+            coef[:] = biased_params[idx : idx + n].reshape(coef.shape)
+            idx += n
+        for intercept in new_inner.intercepts_:
+            n = intercept.size
+            intercept[:] = biased_params[idx : idx + n].reshape(intercept.shape)
+            idx += n
+    elif clf_type == "CatBoost":
+        new_inner.set_leaf_values(biased_params)
+    elif clf_type == "XGBoost":
+        _ml_xgb_set_leaf_values(new_inner, biased_params)
+    elif clf_type == "SVM":
+        n_dual = orig_inner.dual_coef_.size
+        new_inner.dual_coef_[:] = biased_params[:n_dual].reshape(
+            orig_inner.dual_coef_.shape
+        )
+        new_inner.intercept_[:] = biased_params[n_dual:].reshape(
+            orig_inner.intercept_.shape
+        )
+    return new_clf
+
+
+def _ml_apply_bias_process(params, bias_process):
+    """Return a biased copy of the flat parameter array according to the selected process."""
+    if len(params) == 0:
+        return params.copy()
+    if bias_process == "tiny_uniform":
+        # Add uniform noise in [-0.01, 0.01] to every parameter.
+        return params + np.random.uniform(-0.01, 0.01, size=params.shape)
+    elif bias_process == "sparse_medium":
+        # Add noise in [-0.1, 0.1] to a random 10% subset; leave the rest unchanged.
+        biased = params.copy()
+        n_select = max(1, int(len(params) * 0.1))
+        idx = np.random.choice(len(params), size=n_select, replace=False)
+        biased[idx] += np.random.uniform(-0.1, 0.1, size=n_select)
+        return biased
+    elif bias_process == "very_sparse_large":
+        # Add noise in [-1.0, 1.0] to a random 1% subset; leave the rest unchanged.
+        biased = params.copy()
+        n_select = max(1, int(len(params) * 0.01))
+        idx = np.random.choice(len(params), size=n_select, replace=False)
+        biased[idx] += np.random.uniform(-1.0, 1.0, size=n_select)
+        return biased
+    raise ValueError(f"Unknown ML_WEIGHT_ADJUST_BIAS_PROCESS: {bias_process}")
+
+
+def _ml_run_irl_loop_simple(
+    exp_info, feat_obj_set, X_train, y_train, feature_types, muE
+):
+    """Run a self-contained IRL loop on supplied expert feature expectations and return best weights."""
+    feat_obj_set_cols = [obj.name for obj in feat_obj_set.objectives]
+    x_cols = [
+        c
+        for c in (
+            feature_types["boolean"]
+            + feature_types["categoric"]
+            + feature_types["continuous"]
+        )
+        if c != "z"
+    ]
+
+    muL_init = init_muL_from_muE("DegradeRelative", muE)
+    X_irl_exp = pd.DataFrame(muE, columns=feat_obj_set_cols)
+    y_irl_exp = pd.Series(np.ones(len(muE)), dtype=int)
+    X_irl_learn = pd.DataFrame(muL_init, columns=feat_obj_set_cols)
+    y_irl_learn = pd.Series(np.zeros(len(muL_init)), dtype=int)
+
+    clf, demo_df = _irl_fit_clf_and_demo_df(feature_types, X_train, y_train)
+    can_observe_y = "FO" in exp_info.get("IRL_METHOD", "")
+
+    weights = []
+    muL_history = []
+    margin_hist = []
+
+    for i in range(exp_info.get("MAX_ITER", 40)):
+        wi, svm = _irl_find_weights(
+            X_irl_exp, y_irl_exp, X_irl_learn, y_irl_learn, exp_info
+        )
+        weights.append(wi)
+
+        clf_pol = _irl_compute_optimal_policy(
+            wi, feat_obj_set, demo_df, clf, x_cols, exp_info
+        )
+        demo = generate_demo(clf_pol, X_train, y_train, can_observe_y=can_observe_y)
+        muL = feat_obj_set.compute_demo_feature_exp(demo)
+        muL_history.append(muL)
+
+        _, _, _, _, margin = irl_error(
+            wi,
+            muE,
+            muL_history,
+            dot_weights_feat_exp=exp_info["DOT_WEIGHTS_FEAT_EXP"],
+            svm_margin=svm.margin(),
+        )
+        margin_hist.append(margin)
+
+        X_irl_learn = pd.concat(
+            [X_irl_learn, pd.DataFrame(np.array([muL]), columns=feat_obj_set_cols)]
+        )
+        y_irl_learn = pd.concat([y_irl_learn, pd.Series(np.zeros(1), dtype=int)])
+
+        if _check_irl_stopping_criteria(i, exp_info, margin, margin_hist, weights, wi):
+            break
+
+    return weights[int(np.argsort(margin_hist)[0])]
+
+
+def _ml_generate_biased_entries(
+    exp_info, X_train, y_train, feature_types, feat_obj_set
+):
+    """Generate one (mu, demo, weights) triple from a randomly biased classifier.
+
+    Uses k-fold cross-prediction so the biased classifier never generates demos
+    for data it was trained on, matching the approach in generate_mu_and_demos().
+    """
+    clf_type = exp_info.get("ML_WEIGHT_ADJUST_CLF_TYPE", "MLP")
+    bias_process = exp_info.get("ML_WEIGHT_ADJUST_BIAS_PROCESS", "tiny_uniform")
+    n_kfolds = exp_info.get("ML_WEIGHT_ADJUST_N_KFOLDS", 2)
+    n_biased_demos = exp_info.get("ML_WEIGHT_ADJUST_N_BIASED_DEMOS_PER_DATASET", 100)
+
+    all_demos = []
+    k_fold = KFold(n_splits=n_kfolds)
+    for i, (train_idx, test_idx) in enumerate(k_fold.split(X_train, y_train)):
+        logging.info(f"[ML Debias] Phase 1: training fold_clf for data fold {i}...")
+        _X_tr = X_train.iloc[train_idx]
+        _y_tr = y_train.iloc[train_idx]
+        _X_te = X_train.iloc[test_idx]
+        _y_te = y_train.iloc[test_idx]
+
+        # Train a fresh classifier on this fold's training portion
+        fold_clf = _ml_make_base_clf(exp_info, feature_types)
+        fold_clf.fit(_X_tr, _y_tr)
+
+        all_demos.append([])
+
+        logging.info(
+            f"[ML Debias] Phase 1: generating {n_biased_demos} biased demos for data fold {i}..."
+        )
+        for _ in range(n_biased_demos):
+            # Bias the learned parameters and create a new pipeline with them
+            flat_params = _ml_get_flat_params(fold_clf, clf_type)
+            # TODO: change this code to apply the same bias process to the params of all folds.
+            # This might not really matter, but it might help keep the bias process consistent
+            # across folds, which might help the debiaser learn better.
+            biased_params = _ml_apply_bias_process(flat_params, bias_process)
+            biased_clf = _ml_set_flat_params(fold_clf, clf_type, biased_params)
+
+            # Predict on the held-out fold (no data leakage)
+            fold_demo = generate_demo(biased_clf, _X_te, _y_te, can_observe_y=False)
+            all_demos[i].append(fold_demo)
+    biased_demos = []
+    biased_mus = []
+    biased_weights_list = []
+    for num_demo in range(n_biased_demos):
+        logging.info(
+            f"[ML Debias] Phase 1: computing biased expectations and weights for "
+            f"demo {num_demo+1} of {n_biased_demos}..."
+        )
+        partial_demo_list = []
+        for i in range(n_kfolds):
+            partial_demo = all_demos[i][num_demo]
+            partial_demo_list.append(partial_demo)
+        biased_demo = pd.concat(partial_demo_list)
+        biased_mu = np.array([feat_obj_set.compute_demo_feature_exp(biased_demo)])
+        biased_weights = _ml_run_irl_loop_simple(
+            exp_info, feat_obj_set, X_train, y_train, feature_types, biased_mu
+        )
+        biased_demos.append(biased_demo)
+        biased_mus.append(biased_mu)
+        biased_weights_list.append(biased_weights)
+    return [
+        {"mu": mu, "demo": demo, "weights": weights}
+        for mu, demo, weights in zip(biased_mus, biased_demos, biased_weights_list)
+    ]
+
+
+def _ml_compare_bias(entry_a, entry_b, exp_info):
+    """Return (less_biased, more_biased).
+
+    Computes subdominance in both directions: whichever entry acts as the
+    better clf_demos (lower subdominance) is considered less biased.
+    """
+    subdom_a_as_clf, _, _, _ = compute_iteration_subdominance(
+        exp_info, entry_b["demo"], entry_a["demo"]
+    )
+    subdom_b_as_clf, _, _, _ = compute_iteration_subdominance(
+        exp_info, entry_a["demo"], entry_b["demo"]
+    )
+    if subdom_a_as_clf <= subdom_b_as_clf:
+        return entry_a, entry_b  # a dominates more -> a is less biased
+    return entry_b, entry_a
+
+
+def _ml_make_regressor(regressor_type):
+    """Instantiate the weight-debiasing regression model."""
+    if regressor_type == "MLP":
+        return MLPRegressor(
+            hidden_layer_sizes=(128, 64),
+            max_iter=2000,
+            early_stopping=True,
+            validation_fraction=0.15,
+            n_iter_no_change=20,
+            random_state=42,
+        )
+    elif regressor_type == "XGBoost":
+        return MultiOutputRegressor(
+            XGBRegressor(n_estimators=200, verbosity=0, learning_rate=0.05)
+        )
+    elif regressor_type == "RandomForest":
+        return RandomForestRegressor(n_estimators=200, random_state=42)
+    elif regressor_type == "SVR":
+        return MultiOutputRegressor(SVR(kernel="rbf"))
+    elif regressor_type == "KNN":
+        return KNeighborsRegressor(n_neighbors=5)
+    raise ValueError(f"Unknown ML_WEIGHT_ADJUST_REGRESSOR_TYPE: {regressor_type}")
+
+
+def _ml_train_debiaser(exp_info, biased_entries, feat_obj_set):
+    """Train a regression model to map (more-biased mu + weights) -> less-biased weights.
+
+    Pairs are drawn without replacement in multiple shuffled passes to maximise
+    training data while preserving diversity.
+    """
+    regressor_type = exp_info.get("ML_WEIGHT_ADJUST_REGRESSOR_TYPE", "MLP")
+    regressor_n_training_samples = exp_info.get(
+        "ML_WEIGHT_ADJUST_REGRESSOR_N_TRAINING_SAMPLES", 1000
+    )
+    n = len(biased_entries)
+    n_pairs_per_pass = n // 2
+    # Target at least regressor_n_training_samples training samples, using as many passes as needed
+    n_passes = max(
+        1,
+        (regressor_n_training_samples + n_pairs_per_pass - 1)
+        // max(1, n_pairs_per_pass),
+    )
+
+    logging.info(
+        f"[ML Debias] Phase 2: Generating debiaser training data with {n_passes} passes over {n} biased"
+        f" entries, for a total of {n_pairs_per_pass * n_passes} training samples..."
+    )
+    X_reg, y_reg = [], []
+    for _ in range(n_passes):
+        shuffled = np.random.permutation(n).tolist()
+        for i in range(0, len(shuffled) - 1, 2):
+            if len(X_reg) % (n_pairs_per_pass * n_passes / 10) == 0:
+                logging.info(
+                    f"[ML Debias] Phase 2: generating training pair {len(X_reg) + 1} of "
+                    f"{n_pairs_per_pass * n_passes}..."
+                )
+            less_b, more_b = _ml_compare_bias(
+                biased_entries[shuffled[i]], biased_entries[shuffled[i + 1]], exp_info
+            )
+            X_reg.append(np.concatenate([more_b["mu"].flatten(), more_b["weights"]]))
+            y_reg.append(less_b["weights"])
+
+    if len(X_reg) < 2:
+        logging.warning("[ML Debias] Not enough training pairs; skipping debiaser.")
+        return None
+
+    regressor = _ml_make_regressor(regressor_type)
+    logging.info(
+        f"[ML Debias] Phase 2: training {regressor_type} debiaser on {len(X_reg)} samples..."
+    )
+    regressor.fit(np.array(X_reg), np.array(y_reg))
+    return regressor
+
+
+def _ml_debiasing_loop(
+    exp_info, wi, feat_obj_set, X_train, y_train, feature_types, demoE_train, debiaser
+):
+    """Iteratively apply the debiaser to wi until subdominance stops improving.
+
+    Starts from the current weights wi and the optimal policy they induce on
+    X_train. At each iteration, passes (current_mu, current_wi) through the
+    debiaser to get new weights, recomputes the optimal policy, and measures
+    subdominance against the expert demos. Stops when subdominance no longer
+    decreases.
+    """
+    if debiaser is None:
+        return wi
+
+    max_iter = exp_info.get("ML_WEIGHT_ADJUST_DEBIAS_MAX_ITER", 20)
+    x_cols = [
+        c
+        for c in (
+            feature_types["boolean"]
+            + feature_types["categoric"]
+            + feature_types["continuous"]
+        )
+        if c != "z"
+    ]
+
+    clf_loop, demo_df_loop = _irl_fit_clf_and_demo_df(feature_types, X_train, y_train)
+
+    # Bootstrap current_mu from the policy induced by the starting wi
+    current_wi = wi.copy()
+    reward_weights = {
+        obj.name: current_wi[j] for j, obj in enumerate(feat_obj_set.objectives)
+    }
+    init_pol = compute_optimal_policy(
+        clf_df=demo_df_loop,
+        clf=clf_loop,
+        x_cols=x_cols,
+        obj_set=feat_obj_set,
+        reward_weights=reward_weights,
+        skip_error_terms=True,
+        method=exp_info["METHOD"],
+        min_freq_fill_pct=exp_info["MIN_FREQ_FILL_PCT"],
+        restrict_y=exp_info["RESTRICT_Y_ACTION"],
+    )
+    current_demo = generate_demo(init_pol, X_train, y_train, can_observe_y=False)
+    current_mu = np.array([feat_obj_set.compute_demo_feature_exp(current_demo)])
+
+    best_subdom = float("inf")
+    best_wi = current_wi.copy()
+
+    for debias_iter in range(max_iter):
+        debias_input = np.concatenate([current_mu.flatten(), current_wi]).reshape(1, -1)
+        raw_pred = debiaser.predict(debias_input).flatten()
+        norm = np.sum(np.abs(raw_pred))
+        debiased_wi = raw_pred / norm if norm > 1e-10 else raw_pred
+
+        reward_weights = {
+            obj.name: debiased_wi[j] for j, obj in enumerate(feat_obj_set.objectives)
+        }
+        new_pol = compute_optimal_policy(
+            clf_df=demo_df_loop,
+            clf=clf_loop,
+            x_cols=x_cols,
+            obj_set=feat_obj_set,
+            reward_weights=reward_weights,
+            skip_error_terms=True,
+            method=exp_info["METHOD"],
+            min_freq_fill_pct=exp_info["MIN_FREQ_FILL_PCT"],
+            restrict_y=exp_info["RESTRICT_Y_ACTION"],
+        )
+        new_demo = generate_demo(new_pol, X_train, y_train, can_observe_y=False)
+        new_mu = np.array([feat_obj_set.compute_demo_feature_exp(new_demo)])
+
+        _, sum_abs_subdom, _, _ = compute_iteration_subdominance(
+            exp_info, demoE_train, new_demo
+        )
+
+        logging.info(
+            f"\t\t[ML Debias iter {debias_iter}] sum_abs_subdom={sum_abs_subdom:.5f} "
+            f"(best={best_subdom:.5f}) wi={np.round(debiased_wi, 3)}"
+        )
+
+        if sum_abs_subdom < best_subdom:
+            best_subdom = sum_abs_subdom
+            best_wi = debiased_wi.copy()
+        else:
+            logging.info(
+                f"\t\t[ML Debias] Subdominance not improving; stopping at iter {debias_iter}."
+            )
+            break
+
+        current_wi = debiased_wi
+        current_mu = new_mu
+
+    return best_wi
+
+
+def _ml_apply_weight_adjustment_debias(wi, context, exp_info):
+    """Orchestrate the three phases of ML-based weight debiasing."""
+    X_train = context["X_train"]
+    y_train = context["y_train"]
+    feature_types = context["feature_types"]
+    feat_obj_set = context["feat_obj_set"]
+    demoE_train = context["demoE_train"]
+
+    n_biased = exp_info.get("ML_WEIGHT_ADJUST_N_BIASED_DATASETS", 1)
+
+    logging.info(f"[ML Debias] Phase 1: generating {n_biased} biased datasets...")
+    biased_entries = []
+    for i in range(n_biased):
+        logging.info(f"[ML Debias] Phase 1: Biased dataset {i + 1}/{n_biased}...")
+        try:
+            entry = _ml_generate_biased_entries(
+                exp_info, X_train, y_train, feature_types, feat_obj_set
+            )
+            biased_entries.extend(entry)
+        except Exception as exc:
+            logging.warning(f"[ML Debias] Phase 1: Entry {i + 1} failed: {exc}")
+
+    if len(biased_entries) < 2:
+        logging.warning(
+            "[ML Debias] Too few biased entries; returning original weights."
+        )
+        return wi
+
+    logging.info("[ML Debias] Phase 2: training weight debiaser...")
+    debiaser = _ml_train_debiaser(exp_info, biased_entries, feat_obj_set)
+
+    logging.info("[ML Debias] Phase 3: iterative debiasing loop...")
+    return _ml_debiasing_loop(
+        exp_info,
+        wi,
+        feat_obj_set,
+        X_train,
+        y_train,
+        feature_types,
+        demoE_train,
+        debiaser,
+    )
+
+
+def _irl_apply_weight_adjustments(wi, weight_adjusts, context=None):
+    """Apply a sequence of weight adjustment operations to wi and return the result.
+
+    context is only required when weight_adjusts contains an "ml_debias" operation.
+    It must be a dict with keys: exp_info, X_train, y_train, feature_types,
+    feat_obj_set, demoE_train.
+    """
     for weight_adjust in weight_adjusts:
-        mul_factor = weight_adjust[1]
         if weight_adjust[0] == "mul_negative_weights":
+            mul_factor = weight_adjust[1]
             wi[wi < 0] = wi[wi < 0] * mul_factor
+        elif weight_adjust[0] == "ml_debias":
+            if context is None:
+                logging.warning("[ML Debias] ml_debias requires context; skipping.")
+            else:
+                wi = _ml_apply_weight_adjustment_debias(
+                    wi, context, context["exp_info"]
+                )
     return wi
 
 
 def _irl_compute_optimal_policy(wi, feat_obj_set, demo_df, clf, x_cols, exp_info):
     """Build reward weights from wi and return the corresponding optimal classifier policy."""
-    reward_weights = {
-        obj.name: wi[j] for j, obj in enumerate(feat_obj_set.objectives)
-    }
+    reward_weights = {obj.name: wi[j] for j, obj in enumerate(feat_obj_set.objectives)}
     clf_pol = compute_optimal_policy(
         clf_df=demo_df,
         clf=clf,
@@ -1690,23 +2219,52 @@ def _build_df_irl(
 
     for i, col in enumerate(feat_obj_set_cols):
         df_irl.columns.values[i] = f"muL_train_{col}"
-        df_irl[f"muL_val_{col}"] = [0.0] * n_prefix + np.array(muL_val_history)[:, i].tolist()
-        df_irl[f"muL_test_{col}"] = [0.0] * n_prefix + np.array(muL_test_history)[:, i].tolist()
+        df_irl[f"muL_val_{col}"] = [0.0] * n_prefix + np.array(muL_val_history)[
+            :, i
+        ].tolist()
+        df_irl[f"muL_test_{col}"] = [0.0] * n_prefix + np.array(muL_test_history)[
+            :, i
+        ].tolist()
 
     for i, col in enumerate(perf_obj_set_cols):
-        df_irl[f"muL_perf_train_{col}"] = [0.0] * n_prefix + np.array(muL_perf_train_history)[:, i].tolist()
-        df_irl[f"muL_perf_val_{col}"] = [0.0] * n_prefix + np.array(muL_perf_val_history)[:, i].tolist()
-        df_irl[f"muL_perf_test_{col}"] = [0.0] * n_prefix + np.array(muL_perf_test_history)[:, i].tolist()
+        df_irl[f"muL_perf_train_{col}"] = [0.0] * n_prefix + np.array(
+            muL_perf_train_history
+        )[:, i].tolist()
+        df_irl[f"muL_perf_val_{col}"] = [0.0] * n_prefix + np.array(
+            muL_perf_val_history
+        )[:, i].tolist()
+        df_irl[f"muL_perf_test_{col}"] = [0.0] * n_prefix + np.array(
+            muL_perf_test_history
+        )[:, i].tolist()
 
-    df_irl["is_init_policy"] = [0.0] * n_expert_demos + [1.0] * n_init_policies + [0.0] * n_iter
-    df_irl["learn_idx"] = [-1.0] * n_expert_demos + list(np.arange(n_init_policies + n_iter))
+    df_irl["is_init_policy"] = (
+        [0.0] * n_expert_demos + [1.0] * n_init_policies + [0.0] * n_iter
+    )
+    df_irl["learn_idx"] = [-1.0] * n_expert_demos + list(
+        np.arange(n_init_policies + n_iter)
+    )
 
     for i, col in enumerate(feat_obj_set_cols):
         df_irl[f"{col}_weight"] = [0.0] * n_prefix + [w[i] for w in weights]
 
-    (max_abs_subdom_hist, sum_abs_subdom_hist, max_rel_subdom_hist, sum_rel_subdom_hist) = subdom_train_hists
-    (max_abs_subdom_val_hist, sum_abs_subdom_val_hist, max_rel_subdom_val_hist, sum_rel_subdom_val_hist) = subdom_val_hists
-    (max_abs_subdom_test_hist, sum_abs_subdom_test_hist, max_rel_subdom_test_hist, sum_rel_subdom_test_hist) = subdom_test_hists
+    (
+        max_abs_subdom_hist,
+        sum_abs_subdom_hist,
+        max_rel_subdom_hist,
+        sum_rel_subdom_hist,
+    ) = subdom_train_hists
+    (
+        max_abs_subdom_val_hist,
+        sum_abs_subdom_val_hist,
+        max_rel_subdom_val_hist,
+        sum_rel_subdom_val_hist,
+    ) = subdom_val_hists
+    (
+        max_abs_subdom_test_hist,
+        sum_abs_subdom_test_hist,
+        max_rel_subdom_test_hist,
+        sum_rel_subdom_test_hist,
+    ) = subdom_test_hists
 
     df_irl["max_abs_subdominance_train"] = [np.inf] * n_prefix + max_abs_subdom_hist
     df_irl["sum_abs_subdominance_train"] = [np.inf] * n_prefix + sum_abs_subdom_hist
@@ -1908,6 +2466,23 @@ def run_trial_source_domain(
     num_loops = 0
     return_vals = []
     unadjusted_best_weight = None
+
+    # Context passed to _irl_apply_weight_adjustments so that methods such as
+    # "ml_debias" have access to the dataset and objective sets.
+    _irl_context = {
+        "exp_info": exp_info,
+        "X_train": X_train,
+        "y_train": y_train,
+        "X_val": X_val,
+        "y_val": y_val,
+        "X_test": X_test,
+        "y_test": y_test,
+        "feature_types": feature_types,
+        "feat_obj_set": feat_obj_set,
+        "perf_obj_set": perf_obj_set,
+        "demoE_train": demoE_train,
+    }
+
     all_irl_loop_start = datetime.datetime.now()
     for weight_adjusts in weight_adjusts_list:
         while not done:
@@ -1970,7 +2545,7 @@ def run_trial_source_domain(
                 X_irl_learn = pd.DataFrame(muL_train_iters, columns=feat_obj_set_cols)
                 y_irl_learn = pd.Series(np.zeros(len(muL_train_iters)), dtype=int)
                 wi = _irl_apply_weight_adjustments(
-                    unadjusted_best_weight.copy(), weight_adjusts
+                    unadjusted_best_weight.copy(), weight_adjusts, context=_irl_context
                 )
                 done = True
             # Learn a policy that maximizes the reward function.
@@ -2209,9 +2784,24 @@ def run_trial_source_domain(
             t_val,
             t_test,
             svm_margin_hist,
-            (max_abs_subdom_hist, sum_abs_subdom_hist, max_rel_subdom_hist, sum_rel_subdom_hist),
-            (max_abs_subdom_val_hist, sum_abs_subdom_val_hist, max_rel_subdom_val_hist, sum_rel_subdom_val_hist),
-            (max_abs_subdom_test_hist, sum_abs_subdom_test_hist, max_rel_subdom_test_hist, sum_rel_subdom_test_hist),
+            (
+                max_abs_subdom_hist,
+                sum_abs_subdom_hist,
+                max_rel_subdom_hist,
+                sum_rel_subdom_hist,
+            ),
+            (
+                max_abs_subdom_val_hist,
+                sum_abs_subdom_val_hist,
+                max_rel_subdom_val_hist,
+                sum_rel_subdom_val_hist,
+            ),
+            (
+                max_abs_subdom_test_hist,
+                sum_abs_subdom_test_hist,
+                max_rel_subdom_test_hist,
+                sum_rel_subdom_test_hist,
+            ),
             muL_delta_l2_train_hist,
             muL_delta_l2_val_hist,
             muL_delta_l2_test_hist,
