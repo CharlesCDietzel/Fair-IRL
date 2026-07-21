@@ -4,6 +4,7 @@ import numbers
 import numpy as np
 import pandas as pd
 from scipy.optimize import linprog
+# from line_profiler import LineProfiler
 
 
 class ClassificationMDP:
@@ -201,12 +202,20 @@ class ClassificationMDP:
         #   1: Transition matrix
         #   2: Action equality for same y-values
         logging.debug("Computing transition matrix linear equations A_eq ...")
+
+        # profiler = LineProfiler()
+        # profiler.add_function(self._compute_A_eq)
+        # profiler.enable()
+
         self.A_eq_ = self._compute_A_eq(
             mu0=self.reduced_state_df_["mu0"],
             ldf=self.ldf_,
             x_cols=self.x_cols,
             restrict_y=restrict_y,
         )
+
+        # profiler.disable()
+        # profiler.print_stats()
 
         logging.debug("Fitting objectives ...")
         n_primary_constr = len(self.reduced_state_df_["mu0"])
@@ -315,20 +324,19 @@ class ClassificationMDP:
         -------
         A_eq_
         """
-        ldf_mu0 = ldf.copy()
-        ldf = ldf.copy().drop(columns="mu0")
-
         # Construct constraints that correspond to transition matrix.
+        # A_eq[s, sp*n_actions + a] = (1 if s == sp else 0) - gamma * mu0[sp]
+        # Vectorized: every row starts as the same "-gamma*mu0" pattern
+        # (tiled across actions), then the diagonal blocks get +1 added.
         n_states = len(mu0)
         n_actions = 2
-        A_eq = np.zeros((n_states, n_states * n_actions))
-        for s in range(n_states):
-            for sp in range(n_states):
-                for a in range(n_actions):
-                    if s == sp:
-                        A_eq[s][sp * n_actions + a] = 1 - self.gamma * mu0[sp]
-                    else:
-                        A_eq[s][sp * n_actions + a] = 0 - self.gamma * mu0[sp]
+        mu0_arr = np.asarray(mu0, dtype=float)
+
+        base_row = -self.gamma * np.repeat(mu0_arr, n_actions)
+        A_eq = np.tile(base_row, (n_states, 1))
+        diag_idx = np.arange(n_states)
+        for a in range(n_actions):
+            A_eq[diag_idx, diag_idx * n_actions + a] += 1
 
         if restrict_y:
             # Construct constraints that require equal actions for the same `y`
@@ -339,44 +347,61 @@ class ClassificationMDP:
 
             # For each, x, a combination:
             #   Add constraint that x,y0,a == x,y1,a
-            n_constr = ldf.groupby(x_cols + ["z", "yhat"]).size().shape[0]
+            #
+            # `ldf` is sorted by x_cols+z+y+mu0 (see
+            # _generate_lambda_linear_equations), so within a group of
+            # matching x_cols+z+yhat, the y=0 row always appears before the
+            # y=1 row. Each row already carries its own `mu0` value, so no
+            # dataframe-wide lookup is needed (unlike the previous
+            # implementation, which re-searched the whole frame per group).
+            # The assertions below enforce the structural invariants this
+            # relies on instead of the (much slower) per-group verification
+            # the old lookup-based implementation performed implicitly.
+            required_cols = set(x_cols) | {"z", "y", "yhat", "mu0"}
+            missing_cols = required_cols - set(ldf.columns)
+            assert not missing_cols, f"ldf is missing required columns: {missing_cols}"
+            assert set(ldf["yhat"].unique()) <= {0, 1}, (
+                "expected exactly 2 actions ('yhat' in {0, 1}); n_actions is "
+                "hardcoded to 2 in this function"
+            )
+            assert len(ldf) == n_states * n_actions, (
+                "expected ldf to have exactly n_actions rows per state "
+                f"({n_states} states * {n_actions} actions), got {len(ldf)} rows"
+            )
+
+            # A_eq2's columns (ldf row positions) must refer to the same
+            # (state, action) pairs, in the same order, as A_eq's columns
+            # (ordered by mu0). This holds iff every consecutive block of
+            # n_actions rows in `ldf` corresponds to the same state, in the
+            # same order as `mu0` -- verify directly rather than relying on
+            # it silently.
+            ldf_mu0_arr = ldf["mu0"].to_numpy()
+            assert all(
+                np.allclose(ldf_mu0_arr[a::n_actions], mu0_arr)
+                for a in range(n_actions)
+            ), "mu0 and ldf are not aligned to the same state ordering"
+
+            group_cols = x_cols + ["z", "yhat"]
+            group_indices = ldf.groupby(group_cols, sort=False).indices
+            n_constr = len(group_indices)
+            mu0_vals = ldf["mu0"].to_numpy()
+            y_vals = ldf["y"].to_numpy()
+
             A_eq2 = np.zeros((n_constr, len(ldf)))
-
-            group_i = 0
-            for cols, group in ldf.groupby(x_cols + ["z", "yhat"]):
-                assert len(group) <= 2
-
-                if len(group) == 1:
+            row_i = 0
+            for idx_arr in group_indices.values():
+                assert len(idx_arr) <= 2
+                if len(idx_arr) == 1:
                     continue
 
-                constr = np.zeros_like(ldf.index, dtype=float)
-                locy0 = group.index[0]
-                locy1 = group.index[1]
-                _group = group[x_cols + ["z"]]
-                # Find the mu0 values for each x, a group
-                locy0_mu0 = ldf_mu0[
-                    (
-                        ldf_mu0[x_cols + ["z", "y"]]
-                        == list(_group.iloc[0].values) + [0]
-                    ).sum(axis=1)
-                    == len(x_cols) + 2
-                ]["mu0"]
-                locy1_mu0 = ldf_mu0[
-                    (
-                        ldf_mu0[x_cols + ["z", "y"]]
-                        == list(_group.iloc[0].values) + [1]
-                    ).sum(axis=1)
-                    == len(x_cols) + 2
-                ]["mu0"]
-                assert len(locy0_mu0) == 2
-                assert len(locy1_mu0) == 2
-                locy0_mu0 = locy0_mu0.values[0]
-                locy1_mu0 = locy1_mu0.values[0]
-                constr[locy0] = 1 * locy1_mu0
-                constr[locy1] = -1 * locy0_mu0
-
-                A_eq2[group_i] = constr
-                group_i += 1
+                locy0, locy1 = idx_arr[0], idx_arr[1]
+                assert y_vals[locy0] == 0 and y_vals[locy1] == 1, (
+                    "expected the y=0 row to precede the y=1 row within each "
+                    "x_cols+z+yhat group (relies on ldf's sort order)"
+                )
+                A_eq2[row_i, locy0] = mu0_vals[locy1]
+                A_eq2[row_i, locy1] = -mu0_vals[locy0]
+                row_i += 1
 
             # Combine the two constraint matrices
             A_eq = np.concatenate([A_eq, A_eq2])

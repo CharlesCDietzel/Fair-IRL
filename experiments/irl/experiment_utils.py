@@ -1,6 +1,6 @@
 import copy
 import datetime
-import itertools
+from itertools import combinations
 import json
 import logging
 import os
@@ -1069,10 +1069,23 @@ def compute_iteration_subdominance(
     # Compute subdominance metric for the learned policy
     raw_demo = raw_demo_ref.copy()
     clf_demo = clf_demo_cur.copy()
-    # raw_demo = raw_demo.sample(frac=1).reset_index(drop=True)
-    # clf_demo = clf_demo.sample(frac=1).reset_index(drop=True)
-    raw_demos = np.array_split(raw_demo, exp_info["N_SUBDOMINANCE_GROUPS"])
-    clf_demos = np.array_split(clf_demo, exp_info["N_SUBDOMINANCE_GROUPS"])
+    # OLD IMPLEMENTATION: Split the raw and clf demos into subdominance groups, where there are no repeated demos in each group. 
+    # raw_demos = np.array_split(raw_demo, exp_info["N_SUBDOMINANCE_GROUPS"])
+    # clf_demos = np.array_split(clf_demo, exp_info["N_SUBDOMINANCE_GROUPS"])
+    # NEW IMPLEMENTATION: Split the raw and clf demos into subdominance groups, where each group contains half of the demos, 
+    # sampled randomly without replacement. This way, each group contains a large and diverse set of demos, from which we can
+    # more accurately and robustly compute the feature losses. This will help to improve the robustness of the subdominance 
+    # metric, especially when the number of demos is small.
+    # ADD NEW IMPLEMENTATION HERE:
+    n_demos = len(raw_demo)
+    group_size = n_demos // 2
+    raw_demos = []
+    clf_demos = []
+    for _ in range(exp_info["N_SUBDOMINANCE_GROUPS"]):
+        group_idx = np.random.choice(n_demos, size=group_size, replace=False)
+        raw_demos.append(raw_demo.iloc[group_idx])
+        clf_demos.append(clf_demo.iloc[group_idx])
+
     raw_demos_feat_loss = np.array(
         [
             compute_relevant_feat_loss(exp_info, raw_demo_group)
@@ -1822,45 +1835,25 @@ def _ml_make_regressor(regressor_type):
 def _ml_train_debiaser(exp_info, biased_entries, feat_obj_set):
     """Train a regression model to map (more-biased mu + weights) -> less-biased weights.
 
-    Pairs are drawn without replacement in multiple shuffled passes to maximise
-    training data while preserving diversity.
+    A dataset of less biased/more biased pairs is generated from every possible combination
+    of the biased entries. Subdominance is used to determine which entry is less biased.
+    A regression model is then trained to predict the less-biased weights from the more-biased
+    mu and weights, in a manner somewhat analogous to a diffusion model. The resulting model
+    can then be used to iteratively debias a set of weights by repeatedly applying the model
+    to its own output until convergence. This is done in the _ml_debiasing_loop function.
     """
     regressor_type = exp_info.get("ML_WEIGHT_ADJUST_REGRESSOR_TYPE", "MLP")
-    regressor_n_training_samples = exp_info.get(
-        "ML_WEIGHT_ADJUST_REGRESSOR_N_TRAINING_SAMPLES", 1000
-    )
     n = len(biased_entries)
-    n_pairs_per_pass = n // 2
-    # Target at least regressor_n_training_samples training samples, using as many passes as needed
-    n_passes = max(
-        1,
-        (regressor_n_training_samples + n_pairs_per_pass - 1)
-        // max(1, n_pairs_per_pass),
-    )
-
+    assert n >= 2, "Need at least 2 biased entries to generate training pairs."
     logging.info(
-        f"[ML Debias] Phase 2: Generating debiaser training data with {n_passes} passes over {n} biased"
-        f" entries, for a total of {n_pairs_per_pass * n_passes} training samples..."
+        f"[ML Debias] Phase 2: Generating debiaser training pairs from {n} biased mu/weight"
+        f" entries, for a total of {(n * (n-1)) // 2} training samples..."
     )
     X_reg, y_reg = [], []
-    for _ in range(n_passes):
-        shuffled = np.random.permutation(n).tolist()
-        for i in range(0, len(shuffled) - 1, 2):
-            if len(X_reg) % (n_pairs_per_pass * n_passes / 10) == 0:
-                logging.info(
-                    f"[ML Debias] Phase 2: generating training pair {len(X_reg) + 1} of "
-                    f"{n_pairs_per_pass * n_passes}..."
-                )
-            less_b, more_b = _ml_compare_bias(
-                biased_entries[shuffled[i]], biased_entries[shuffled[i + 1]], exp_info
-            )
-            X_reg.append(np.concatenate([more_b["mu"].flatten(), more_b["weights"]]))
-            y_reg.append(less_b["weights"])
-
-    if len(X_reg) < 2:
-        logging.warning("[ML Debias] Not enough training pairs; skipping debiaser.")
-        return None
-
+    for entry_pair in combinations(biased_entries, 2):
+        less_b, more_b = _ml_compare_bias(entry_pair[0], entry_pair[1], exp_info)
+        X_reg.append(np.concatenate([more_b["mu"].flatten(), more_b["weights"]]))
+        y_reg.append(less_b["weights"])
     regressor = _ml_make_regressor(regressor_type)
     logging.info(
         f"[ML Debias] Phase 2: training {regressor_type} debiaser on {len(X_reg)} samples..."

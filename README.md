@@ -1,7 +1,8 @@
 # Research
 
 ## Description
-Since May 2, 2019, when this repository was created, it has been maintained exclusively by myself, Jack Blandin. It consists of various implementations of both existing and novel machine learning, reinforcement learning, and fairness algorithms, as well as supporting experiments for published works where I was a primary author and algorithm developer. These work was completed either (a) for my PhD research (2018-2024), or (b) for my own personal education.
+This repository was created on May 2, 2019, by Jack Blandin, the previous maintainer. As of summer 2025, maintenence and development has been taken over by me, Charles Dietzel. 
+This repo consists of various implementations of both existing and novel machine learning, reinforcement learning, and fairness algorithms, as well as supporting experiments for various published and unpublished works. 
 
 ## Setup
 
@@ -9,7 +10,7 @@ The following steps show how to setup the conda environment so that all dependen
 
 ```sh
 # Create the conda environment from the config file
-conda env create -f=conda.yaml
+conda env create -f environment.yml
 
 # Activate the conda environment
 conda activate research
@@ -22,15 +23,6 @@ jupyter notebook
 ```
 
 Then when you're in the Jupyter Notebook, select `Kernel > Change Kernel > research`.
-
-# Release history
-
-This is the release history for the algorithms available as Python packages.
-
-Version | Date | Description
---- | --- | ---
-0.2.0 | 02/12/2022 | Add RL algorithms as part of research module.
-0.1.4 | 06/14/2019 | Initial stable release.
 
 # Publications
 
