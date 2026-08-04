@@ -1,14 +1,14 @@
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
-import seaborn as sns  # noqa
+import seaborn as sns
 from scipy import optimize
 from sklearn.base import BaseEstimator, ClassifierMixin
 from sklearn.preprocessing import normalize
 from sklearn.utils.multiclass import unique_labels
 from sklearn.utils.validation import check_X_y, check_array, check_is_fitted
 
-# from tabulate import tabulate
+from tabulate import tabulate
 
 from research.ml.kernel import KERNEL_MAP
 

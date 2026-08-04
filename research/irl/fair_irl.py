@@ -1,13 +1,19 @@
 import copy
+import json
 import logging
 import numpy as np
 import os
+import tempfile
 import pandas as pd
 from research.rl.env.clf_mdp import *
 from research.rl.env.clf_mdp_policy import *
 from research.rl.env.objectives import *
 from research.utils import *
 from sklearn.model_selection import train_test_split, KFold
+from sklearn.neural_network import MLPClassifier
+from sklearn.svm import SVC
+from xgboost import XGBClassifier
+from catboost import CatBoostClassifier
 
 
 def compute_optimal_policy(
@@ -238,27 +244,191 @@ def add_demo_bias(demo, bias_types=(), dataset=None):
     return demo
 
 
-def add_classifier_bias(clf, bias_types=[]):
-    # Swap thresholds for expert classifiers (invert fairness objective, sort of)
-    # Since this doesn't work for non postprocessing classifiers, probably shouldnt use this
+def _make_corruption_clf(clf_type, feature_types):
+    """Return a fresh, unfitted sklearn pipeline for the configured classifier type."""
+    if clf_type == "MLP":
+        clf_inst = MLPClassifier(
+            hidden_layer_sizes=(100, 50), max_iter=500, random_state=42
+        )
+    elif clf_type == "CatBoost":
+        clf_inst = CatBoostClassifier(allow_writing_files=False, logging_level="Silent")
+    elif clf_type == "XGBoost":
+        clf_inst = XGBClassifier(eval_metric="logloss", verbosity=0)
+    elif clf_type == "SVM":
+        clf_inst = SVC(kernel="rbf")
+    else:
+        raise ValueError(f"Unknown ML_WEIGHT_ADJUST_CLF_TYPE: {clf_type}")
+    return sklearn_clf_pipeline(feature_types, clf_inst)
+
+
+def _ml_xgb_get_leaf_values(clf_inner):
+    """Extract XGBoost leaf node values as a flat numpy array via JSON serialisation."""
+    with tempfile.NamedTemporaryFile(suffix=".json", delete=False) as f:
+        temp_path = f.name
+    try:
+        clf_inner.get_booster().save_model(temp_path)
+        with open(temp_path) as f:
+            model_dict = json.load(f)
+    finally:
+        if os.path.exists(temp_path):
+            os.unlink(temp_path)
+
+    leaves = []
+    for tree in (
+        model_dict.get("learner", {})
+        .get("gradient_booster", {})
+        .get("model", {})
+        .get("trees", [])
+    ):
+        left_children = tree.get("left_children", [])
+        base_weights = tree.get("base_weights", [])
+        for j, lc in enumerate(left_children):
+            # -1 or very large positive value signals a leaf (no left child)
+            if (lc == -1 or lc > 1_000_000_000) and j < len(base_weights):
+                leaves.append(float(base_weights[j]))
+    return np.array(leaves)
+
+
+def _ml_xgb_set_leaf_values(clf_inner, new_values):
+    """Overwrite XGBoost leaf values in-place via JSON save/load."""
+    with tempfile.NamedTemporaryFile(suffix=".json", delete=False) as f:
+        temp_path = f.name
+    try:
+        clf_inner.get_booster().save_model(temp_path)
+        with open(temp_path) as f:
+            model_dict = json.load(f)
+
+        leaf_idx = 0
+        for tree in (
+            model_dict.get("learner", {})
+            .get("gradient_booster", {})
+            .get("model", {})
+            .get("trees", [])
+        ):
+            left_children = tree.get("left_children", [])
+            for j, lc in enumerate(left_children):
+                if (lc == -1 or lc > 1_000_000_000) and leaf_idx < len(new_values):
+                    lv = float(new_values[leaf_idx])
+                    if j < len(tree.get("base_weights", [])):
+                        tree["base_weights"][j] = lv
+                    if j < len(tree.get("split_conditions", [])):
+                        tree["split_conditions"][j] = lv
+                    leaf_idx += 1
+
+        with open(temp_path, "w") as f:
+            json.dump(model_dict, f)
+        clf_inner.get_booster().load_model(temp_path)
+    finally:
+        if os.path.exists(temp_path):
+            os.unlink(temp_path)
+
+
+def _get_flat_clf_params(clf_pipeline, clf_type):
+    """Return the learnable parameters of the inner classifier as a flat numpy array."""
+    inner = clf_pipeline.named_steps["classifier"]
+    if clf_type == "MLP":
+        return np.concatenate(
+            [c.flatten() for c in inner.coefs_]
+            + [b.flatten() for b in inner.intercepts_]
+        )
+    elif clf_type == "CatBoost":
+        return inner.get_leaf_values().copy()
+    elif clf_type == "XGBoost":
+        return _ml_xgb_get_leaf_values(inner)
+    elif clf_type == "SVM":
+        return np.concatenate([inner.dual_coef_.flatten(), inner.intercept_.flatten()])
+    raise ValueError(f"Unknown clf_type: {clf_type}")
+
+
+def _set_flat_clf_params(clf_pipeline, clf_type, biased_params):
+    """Return a deep copy of clf_pipeline with biased_params installed."""
+    new_clf = copy.deepcopy(clf_pipeline)
+    orig_inner = clf_pipeline.named_steps["classifier"]
+    new_inner = new_clf.named_steps["classifier"]
+
+    if clf_type == "MLP":
+        idx = 0
+        for coef in new_inner.coefs_:
+            n = coef.size
+            coef[:] = biased_params[idx : idx + n].reshape(coef.shape)
+            idx += n
+        for intercept in new_inner.intercepts_:
+            n = intercept.size
+            intercept[:] = biased_params[idx : idx + n].reshape(intercept.shape)
+            idx += n
+    elif clf_type == "CatBoost":
+        # copy.deepcopy() leaves the model in a non-"solid" internal state that
+        # CatBoost refuses to modify in-place, so round-trip through disk first.
+        with tempfile.NamedTemporaryFile(suffix=".cbm", delete=False) as f:
+            temp_path = f.name
+        try:
+            new_inner.save_model(temp_path)
+            new_inner.load_model(temp_path)
+            new_inner.set_leaf_values(biased_params)
+        finally:
+            os.unlink(temp_path)
+    elif clf_type == "XGBoost":
+        _ml_xgb_set_leaf_values(new_inner, biased_params)
+    elif clf_type == "SVM":
+        n_dual = orig_inner.dual_coef_.size
+        new_inner.dual_coef_[:] = biased_params[:n_dual].reshape(
+            orig_inner.dual_coef_.shape
+        )
+        new_inner.intercept_[:] = biased_params[n_dual:].reshape(
+            orig_inner.intercept_.shape
+        )
+    return new_clf
+
+
+def _apply_corruption(params, percent, noise_type, magnitude):
+    """Return a biased copy of the flat parameter array according to the selected process."""
+    params = params.copy()
+    if len(params) == 0:
+        return params
+    if noise_type == "uniform":
+        n_select = max(1, int(len(params) * percent))
+        idx = np.random.choice(len(params), size=n_select, replace=False)
+        params[idx] += np.random.uniform(-magnitude, magnitude, size=n_select)
+        return params
+    elif noise_type == "gaussian":
+        n_select = max(1, int(len(params) * percent))
+        idx = np.random.choice(len(params), size=n_select, replace=False)
+        params[idx] += np.random.normal(0, magnitude, size=n_select)
+        return params
+    raise ValueError(f"Unknown noise_type: {noise_type}")
+
+
+def add_corruption_bias(X, y, feature_types, bias_types=()):
     for bias_type in bias_types:
-        match bias_type:
-            case "threshold_swapping":
-                # try: # Commenting out the try except because I want it to fail if it doesn't work, since this is only meant to be used with postprocessing classifiers where it should work
-                thresholds = clf.clf.interpolated_thresholder_.interpolation_dict
-                thresholds[0], thresholds[1] = thresholds[1], thresholds[0]
-                clf.clf.interpolated_thresholder_.interpolation_dict = thresholds
-                # except AttributeError:
-                #     pass
-    # Access clf
-    # clf.clf.interpolated_thresholder_.interpolation_dict[0]["operation0"]
-    return clf
+        bias_type_name = bias_type[0]
+        if len(bias_type) > 1:
+            parameters = bias_type[1:]
+        match bias_type_name:
+            case "corruption_bias":
+                clf_type, percent, noise_type, magnitude = parameters
+                clf = _make_corruption_clf(clf_type, feature_types)
+                clf.fit(X, y)
+                flat_params = _get_flat_clf_params(clf, clf_type)
+                biased_params = _apply_corruption(
+                    flat_params, percent, noise_type, magnitude
+                )
+                biased_clf = _set_flat_clf_params(clf, clf_type, biased_params)
+                demo = generate_demo(
+                    biased_clf,
+                    X,
+                    y,
+                    can_observe_y=False,
+                )
+                X = demo.drop(columns=["yhat", "y"])
+                y = demo["yhat"]
+    return X, y
 
 
 def generate_mu_and_demos(
     exp_info,
     X,
     y,
+    feature_types,
     clf,
     obj_set,
     n_demos=3,
@@ -304,33 +474,58 @@ def generate_mu_and_demos(
     if n_demos < 2:
         n_demos = 2  # KFold requires at least 2 splits
 
+    X_unbiased, y_unbiased = X.copy(), y.copy()
+    X_biased, y_biased = add_corruption_bias(
+        X_unbiased, y_unbiased, feature_types, bias_types=bias_types
+    )
+
     k_fold = KFold(n_demos)
-    for k, (train, test) in enumerate(k_fold.split(X, y)):
-        _X_train, _y_train = X.iloc[train], y.iloc[train]
-        _X_test, _y_test = X.iloc[test], y.iloc[test]
+    for k, (train, test) in enumerate(k_fold.split(X_unbiased, y_unbiased)):
+        _X_train_unbiased, _y_train_unbiased = (
+            X_unbiased.iloc[train],
+            y_unbiased.iloc[train],
+        )
+        _X_test_unbiased, _y_test_unbiased = (
+            X_unbiased.iloc[test],
+            y_unbiased.iloc[test],
+        )
+        _X_train_biased, _y_train_biased = X_biased.iloc[train], y_biased.iloc[train]
 
         # Generate demo with bias
-        clf_new = copy.deepcopy(clf)
-        clf_new.fit(_X_train, _y_train)
-        clf_biased = add_classifier_bias(clf_new, bias_types)
-        demo_biased = generate_demo(clf_biased, _X_test, _y_test)
-        demo_biased = add_demo_bias(
-            demo_biased, bias_types=bias_types, dataset=exp_info["DATASET"]
-        )
-        # mu += obj_set.compute_demo_feature_exp(demo_biased)
-        demos.append(demo_biased)
+        clf_unbiased = copy.deepcopy(clf)
+        clf_unbiased.fit(_X_train_unbiased, _y_train_unbiased)
+        demo_unbiased = generate_demo(clf_unbiased, _X_test_unbiased, _y_test_unbiased)
+        if y_unbiased.equals(y_biased) and X_unbiased.equals(X_biased):
+            # if no corruption bias was added, then the biased classifier is the same as the unbiased
+            # classifier. Thus, we can skip training a biased classifier and just use the unbiased one.
+            demo_biased = add_demo_bias(
+                demo_unbiased.copy(), bias_types=bias_types, dataset=exp_info["DATASET"]
+            )
+        else:
+            clf_biased = copy.deepcopy(clf)
+            clf_biased.fit(_X_train_biased, _y_train_biased)
+            # Use the biased (corrupted) classifier to generate the biased demo, but use the unbiased
+            # test set to ensure that the biased demos have biased yhat but unbiased X and y.
+            demo_biased = generate_demo(clf_biased, _X_test_unbiased, _y_test_unbiased)
+            demo_biased = add_demo_bias(
+                demo_biased, bias_types=bias_types, dataset=exp_info["DATASET"]
+            )
 
-        # Generate demo without bias
-        clf_new = copy.deepcopy(clf)
-        clf_new.fit(_X_train, _y_train)
-        demo_unbiased = generate_demo(clf_new, _X_test, _y_test)
-        # mu_unbiased += obj_set.compute_demo_feature_exp(demo_unbiased)
+        demos.append(demo_biased)
         demos_unbiased.append(demo_unbiased)
 
     # Combine all the biased demos into one dataframe and all the unbiased demos into another dataframe
     # Preserves the original data sample order from the dataset.
     demos_combined = pd.concat(demos)
     demos_unbiased_combined = pd.concat(demos_unbiased)
+    # if bias_types != ():
+    logging.info(f"Bias types added: {bias_types}")
+    logging.info(
+        f"Percent of y_unbiased unchanged with added bias: {((y_unbiased == y_biased).mean() * 100.0).item()}%"
+    )
+    logging.info(
+        f"Percent of yhat unchanged with added bias: {((demos_unbiased_combined["yhat"] == demos_combined["yhat"]).mean() * 100.0).item()}%"
+    )
 
     # Compute mu for the combined demos and combinded unbiased demos
     mu[0] = obj_set.compute_demo_feature_exp(demos_combined)

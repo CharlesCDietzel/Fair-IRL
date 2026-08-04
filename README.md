@@ -6,23 +6,17 @@ This repo consists of various implementations of both existing and novel machine
 
 ## Setup
 
-The following steps show how to setup the conda environment so that all dependencies are correctly installed, as well as how to run the Jupyter Notebooks in the context of the conda environment.
+The following steps show how to setup a uv environment so that all dependencies are correctly installed.
 
 ```sh
-# Create the conda environment from the config file
-conda env create -f environment.yml
+# Create the uv environment from the pyproject.toml config file
+uv sync
 
-# Activate the conda environment
-conda activate research
-
-# Create an IPython kernel which will allow you to run the Jupyter Notebook in the conda environment
-python3.6 -m ipykernel install --user --name research
-
-# Start the jupyter notebook
-jupyter notebook
+# Activate the environment
+source .venv/bin/activate 
 ```
 
-Then when you're in the Jupyter Notebook, select `Kernel > Change Kernel > research`.
+Use VSCode or your IDE of choice to view the various python notebooks. 
 
 # Publications
 

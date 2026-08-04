@@ -1,0 +1,41 @@
+[project]
+name = "fair-irl"
+version = "0.1.0"
+description = "Project code for research related to fairness in machine learning."
+readme = "README.md"
+authors = [
+    { name = "Charles Dietzel", email = "charlescdietzel@gmail.com" }
+]
+requires-python = ">=3.12"
+dependencies = [
+    "catboost>=1.2.10",
+    "cmaes>=0.13.0",
+    "fairlearn>=0.14.0",
+    "folktables>=0.0.12",
+    "highspy>=1.15.1",
+    "imbalanced-learn>=0.14.2",
+    "matplotlib>=3.10.9",
+    "nevergrad>=1.0.12",
+    "numpy>=2.2.6",
+    "optuna>=4.9.0",
+    "pandas==2.3.3",
+    "py-bobyqa>=1.5.0",
+    "scikit-learn>=1.7.2",
+    "seaborn>=0.13.2",
+    "tabulate>=0.10.0",
+    "xgboost>=3.2.0",
+]
+
+[project.scripts]
+fair-irl = "fair_irl:main"
+
+[build-system]
+requires = ["uv_build>=0.12.1,<0.13.0"]
+build-backend = "uv_build"
+
+[dependency-groups]
+dev = [
+    "ipykernel>=7.3.0",
+    "line-profiler>=5.0.2",
+    "pyinstrument>=5.1.3",
+]
