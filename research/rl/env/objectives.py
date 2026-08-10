@@ -851,7 +851,7 @@ class EqualizedOddsObjective(AbsoluteValueObjective):
                 P(yhat=1 | y=0, z=0) == P(yhat=1 | y=0, z=1)
 
         This returns:
-            1 - |TPR_z0 - TPR_z1| - |FPR_z0 - FPR_z1|
+            1 - max(|TPR_z0 - TPR_z1|, |FPR_z0 - FPR_z1|)
         """
 
         def cond_pos_rate(y_value, z_value):
@@ -871,7 +871,13 @@ class EqualizedOddsObjective(AbsoluteValueObjective):
         fpr_z0 = cond_pos_rate(y_value=0, z_value=0)
         fpr_z1 = cond_pos_rate(y_value=0, z_value=1)
 
-        mu = 1 - abs(tpr_z0 - tpr_z1) - abs(fpr_z0 - fpr_z1)
+        # np.max (not the built-in max) is required here: Python's builtin
+        # max() does not reliably propagate NaN when comparing two floats,
+        # since the result depends on argument order (max(nan, 5) == nan,
+        # but max(5, nan) == 5). np.max propagates NaN regardless of order,
+        # which is required for the `np.isnan(mu)` fallback below to work
+        # consistently when only one of the two rates is undefined.
+        mu = 1 - np.max([abs(tpr_z0 - tpr_z1), abs(fpr_z0 - fpr_z1)])
 
         if np.isnan(mu):
             mu = 1
@@ -880,13 +886,11 @@ class EqualizedOddsObjective(AbsoluteValueObjective):
 
     def _compute_b_ub(self, ldf, split_idx):
         """
-        Equalized Odds has two sign constraints per split:
-            one for TPR parity
-            one for FPR parity
-
-        Therefore A_ub is 2 x n and b_ub must have length 2.
+        Each Equalized Odds split has three inequality constraints (see
+        `_compute_A_ub_row_for_dominant_term`), so A_ub is 3 x n and b_ub
+        must have length 3.
         """
-        return np.zeros(2)
+        return np.zeros(3)
 
     def _signed_rate_diff_row(self, ldf, y_value, z0_ge_z1):
         """
@@ -897,9 +901,8 @@ class EqualizedOddsObjective(AbsoluteValueObjective):
             P(yhat=1 | y=y_value, z=1)
             -
             P(yhat=1 | y=y_value, z=0)
-            <= 0
 
-        which enforces:
+        which is <= 0 exactly when:
 
             P(yhat=1 | y=y_value, z=0)
             >=
@@ -910,7 +913,6 @@ class EqualizedOddsObjective(AbsoluteValueObjective):
             P(yhat=1 | y=y_value, z=0)
             -
             P(yhat=1 | y=y_value, z=1)
-            <= 0
         """
         ldf = ldf.copy()
 
@@ -927,146 +929,112 @@ class EqualizedOddsObjective(AbsoluteValueObjective):
         ldf["A_ub"] = 0.0
 
         if z0_ge_z1:
-            # rate_z1 - rate_z0 <= 0
+            # rate_z1 - rate_z0
             ldf.loc[filt_yhat1_y_z0, "A_ub"] = -inv_z0_y
             ldf.loc[filt_yhat1_y_z1, "A_ub"] = inv_z1_y
         else:
-            # rate_z0 - rate_z1 <= 0
+            # rate_z0 - rate_z1
             ldf.loc[filt_yhat1_y_z0, "A_ub"] = inv_z0_y
             ldf.loc[filt_yhat1_y_z1, "A_ub"] = -inv_z1_y
 
         return ldf["A_ub"].to_numpy()
 
-    def _compute_A_ub_rows(self, ldf, tpr_z0_ge_z1, fpr_z0_ge_z1):
+    def _rate_diff_terms(self, ldf):
         """
-        Returns the 2-row A_ub matrix for one Equalized Odds sign split.
+        Returns the four candidate linear terms whose max equals
+        max(|TPR_z0 - TPR_z1|, |FPR_z0 - FPR_z1|):
 
-        Row 0: TPR sign constraint, y=1.
-        Row 1: FPR sign constraint, y=0.
+            0: TPR_z0 - TPR_z1
+            1: TPR_z1 - TPR_z0   (== -term 0)
+            2: FPR_z0 - FPR_z1
+            3: FPR_z1 - FPR_z0   (== -term 2)
+
+        Since max(a, -a, b, -b) == max(|a|, |b|), minimizing the max of
+        these four terms over the policy is exactly equivalent to
+        minimizing max(|TPR_z0 - TPR_z1|, |FPR_z0 - FPR_z1|).
         """
-        tpr_row = self._signed_rate_diff_row(
-            ldf=ldf,
-            y_value=1,
-            z0_ge_z1=tpr_z0_ge_z1,
-        )
+        return [
+            self._signed_rate_diff_row(ldf=ldf, y_value=1, z0_ge_z1=False),  # TPR_z0 - TPR_z1
+            self._signed_rate_diff_row(ldf=ldf, y_value=1, z0_ge_z1=True),  # TPR_z1 - TPR_z0
+            self._signed_rate_diff_row(ldf=ldf, y_value=0, z0_ge_z1=False),  # FPR_z0 - FPR_z1
+            self._signed_rate_diff_row(ldf=ldf, y_value=0, z0_ge_z1=True),  # FPR_z1 - FPR_z0
+        ]
 
-        fpr_row = self._signed_rate_diff_row(
-            ldf=ldf,
-            y_value=0,
-            z0_ge_z1=fpr_z0_ge_z1,
-        )
-
-        return np.vstack([tpr_row, fpr_row])
-
-    def _construct_reward(self, ldf, tpr_z0_ge_z1, fpr_z0_ge_z1):
+    def _compute_A_ub_row_for_dominant_term(self, ldf, dominant_idx):
         """
-        Constructs the linear reward for one Equalized Odds sign split.
+        Constructs the 3-row A_ub matrix for the split in which
+        `_rate_diff_terms(ldf)[dominant_idx]` is the largest of the four
+        candidate terms, i.e. it equals max(|TPR diff|, |FPR diff|).
 
-        Within a fixed sign region, maximizing:
-
-            signed_TPR_diff + signed_FPR_diff
-
-        is equivalent to minimizing:
-
-            |TPR_z0 - TPR_z1| + |FPR_z0 - FPR_z1|
-
-        up to the omitted constant 1.
+        For each of the other three terms `other`, this adds the
+        constraint `other - dominant <= 0` (dominant >= other).
         """
-        tpr_row = self._signed_rate_diff_row(
-            ldf=ldf,
-            y_value=1,
-            z0_ge_z1=tpr_z0_ge_z1,
+        terms = self._rate_diff_terms(ldf)
+        dominant = terms[dominant_idx]
+        others = [term for i, term in enumerate(terms) if i != dominant_idx]
+
+        return np.vstack([other - dominant for other in others])
+
+    def _construct_reward_for_dominant_term(self, ldf, dominant_idx):
+        """
+        Constructs the linear reward for the split in which
+        `_rate_diff_terms(ldf)[dominant_idx]` is the dominant (largest)
+        term, i.e. equal to max(|TPR diff|, |FPR diff|) in that region.
+
+        Minimizing max(|TPR diff|, |FPR diff|) within this region is just
+        minimizing the dominant term itself, so `c` is that term's row
+        directly (scipy-style LP solvers minimize c^T x).
+        """
+        dominant = self._rate_diff_terms(ldf)[dominant_idx]
+
+        return (
+            dominant.to_numpy()
+            if hasattr(dominant, "to_numpy")
+            else np.asarray(dominant)
         )
-
-        fpr_row = self._signed_rate_diff_row(
-            ldf=ldf,
-            y_value=0,
-            z0_ge_z1=fpr_z0_ge_z1,
-        )
-
-        r = tpr_row + fpr_row
-
-        # Negative because scipy-style LP solvers minimize c^T x.
-        c = -1 * r
-
-        return c.to_numpy() if hasattr(c, "to_numpy") else np.asarray(c)
 
     # ------------------------------------------------------------------
-    # Four sign splits
+    # Four "dominant term" splits
     # ------------------------------------------------------------------
     #
-    # Split1:
-    #   TPR_z0 >= TPR_z1
-    #   FPR_z0 >= FPR_z1
+    # max(|TPR_z0 - TPR_z1|, |FPR_z0 - FPR_z1|)
+    #   == max(TPR_z0 - TPR_z1, TPR_z1 - TPR_z0, FPR_z0 - FPR_z1, FPR_z1 - FPR_z0)
     #
-    # Split2:
-    #   TPR_z0 >= TPR_z1
-    #   FPR_z1 >= FPR_z0
+    # Each split fixes which of those four terms is the largest (the
+    # "dominant" term) and minimizes it subject to that term actually
+    # being >= the other three. Taking the best (highest) reward across
+    # all four splits recovers min_policy max(|TPR diff|, |FPR diff|),
+    # exactly matching the aggregation used by `compute_feat_exp`.
     #
-    # Split3:
-    #   TPR_z1 >= TPR_z0
-    #   FPR_z0 >= FPR_z1
-    #
-    # Split4:
-    #   TPR_z1 >= TPR_z0
-    #   FPR_z1 >= FPR_z0
+    # Split1: TPR_z0 - TPR_z1 dominates.
+    # Split2: TPR_z1 - TPR_z0 dominates.
+    # Split3: FPR_z0 - FPR_z1 dominates.
+    # Split4: FPR_z1 - FPR_z0 dominates.
     # ------------------------------------------------------------------
 
     def _compute_A_ub_row__split1(self, ldf):
-        return self._compute_A_ub_rows(
-            ldf=ldf,
-            tpr_z0_ge_z1=True,
-            fpr_z0_ge_z1=True,
-        )
+        return self._compute_A_ub_row_for_dominant_term(ldf=ldf, dominant_idx=0)
 
     def _compute_A_ub_row__split2(self, ldf):
-        return self._compute_A_ub_rows(
-            ldf=ldf,
-            tpr_z0_ge_z1=True,
-            fpr_z0_ge_z1=False,
-        )
+        return self._compute_A_ub_row_for_dominant_term(ldf=ldf, dominant_idx=1)
 
     def _compute_A_ub_row__split3(self, ldf):
-        return self._compute_A_ub_rows(
-            ldf=ldf,
-            tpr_z0_ge_z1=False,
-            fpr_z0_ge_z1=True,
-        )
+        return self._compute_A_ub_row_for_dominant_term(ldf=ldf, dominant_idx=2)
 
     def _compute_A_ub_row__split4(self, ldf):
-        return self._compute_A_ub_rows(
-            ldf=ldf,
-            tpr_z0_ge_z1=False,
-            fpr_z0_ge_z1=False,
-        )
+        return self._compute_A_ub_row_for_dominant_term(ldf=ldf, dominant_idx=3)
 
     def _construct_reward__split1(self, ldf):
-        return self._construct_reward(
-            ldf=ldf,
-            tpr_z0_ge_z1=True,
-            fpr_z0_ge_z1=True,
-        )
+        return self._construct_reward_for_dominant_term(ldf=ldf, dominant_idx=0)
 
     def _construct_reward__split2(self, ldf):
-        return self._construct_reward(
-            ldf=ldf,
-            tpr_z0_ge_z1=True,
-            fpr_z0_ge_z1=False,
-        )
+        return self._construct_reward_for_dominant_term(ldf=ldf, dominant_idx=1)
 
     def _construct_reward__split3(self, ldf):
-        return self._construct_reward(
-            ldf=ldf,
-            tpr_z0_ge_z1=False,
-            fpr_z0_ge_z1=True,
-        )
+        return self._construct_reward_for_dominant_term(ldf=ldf, dominant_idx=2)
 
     def _construct_reward__split4(self, ldf):
-        return self._construct_reward(
-            ldf=ldf,
-            tpr_z0_ge_z1=False,
-            fpr_z0_ge_z1=False,
-        )
+        return self._construct_reward_for_dominant_term(ldf=ldf, dominant_idx=3)
 
 
 class TrueNegativeRateParityObjective(AbsoluteValueObjective):

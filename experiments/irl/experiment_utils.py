@@ -11,6 +11,17 @@ import optuna
 import pybobyqa
 import nevergrad as ng
 from catboost import CatBoostClassifier
+from fairlearn.metrics import (
+    MetricFrame,
+    demographic_parity_difference,
+    equal_opportunity_difference,
+    equalized_odds_difference,
+    false_negative_rate,
+    false_positive_rate,
+    selection_rate,
+    true_negative_rate,
+    true_positive_rate,
+)
 from fairlearn.postprocessing import ThresholdOptimizer
 from fairlearn.reductions import (
     BoundedGroupLoss,
@@ -20,10 +31,12 @@ from fairlearn.reductions import (
     TruePositiveRateParity,
     ZeroOneLoss,
 )
+from line_profiler import LineProfiler
 from scipy.spatial.distance import cosine
 from sklearn.dummy import DummyClassifier
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.model_selection import train_test_split
+from sklearn.metrics import accuracy_score, precision_score
 from sklearn.preprocessing import normalize
 
 from research.irl.fair_irl import *
@@ -59,6 +72,92 @@ OBJ_LOOKUP_BY_NAME = {
     "FPR_Z1": GroupFalsePositiveRateZ1Objective,
     "FNR_Z0": GroupFalseNegativeRateZ0Objective,
     "FNR_Z1": GroupFalseNegativeRateZ1Objective,
+}
+
+
+def _negative_predictive_value(y_true, y_pred):
+    """
+    P(y=0 | yhat=0) = TN / (TN + FN). Not available in fairlearn/sklearn, so
+    it's implemented manually to be used as a `MetricFrame` metric function.
+    """
+    y_true = np.asarray(y_true)
+    y_pred = np.asarray(y_pred)
+    tn = ((y_true == 0) & (y_pred == 0)).sum()
+    fn = ((y_true == 1) & (y_pred == 0)).sum()
+    denom = tn + fn
+    return tn / denom if denom > 0 else np.nan
+
+
+def _group_rate_loss(metric_fn, z_value):
+    """
+    Builds a `demo`-loss function for a metric evaluated on a single
+    sensitive-feature group (e.g. TPR_Z0), matching the `-mu + 1` inversion
+    used by `compute_relevant_feat_loss()`.
+    """
+
+    def _loss(demo):
+        mf = MetricFrame(
+            metrics=metric_fn,
+            y_true=demo["y"],
+            y_pred=demo["yhat"],
+            sensitive_features=demo["z"],
+        )
+        return 1 - mf.by_group[z_value]
+
+    return _loss
+
+
+def _pairwise_metric_diff_loss(metric_fn):
+    """
+    Builds a `demo`-loss function for the absolute between-group difference
+    of a metric (e.g. Predictive Parity), matching the `-mu + 1` inversion
+    used by `compute_relevant_feat_loss()`.
+    """
+
+    def _loss(demo):
+        mf = MetricFrame(
+            metrics=metric_fn,
+            y_true=demo["y"],
+            y_pred=demo["yhat"],
+            sensitive_features=demo["z"],
+        )
+        return mf.difference(method="between_groups")
+
+    return _loss
+
+
+# Fairlearn/sklearn-based equivalent of OBJ_LOOKUP_BY_NAME: maps each obj_name
+# to a function of `demo` that reproduces the corresponding entry of
+# `demo_feat_exp` as computed in `compute_relevant_feat_loss()`.
+FAIRLEARN_OBJ_LOOKUP_BY_NAME = {
+    "Acc": lambda demo: 1 - accuracy_score(demo["y"], demo["yhat"]),
+    "AccPar": _pairwise_metric_diff_loss(accuracy_score),
+    "DemPar": lambda demo: demographic_parity_difference(
+        demo["y"], demo["yhat"], sensitive_features=demo["z"]
+    ),
+    "EqOpp": lambda demo: equal_opportunity_difference(
+        demo["y"], demo["yhat"], sensitive_features=demo["z"]
+    ),
+    "FPRPar": _pairwise_metric_diff_loss(false_positive_rate),
+    "EqOdds": lambda demo: equalized_odds_difference(
+        demo["y"], demo["yhat"], sensitive_features=demo["z"]
+    ),
+    "TNRPar": _pairwise_metric_diff_loss(true_negative_rate),
+    "FNRPar": _pairwise_metric_diff_loss(false_negative_rate),
+    "PredPar": _pairwise_metric_diff_loss(precision_score),
+    "NegPredPar": _pairwise_metric_diff_loss(_negative_predictive_value),
+    "PR_Z0": _group_rate_loss(selection_rate, 0),
+    "PR_Z1": _group_rate_loss(selection_rate, 1),
+    "NR_Z0": _group_rate_loss(lambda yt, yp: 1 - selection_rate(yt, yp), 0),
+    "NR_Z1": _group_rate_loss(lambda yt, yp: 1 - selection_rate(yt, yp), 1),
+    "TPR_Z0": _group_rate_loss(true_positive_rate, 0),
+    "TPR_Z1": _group_rate_loss(true_positive_rate, 1),
+    "TNR_Z0": _group_rate_loss(true_negative_rate, 0),
+    "TNR_Z1": _group_rate_loss(true_negative_rate, 1),
+    "FPR_Z0": _group_rate_loss(false_positive_rate, 0),
+    "FPR_Z1": _group_rate_loss(false_positive_rate, 1),
+    "FNR_Z0": _group_rate_loss(false_negative_rate, 0),
+    "FNR_Z1": _group_rate_loss(false_negative_rate, 1),
 }
 
 
@@ -1035,6 +1134,7 @@ def compute_iteration_subdominance(
     exp_info,
     raw_demo_ref,
     clf_demo_cur,
+    subdominance_type="all",
 ):
     # Compute subdominance metric for the learned policy
     raw_demo = raw_demo_ref.copy()
@@ -1069,43 +1169,61 @@ def compute_iteration_subdominance(
         ]
     )
     alphas = compute_alphas(raw_demos_feat_loss, clf_demos_feat_loss)
-    # Compute max-aggregated absolute subdominance:
-    max_abs_subdom = compute_subdominance(
-        exp_info,
-        alphas,
-        raw_demos_feat_loss,
-        clf_demos_feat_loss,
-        relative=False,
-        sum_agg=False,
-    )
-    # Compute sum-aggregated absolute subdominance:
-    sum_abs_subdom = compute_subdominance(
-        exp_info,
-        alphas,
-        raw_demos_feat_loss,
-        clf_demos_feat_loss,
-        relative=False,
-        sum_agg=True,
-    )
-    # Compute max-aggregated relative subdominance:
-    max_rel_subdom = compute_subdominance(
-        exp_info,
-        alphas,
-        raw_demos_feat_loss,
-        clf_demos_feat_loss,
-        relative=True,
-        sum_agg=False,
-    )
-    # Compute sum-aggregated relative subdominance:
-    sum_rel_subdom = compute_subdominance(
-        exp_info,
-        alphas,
-        raw_demos_feat_loss,
-        clf_demos_feat_loss,
-        relative=True,
-        sum_agg=True,
-    )
-    return max_abs_subdom, sum_abs_subdom, max_rel_subdom, sum_rel_subdom
+
+    if subdominance_type == "max_abs" or subdominance_type == "all":
+        # Compute max-aggregated absolute subdominance:
+        max_abs_subdom = compute_subdominance(
+            exp_info,
+            alphas,
+            raw_demos_feat_loss,
+            clf_demos_feat_loss,
+            relative=False,
+            sum_agg=False,
+        )
+    if subdominance_type == "sum_abs" or subdominance_type == "all":
+        # Compute sum-aggregated absolute subdominance:
+        sum_abs_subdom = compute_subdominance(
+            exp_info,
+            alphas,
+            raw_demos_feat_loss,
+            clf_demos_feat_loss,
+            relative=False,
+            sum_agg=True,
+        )
+    if subdominance_type == "max_rel" or subdominance_type == "all":
+        # Compute max-aggregated relative subdominance:
+        max_rel_subdom = compute_subdominance(
+            exp_info,
+            alphas,
+            raw_demos_feat_loss,
+            clf_demos_feat_loss,
+            relative=True,
+            sum_agg=False,
+        )
+    if subdominance_type == "sum_rel" or subdominance_type == "all":
+        # Compute sum-aggregated relative subdominance:
+        sum_rel_subdom = compute_subdominance(
+            exp_info,
+            alphas,
+            raw_demos_feat_loss,
+            clf_demos_feat_loss,
+            relative=True,
+            sum_agg=True,
+        )
+    if subdominance_type == "max_abs":
+        return max_abs_subdom
+    elif subdominance_type == "sum_abs":
+        return sum_abs_subdom
+    elif subdominance_type == "max_rel":
+        return max_rel_subdom
+    elif subdominance_type == "sum_rel":
+        return sum_rel_subdom
+    elif subdominance_type == "all":
+        return max_abs_subdom, sum_abs_subdom, max_rel_subdom, sum_rel_subdom
+    else:
+        raise ValueError(
+            f"Invalid subdominance_type: {subdominance_type}. Must be one of ['max_abs', 'sum_abs', 'max_rel', 'sum_rel', 'all']"
+        )
 
 
 def _build_objective_sets(exp_info):
@@ -1500,12 +1618,7 @@ def _irl_apply_weight_adjustments(
     can_observe_y,
     demoE,
 ):
-    """Apply a sequence of weight adjustment operations to wi and return the result.
-
-    context is only required when weight_adjusts contains an "ml_debias" operation.
-    It must be a dict with keys: exp_info, X_train, y_train, feature_types,
-    feat_obj_set, demoE_train.
-    """
+    """Apply a sequence of weight adjustment operations to wi and return the result."""
     for weight_adjust in weight_adjusts:
         if weight_adjust[0] == "mul_negative_weights":
             mul_factor = weight_adjust[1]
@@ -1526,19 +1639,59 @@ def _irl_apply_weight_adjustments(
                     can_observe_y=can_observe_y,
                     demoE=demoE,
                 )
+                n_weights = len(feat_obj_set.objectives)
+                x0 = np.clip(np.asarray(wi, dtype=float), -1.0, 1.0)
                 if optimizer == "CMA-ES":
-                    sampler = optuna.samplers.CmaEsSampler()
-                study = optuna.create_study(
-                    sampler=sampler,
-                    direction="minimize",
+                    sampler = optuna.samplers.CmaEsSampler(
+                        x0={f"w{j}": float(x0[j]) for j in range(n_weights)},
+                    )
+                    study = optuna.create_study(direction="minimize", sampler=sampler)
+                    study.optimize(objective)
+                wi = np.array([study.best_params[f"w{j}"] for j in range(n_weights)])
+            elif library == "pybobyqa":
+                objective = partial(
+                    pybobyqa_objective,
+                    feat_obj_set=feat_obj_set,
+                    demo_df=demo_df,
+                    clf=clf,
+                    x_cols=x_cols,
+                    exp_info=exp_info,
+                    X=X,
+                    y=y,
+                    can_observe_y=can_observe_y,
+                    demoE=demoE,
                 )
-                study.optimize(objective, n_trials=500)
-                best_params = study.best_params
-                best_weights = [
-                    best_params[f"weight_{i}"]
-                    for i in range(len(feat_obj_set.objectives))
-                ]
-                wi = np.array(best_weights)
+                n_weights = len(feat_obj_set.objectives)
+                lower_bounds = -1.0 * np.ones(n_weights)
+                upper_bounds = 1.0 * np.ones(n_weights)
+                x0 = np.clip(np.asarray(wi, dtype=float), lower_bounds, upper_bounds)
+                if optimizer == "Multi-Start BOBYQA":
+                    soln = pybobyqa.solve(
+                        objective,
+                        x0,
+                        bounds=(lower_bounds, upper_bounds),
+                        seek_global_minimum=True,
+                    )
+                wi = np.array(soln.x)
+            elif library == "nevergrad":
+                objective = partial(
+                    nevergrad_objective,
+                    feat_obj_set=feat_obj_set,
+                    demo_df=demo_df,
+                    clf=clf,
+                    x_cols=x_cols,
+                    exp_info=exp_info,
+                    X=X,
+                    y=y,
+                    can_observe_y=can_observe_y,
+                    demoE=demoE,
+                )
+                n_weights = len(feat_obj_set.objectives)
+                parametrization = ng.p.Array(shape=(n_weights,)).set_bounds(-1.0, 1.0)
+                if optimizer == "BayesOpt":
+                    ng_optimizer = ng.optimizers.BO(parametrization=parametrization)
+                recommendation = ng_optimizer.minimize(objective)
+                wi = np.array(recommendation.value)
     return wi
 
 
@@ -1546,13 +1699,52 @@ def optuna_objective(
     trial, feat_obj_set, demo_df, clf, x_cols, exp_info, X, y, can_observe_y, demoE
 ):
     """Objective function for Optuna optimization of weights."""
-    # Suggest weights for each objective
+    n_weights = len(feat_obj_set.objectives)
     weights = np.array(
-        [
-            trial.suggest_float(f"weight_{i}", -1.0, 1.0)
-            for i in range(len(feat_obj_set.objectives))
-        ]
+        [trial.suggest_float(f"w{j}", -1.0, 1.0) for j in range(n_weights)]
     )
+    # Evaluate the weights using the provided evaluation function
+    subdominance_loss = subdominance_of_weights(
+        weights,
+        feat_obj_set,
+        demo_df,
+        clf,
+        x_cols,
+        exp_info,
+        X,
+        y,
+        can_observe_y,
+        demoE,
+    )
+    return subdominance_loss
+
+
+def pybobyqa_objective(
+    weights, feat_obj_set, demo_df, clf, x_cols, exp_info, X, y, can_observe_y, demoE
+):
+    """Objective function for Py-BOBYQA optimization of weights."""
+    weights = np.array(weights)
+    # Evaluate the weights using the provided evaluation function
+    subdominance_loss = subdominance_of_weights(
+        weights,
+        feat_obj_set,
+        demo_df,
+        clf,
+        x_cols,
+        exp_info,
+        X,
+        y,
+        can_observe_y,
+        demoE,
+    )
+    return subdominance_loss
+
+
+def nevergrad_objective(
+    weights, feat_obj_set, demo_df, clf, x_cols, exp_info, X, y, can_observe_y, demoE
+):
+    """Objective function for Nevergrad optimization of weights."""
+    weights = np.array(weights)
     # Evaluate the weights using the provided evaluation function
     subdominance_loss = subdominance_of_weights(
         weights,
@@ -1586,7 +1778,14 @@ def subdominance_of_weights(
     # Generate demos from the optimal policy
     demo = generate_demo(clf_pol, X, y, can_observe_y=can_observe_y)
     # Compute the subdominance of the generated demos against the expert demos
-    _, sum_abs_subdom, _, _ = compute_iteration_subdominance(exp_info, demoE, demo)
+    # lp = LineProfiler()
+    # lp.add_function(compute_iteration_subdominance)
+    # lp.enable_by_count()
+    sum_abs_subdom = compute_iteration_subdominance(
+        exp_info, demoE, demo, subdominance_type="sum_abs"
+    )
+    # lp.disable_by_count()
+    # lp.print_stats()
     return sum_abs_subdom
 
 
@@ -2420,6 +2619,20 @@ def compute_relevant_feat_loss(exp_info, demo):
     demo_feat_exp = np.array(feat_obj_set.compute_demo_feature_exp(demo))
     # Invert expectations to be loss, where lower is better
     demo_feat_exp = -demo_feat_exp + 1
+
+    # Now compute the same feature expectations using Fairlearn's metric functions
+    # obj_names = (
+    #     exp_info["SUBDOMINANCE_PERF_METRICS_LIST"]
+    #     + exp_info["SUBDOMINANCE_FAIR_METRICS_LIST"]
+    # )
+    # demo_feat_exp_fairlearn = np.array(
+    #     [FAIRLEARN_OBJ_LOOKUP_BY_NAME[obj_name](demo) for obj_name in obj_names]
+    # )
+    # These should be the same, but we check to make sure they are. If not, raise an error.
+    # assert np.allclose(demo_feat_exp, demo_feat_exp_fairlearn), (
+    #     f"Fairlearn-based feature loss {demo_feat_exp_fairlearn} does not match "
+    #     f"the original feature loss {demo_feat_exp} for obj_names {obj_names}"
+    # )
     return demo_feat_exp
 
 
