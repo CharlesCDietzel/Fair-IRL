@@ -4,6 +4,7 @@ import numbers
 import numpy as np
 import pandas as pd
 from scipy.optimize import linprog
+
 # from line_profiler import LineProfiler
 
 
@@ -475,6 +476,74 @@ def _find_best_policies_from_multiple_opt_problems(best_policies_best_rewards):
     return best_of_best_pols, best_of_best_reward
 
 
+def _round_and_verify_policy(
+    res, n_states, c, A_eq, b_eq, A_ub, b_ub, feasibility_atol=1e-6
+):
+    """
+    Rounds an LP solution to a deterministic policy (argmax action per
+    state) and verifies that the rounded policy is actually valid, instead
+    of trusting the rounding blindly.
+
+    `res.x` is a state-action occupancy measure, which is only guaranteed
+    to decompose into a clean "one action gets all the mass" pattern per
+    state when the LP has a unique, non-degenerate optimum. When the
+    optimal face is degenerate -- which happens readily once A_ub encodes
+    constraints that couple multiple states together, e.g. Equalized Odds'
+    parity constraints -- the solver can return a solution that splits a
+    state's mass fractionally across both actions. Naively taking argmax in
+    that case silently produces a *different* policy than the one that was
+    actually optimized, which can be infeasible. This reconstructs the
+    exact occupancy vector implied by the rounded policy and checks it
+    against the original constraints, rejecting the rounding when it isn't
+    actually feasible.
+
+    Note that this only checks feasibility, not whether the rounded policy
+    matches the (possibly fractional) reward the LP solve reported. For
+    constraints like exact Equalized Odds parity combined with another
+    objective, the true fractional optimum can require a genuinely
+    randomized decision rule that no deterministic policy can replicate
+    (see Hardt et al. 2016) -- an unavoidable integrality gap, not a
+    rounding artifact. Callers should take the best-reward feasible
+    candidate found across many solves, rather than expect any single
+    candidate to match the LP's reported objective value.
+
+    Returns
+    -------
+    (pi_opt, achieved_reward) if the rounded policy is feasible, else None.
+    """
+    if res.x is None:
+        # Infeasible, unbounded, or otherwise failed solve.
+        return None
+
+    n_actions = 2
+    pi_opt = np.zeros(n_states, dtype=int)
+    x_det = np.zeros_like(res.x)
+    for s in range(n_states):
+        start_idx = s * n_actions
+        end_idx = start_idx + n_actions
+        state_slice = res.x[start_idx:end_idx]
+        a = state_slice.argmax()
+        pi_opt[s] = a
+        x_det[start_idx + a] = state_slice.sum()
+
+    if not np.allclose(A_eq @ x_det, b_eq, atol=feasibility_atol):
+        return None
+
+    if A_ub is not None and len(A_ub) > 0:
+        if np.any(A_ub @ x_det > np.asarray(b_ub) + feasibility_atol):
+            return None
+
+    achieved_reward = -1 * (np.asarray(c) @ x_det)
+    return pi_opt, achieved_reward
+
+
+def _solve_lp(c, A_eq, b_eq, A_ub, b_ub):
+    if A_ub is None or len(A_ub) == 0:
+        assert b_ub is None or len(b_ub) == 0
+        return linprog(c, A_eq=A_eq, b_eq=b_eq)
+    return linprog(c, A_eq=A_eq, b_eq=b_eq, A_ub=A_ub, b_ub=b_ub)
+
+
 def _find_all_solutions_lp(
     n_states,
     c,
@@ -521,111 +590,110 @@ def _find_all_solutions_lp(
     Returns
     -------
     best_policies : list<numpy.array>
-        List of the policies that have the optimal reward.
+        List of the best-reward *feasible* policies found (see
+        `_round_and_verify_policy`). Can be empty if no candidate solve
+        produced a feasible deterministic policy at all (as opposed to one
+        that merely falls short of the LP relaxation's bound, which is
+        common and expected -- see `best_reward`).
     best_reward : float
-        The optimal reward.
+        The best reward actually achieved by a feasible policy in
+        `best_policies`. This is a lower bound on, and will often be
+        strictly less than, the fractional LP relaxation's reward: exact
+        parity constraints like Equalized Odds can have a real integrality
+        gap, where no deterministic policy reaches what a randomized one
+        could.
     """
-    best_policies = []
-    best_reward = -1 * np.inf
-    n_actions = 2
+    candidates = {}  # pi_opt (as tuple) -> achieved_reward
 
-    if skip_error_terms:
+    def _consider(res):
+        result = _round_and_verify_policy(res, n_states, c, A_eq, b_eq, A_ub, b_ub)
+        if result is None:
+            return
+        pi_opt, achieved_reward = result
+        key = tuple(pi_opt.tolist())
+        if key not in candidates:
+            candidates[key] = achieved_reward
+            logging.debug(f"Optimal Policy:\t, {pi_opt}, reward {achieved_reward} \n")
 
-        if A_ub is None or len(A_ub) == 0:
-            assert b_ub is None or len(b_ub) == 0
-            res = linprog(c, A_eq=A_eq, b_eq=b_eq)
-        else:
-            res = linprog(c, A_eq=A_eq, b_eq=b_eq, A_ub=A_ub, b_ub=b_ub)
+    # Always try the unperturbed problem first. Its objective value is also
+    # the fractional LP relaxation's bound, used below to judge whether the
+    # cheap search left room for improvement.
+    res_unperturbed = _solve_lp(c, A_eq, b_eq, A_ub, b_ub)
+    _consider(res_unperturbed)
+    fractional_bound = (
+        -1 * res_unperturbed.fun if res_unperturbed.x is not None else None
+    )
 
-        best_reward = -1 * res.fun
-        logging.debug(f"\nBest Reward:\t {best_reward}")
-        logging.debug(f"Lambdas:\t {np.round(res.x, 2)}")
-        pi_opt = np.zeros(n_states, dtype=int)
-        for s in range(n_states):
-            start_idx = s * n_actions
-            end_idx = s * n_actions + n_actions
-            pi_opt[s] = res.x[start_idx:end_idx].argmax()
-
-        best_policies = [pi_opt]
-
-    else:
-        for i in range(len(c) - 1):
-
-            # Positive error
+    if not skip_error_terms:
+        # Perturbing each objective coordinate in turn nudges the solver
+        # towards different vertices of a degenerate optimal face, in the
+        # hope of finding ones that round to valid deterministic policies.
+        for i in range(len(c)):
             cpos = np.array(c)
             cpos[i] += error_term
+            _consider(_solve_lp(cpos, A_eq, b_eq, A_ub, b_ub))
 
-            if A_ub is None or len(A_ub) == 0:
-                assert b_ub is None or len(b_ub) == 0
-                res = linprog(cpos, A_eq=A_eq, b_eq=b_eq)
-            else:
-                res = linprog(cpos, A_eq=A_eq, b_eq=b_eq, A_ub=A_ub, b_ub=b_ub)
-
-            if (-1 * res.fun > best_reward) and (
-                not np.isclose(-1 * res.fun, best_reward, atol=0.001)
-            ):
-                best_reward = -1 * res.fun
-                logging.debug(f"\nBest Reward:\t {best_reward}")
-                logging.debug(f"Lambdas:\t {np.round(res.x, 2)}")
-            pi_opt = np.zeros(n_states, dtype=int)
-            for s in range(n_states):
-                start_idx = s * n_actions
-                end_idx = s * n_actions + n_actions
-                pi_opt[s] = res.x[start_idx:end_idx].argmax()
-            if not _is_pol_in_pols(pi_opt, best_policies):
-                best_policies.append(pi_opt)
-                logging.debug(f"Optimal Policy:\t, {pi_opt} \n")
-
-            # Negative error
             cneg = np.array(c)
             cneg[i] -= error_term
+            _consider(_solve_lp(cneg, A_eq, b_eq, A_ub, b_ub))
 
-            if A_ub is None or len(A_ub) == 0:
-                assert b_ub is None or len(b_ub) == 0
-                res = linprog(cneg, A_eq=A_eq, b_eq=b_eq)
-            else:
-                res = linprog(cneg, A_eq=A_eq, b_eq=b_eq, A_ub=A_ub, b_ub=b_ub)
+        best_found = max(candidates.values()) if candidates else -1 * np.inf
+        # Perturbing one coordinate at a time only explores axis-aligned
+        # directions off the current vertex, which is often not enough to
+        # reach a different vertex of a highly degenerate optimal face
+        # (e.g. Equalized Odds' parity constraints, which tie together the
+        # occupancy of several states at once) -- it can consistently land
+        # on the *same* feasible-but-suboptimal vertex no matter which
+        # single coordinate is nudged. Only pay for the more expensive,
+        # broader random search when the cheap search actually left
+        # measurable room for improvement versus the fractional LP bound
+        # (or found nothing at all); most well-behaved objectives won't
+        # need it.
+        if fractional_bound is None or not np.isclose(
+            best_found, fractional_bound, atol=0.001
+        ):
+            # Random perturbations across all coordinates simultaneously
+            # explore the degenerate face far more broadly than axis-aligned
+            # ones, but hit rates against a specific tied vertex can be low
+            # (empirically ~1% for a single fixed scale on some problems),
+            # so this cycles through several perturbation magnitudes and
+            # uses a generous trial budget. Run until the fractional bound
+            # is matched (nothing more to gain) or the budget is exhausted
+            # -- there may be a real integrality gap between what's
+            # feasible and the fractional LP bound, so more search directly
+            # improves the result when one doesn't exist.
+            rng = np.random.default_rng(0)
+            n_random_trials = 200
+            random_scales = [1e-6, 1e-4, 1e-2]
+            for trial in range(n_random_trials):
+                random_scale = random_scales[trial % len(random_scales)]
+                c_rand = np.asarray(c, dtype=float) + rng.normal(
+                    scale=random_scale, size=len(c)
+                )
+                _consider(_solve_lp(c_rand, A_eq, b_eq, A_ub, b_ub))
+                if candidates and fractional_bound is not None:
+                    best_found = max(candidates.values())
+                    if np.isclose(best_found, fractional_bound, atol=0.001):
+                        break
 
-            if (-1 * res.fun > best_reward) and (
-                not np.isclose(-1 * res.fun, best_reward, atol=0.001)
-            ):
-                best_reward = -1 * res.fun
-                logging.debug(f"\nBest Reward:\t {best_reward}")
-            logging.debug(f"Lambdas:\t {np.round(res.x, 2)}")
-            pi_opt = np.zeros(n_states, dtype=int)
-            for s in range(n_states):
-                start_idx = s * n_actions
-                end_idx = s * n_actions + n_actions
-                pi_opt[s] = res.x[start_idx:end_idx].argmax()
-            if not _is_pol_in_pols(pi_opt, best_policies):
-                best_policies.append(pi_opt)
-                logging.debug(f"Optimal Policy:\t, {pi_opt} \n")
+    if not candidates:
+        logging.warning(
+            "_find_all_solutions_lp found no feasible deterministic policy "
+            "at all (not even one that falls short of the LP relaxation's "
+            "bound). Returning no policies."
+        )
+        return [], -1 * np.inf
 
-        logging.debug("\nOptimal policies:")
-        for pi in best_policies:
-            logging.debug(f"\t{np.round(pi, 2)}")
+    best_reward = max(candidates.values())
+    best_policies = [
+        np.array(pi)
+        for pi, reward in candidates.items()
+        if np.isclose(reward, best_reward, atol=0.001)
+    ]
+
+    logging.debug(f"\nBest Reward:\t {best_reward}")
+    logging.debug("\nOptimal policies:")
+    for pi in best_policies:
+        logging.debug(f"\t{np.round(pi, 2)}")
 
     return best_policies, best_reward
-
-
-def _is_pol_in_pols(pol, policies):
-    """
-    Check if a policy is in a list of policies.
-
-    Parameters
-    ----------
-    pol : array-like
-        Candidate policy.
-    policies : 2d array-like
-        List of policies to check if candidate policy is in.
-
-    Returns
-    -------
-    bool
-        Whether candidate policy is in list of policies.
-
-    """
-    for p in policies:
-        if np.array_equal(p, pol):
-            return True
-    return False

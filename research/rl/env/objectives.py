@@ -954,10 +954,18 @@ class EqualizedOddsObjective(AbsoluteValueObjective):
         minimizing max(|TPR_z0 - TPR_z1|, |FPR_z0 - FPR_z1|).
         """
         return [
-            self._signed_rate_diff_row(ldf=ldf, y_value=1, z0_ge_z1=False),  # TPR_z0 - TPR_z1
-            self._signed_rate_diff_row(ldf=ldf, y_value=1, z0_ge_z1=True),  # TPR_z1 - TPR_z0
-            self._signed_rate_diff_row(ldf=ldf, y_value=0, z0_ge_z1=False),  # FPR_z0 - FPR_z1
-            self._signed_rate_diff_row(ldf=ldf, y_value=0, z0_ge_z1=True),  # FPR_z1 - FPR_z0
+            self._signed_rate_diff_row(
+                ldf=ldf, y_value=1, z0_ge_z1=False
+            ),  # TPR_z0 - TPR_z1
+            self._signed_rate_diff_row(
+                ldf=ldf, y_value=1, z0_ge_z1=True
+            ),  # TPR_z1 - TPR_z0
+            self._signed_rate_diff_row(
+                ldf=ldf, y_value=0, z0_ge_z1=False
+            ),  # FPR_z0 - FPR_z1
+            self._signed_rate_diff_row(
+                ldf=ldf, y_value=0, z0_ge_z1=True
+            ),  # FPR_z1 - FPR_z0
         ]
 
     def _compute_A_ub_row_for_dominant_term(self, ldf, dominant_idx):
