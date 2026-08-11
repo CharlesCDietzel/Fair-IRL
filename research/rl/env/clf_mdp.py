@@ -696,13 +696,13 @@ def _find_all_solutions_lp(
                 pi_opt[s] = a
                 x_det[start_idx + a] = state_slice.sum()
             fallback_reward = -1 * (np.asarray(c) @ x_det)
-            logging.warning(
-                "_find_all_solutions_lp found no verified-feasible "
-                "deterministic policy; falling back to an unverified "
-                "rounding of the LP solution (reward %s, LP bound %s).",
-                fallback_reward,
-                fractional_bound,
-            )
+            # logging.warning(
+            #     "_find_all_solutions_lp found no verified-feasible "
+            #     "deterministic policy; falling back to an unverified "
+            #     "rounding of the LP solution (reward %s, LP bound %s).",
+            #     fallback_reward,
+            #     fractional_bound,
+            # )
             return [pi_opt], fallback_reward
 
         logging.warning(

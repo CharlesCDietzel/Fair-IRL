@@ -443,7 +443,7 @@ extra3_bias_types_list = (
     # and also generates different kinds of bias for each type of Postprocessing classifier,
     # so don't use it for the final paper results.
     # (("unbalanced_redlining", 0.2),),
-    (("balanced_redlining", 0.2),),
+    # (("balanced_redlining", 0.2),),
     # (("perfectly_balanced_redlining", 0.1),),
     # (("perfectly_balanced_redlining", 0.2),),
     # (("perfectly_balanced_redlining", 0.3),),
@@ -457,7 +457,7 @@ extra3_bias_types_list = (
 )
 extra3_weight_adjusts_list = (
     (),  # need initial empty list for this one, otherwise weight adjustment code won't work correctly
-    # (("mul_negative_weights", 0.0),),
+    (("mul_negative_weights", 0.0),),
     # (("mul_negative_weights", 0.1),),
     # (("mul_negative_weights", 0.2),),
     # (("mul_negative_weights", 0.3),),
@@ -490,9 +490,9 @@ datasets_extra3 = [
 # Run experiments
 extensions = [".csv", ".csv", ".json"]
 folder_paths = [
-    "./../../data/experiment_output/fair_irl/exp_conv_details/",
-    "./../../data/experiment_output/fair_irl/exp_results/",
-    "./../../data/experiment_output/fair_irl/exp_info/",
+    "./data/experiment_output/fair_irl/exp_conv_details/",
+    "./data/experiment_output/fair_irl/exp_results/",
+    "./data/experiment_output/fair_irl/exp_info/",
 ]
 for extension, folder_path in zip(extensions, folder_paths):
     folder = Path(folder_path)
@@ -601,19 +601,19 @@ for exp_dict in exp_list:
             source_y=source_y,
             source_feature_types=source_feature_types,
         )
-        # stats = pstats.Stats(pr)
-        # stats.sort_stats("cumulative").print_stats(100)
-        # stats.sort_stats("time").print_stats(100)
+    #     stats = pstats.Stats(pr)
+    #     stats.sort_stats("cumulative").print_stats(100)
+    #     stats.sort_stats("time").print_stats(100)
     #     break
     # break
 
 logging.info("TRAINING FINISHED SUCESSFULLY!")
 
 
-# def play_notification():
-#     subprocess.run(
-#         ["powershell.exe", "-Command", "[System.Media.SystemSounds]::Hand.Play()"]
-#     )
+def play_notification():
+    subprocess.run(
+        ["powershell.exe", "-Command", "[System.Media.SystemSounds]::Hand.Play()"]
+    )
 
 
-# play_notification()
+play_notification()
