@@ -677,10 +677,38 @@ def _find_all_solutions_lp(
                         break
 
     if not candidates:
+        # No solve produced a *feasible* rounding within the search budget.
+        # The codebase assumes that at least one policy will always be
+        # returned, so fall back to the plain argmax rounding of the
+        # unperturbed solution, unverified. This can only be reached when
+        # every verified search attempt failed, so it's a rare last resort:
+        # better to hand back a possibly-imperfect policy than to crash
+        # every caller that indexes into an empty list.
+        if res_unperturbed.x is not None:
+            n_actions = 2
+            pi_opt = np.zeros(n_states, dtype=int)
+            x_det = np.zeros_like(res_unperturbed.x)
+            for s in range(n_states):
+                start_idx = s * n_actions
+                end_idx = start_idx + n_actions
+                state_slice = res_unperturbed.x[start_idx:end_idx]
+                a = state_slice.argmax()
+                pi_opt[s] = a
+                x_det[start_idx + a] = state_slice.sum()
+            fallback_reward = -1 * (np.asarray(c) @ x_det)
+            logging.warning(
+                "_find_all_solutions_lp found no verified-feasible "
+                "deterministic policy; falling back to an unverified "
+                "rounding of the LP solution (reward %s, LP bound %s).",
+                fallback_reward,
+                fractional_bound,
+            )
+            return [pi_opt], fallback_reward
+
         logging.warning(
-            "_find_all_solutions_lp found no feasible deterministic policy "
-            "at all (not even one that falls short of the LP relaxation's "
-            "bound). Returning no policies."
+            "_find_all_solutions_lp: the LP itself is infeasible even "
+            "without perturbation; no policy can be returned for this "
+            "sub-problem."
         )
         return [], -1 * np.inf
 

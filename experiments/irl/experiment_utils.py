@@ -1626,6 +1626,8 @@ def _irl_apply_weight_adjustments(
         elif weight_adjust[0] == "opt_debias":
             library = weight_adjust[1]
             optimizer = weight_adjust[2]
+            # TODO: Make n_steps configurable via exp_info
+            n_steps = 500
             if library == "optuna":
                 objective = partial(
                     optuna_objective,
@@ -1643,11 +1645,11 @@ def _irl_apply_weight_adjustments(
                 x0 = np.clip(np.asarray(wi, dtype=float), -1.0, 1.0)
                 if optimizer == "CMA-ES":
                     sampler = optuna.samplers.CmaEsSampler(
-                        x0={f"w{j}": float(x0[j]) for j in range(n_weights)},
+                        x0={f"unnormalized_w{j}": float(x0[j]) for j in range(n_weights)},
                     )
                     study = optuna.create_study(direction="minimize", sampler=sampler)
-                    study.optimize(objective)
-                wi = np.array([study.best_params[f"w{j}"] for j in range(n_weights)])
+                    study.optimize(objective, n_trials=n_steps)
+                unnormalized_wi = np.array([study.best_params[f"unnormalized_w{j}"] for j in range(n_weights)])
             elif library == "pybobyqa":
                 objective = partial(
                     pybobyqa_objective,
@@ -1671,8 +1673,9 @@ def _irl_apply_weight_adjustments(
                         x0,
                         bounds=(lower_bounds, upper_bounds),
                         seek_global_minimum=True,
+                        maxfun=n_steps
                     )
-                wi = np.array(soln.x)
+                unnormalized_wi = np.array(soln.x)
             elif library == "nevergrad":
                 objective = partial(
                     nevergrad_objective,
@@ -1689,9 +1692,11 @@ def _irl_apply_weight_adjustments(
                 n_weights = len(feat_obj_set.objectives)
                 parametrization = ng.p.Array(shape=(n_weights,)).set_bounds(-1.0, 1.0)
                 if optimizer == "BayesOpt":
-                    ng_optimizer = ng.optimizers.BO(parametrization=parametrization)
+                    ng_optimizer = ng.optimizers.BO(parametrization=parametrization, budget=n_steps)
                 recommendation = ng_optimizer.minimize(objective)
-                wi = np.array(recommendation.value)
+                unnormalized_wi = np.array(recommendation.value)
+            wi = normalize(unnormalized_wi.reshape(1, -1), norm="l1").flatten()
+        wi = normalize(wi.reshape(1, -1), norm="l1").flatten()
     return wi
 
 
@@ -1700,12 +1705,12 @@ def optuna_objective(
 ):
     """Objective function for Optuna optimization of weights."""
     n_weights = len(feat_obj_set.objectives)
-    weights = np.array(
-        [trial.suggest_float(f"w{j}", -1.0, 1.0) for j in range(n_weights)]
+    unnormalized_weights = np.array(
+        [trial.suggest_float(f"unnormalized_w{j}", -1.0, 1.0) for j in range(n_weights)]
     )
     # Evaluate the weights using the provided evaluation function
     subdominance_loss = subdominance_of_weights(
-        weights,
+        unnormalized_weights,
         feat_obj_set,
         demo_df,
         clf,
@@ -1720,13 +1725,13 @@ def optuna_objective(
 
 
 def pybobyqa_objective(
-    weights, feat_obj_set, demo_df, clf, x_cols, exp_info, X, y, can_observe_y, demoE
+    unnormalized_weights, feat_obj_set, demo_df, clf, x_cols, exp_info, X, y, can_observe_y, demoE
 ):
     """Objective function for Py-BOBYQA optimization of weights."""
-    weights = np.array(weights)
+    unnormalized_weights = np.array(unnormalized_weights)
     # Evaluate the weights using the provided evaluation function
     subdominance_loss = subdominance_of_weights(
-        weights,
+        unnormalized_weights,
         feat_obj_set,
         demo_df,
         clf,
@@ -1741,13 +1746,13 @@ def pybobyqa_objective(
 
 
 def nevergrad_objective(
-    weights, feat_obj_set, demo_df, clf, x_cols, exp_info, X, y, can_observe_y, demoE
+    unnormalized_weights, feat_obj_set, demo_df, clf, x_cols, exp_info, X, y, can_observe_y, demoE
 ):
     """Objective function for Nevergrad optimization of weights."""
-    weights = np.array(weights)
+    unnormalized_weights = np.array(unnormalized_weights)
     # Evaluate the weights using the provided evaluation function
     subdominance_loss = subdominance_of_weights(
-        weights,
+        unnormalized_weights,
         feat_obj_set,
         demo_df,
         clf,
@@ -1762,7 +1767,7 @@ def nevergrad_objective(
 
 
 def subdominance_of_weights(
-    weights, feat_obj_set, demo_df, clf, x_cols, exp_info, X, y, can_observe_y, demoE
+    unnormalized_weights, feat_obj_set, demo_df, clf, x_cols, exp_info, X, y, can_observe_y, demoE
 ):
     """Computes the subdominance loss for a given set of weights. Uses the weights to
     compute the optimal policy, uses that policy to generate demos, uses the demos to
@@ -1770,7 +1775,7 @@ def subdominance_of_weights(
     demos against the expert demos. Returns the subdominance loss metric for that weight set.
     """
     # Start by L1 normalizing the weights to ensure they sum to 1
-    weights = normalize(weights.reshape(1, -1), norm="l1").flatten()
+    weights = normalize(unnormalized_weights.reshape(1, -1), norm="l1").flatten()
     # Compute the optimal policy for the given weights
     clf_pol = _irl_compute_optimal_policy(
         weights, feat_obj_set, demo_df, clf, x_cols, exp_info
@@ -2662,10 +2667,10 @@ def run_bias_experiment(
     exp_df : pandas.DataFrame
         Saves experiment results as a CSV where each row in the CSV represents
         the relevant results of one trial. The file is stored as
-        "/data/experiment_output/fair_irl/exp_results/{timestamp}.csv"
+        "./data/experiment_output/fair_irl/exp_results/{timestamp}.csv"
     exp_info : dict
         Saves the experiment parameters and metadata metadata as a JSON file
-        "./../../data/experiment_output/fair_irl/exp_info/{timestamp}.json"
+        "./data/experiment_output/fair_irl/exp_info/{timestamp}.json"
     source_X : pandas.DataFrame, Optional
         The X (including z) columns for the source domain.
     source_y : pandas.Series, Optional
@@ -2778,7 +2783,7 @@ def run_bias_experiment(
 
             # Persist the irl loop details so we can look at convergence
             df_irl.to_csv(
-                f"./../../data/experiment_output/fair_irl/exp_conv_details/{timestamp}_{weight_adjust_names[i]}_trial{trial_i}.csv",
+                f"./data/experiment_output/fair_irl/exp_conv_details/{timestamp}_{weight_adjust_names[i]}_trial{trial_i}.csv",
                 index=None,
             )
 
@@ -2792,12 +2797,12 @@ def run_bias_experiment(
             results[i],
         )
         exp_df.to_csv(
-            f"./../../data/experiment_output/fair_irl/exp_results/{timestamp}_{weight_adjust_names[i]}.csv",
+            f"./data/experiment_output/fair_irl/exp_results/{timestamp}_{weight_adjust_names[i]}.csv",
             index=None,
         )
 
         # Persist trial info
         exp_info["timestamp"] = timestamp
         exp_info["WEIGHT_ADJUSTS"] = weight_adjusts
-        fp = f"./../../data/experiment_output/fair_irl/exp_info/{timestamp}_{weight_adjust_names[i]}.json"
+        fp = f"./data/experiment_output/fair_irl/exp_info/{timestamp}_{weight_adjust_names[i]}.json"
         json.dump(exp_info, open(fp, "w"))

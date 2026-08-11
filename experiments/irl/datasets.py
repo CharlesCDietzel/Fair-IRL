@@ -156,7 +156,7 @@ def generate_compas_dataset(
     n: int | None = None,
     z_col="is_race_white",
     y_col="is_recid",
-    filepath="./../../data/compas/cox-violent-parsed.csv",
+    filepath="./data/compas/cox-violent-parsed.csv",
 ):
     """
     Wrapper function for generating a sample of the Compas dataset. This
