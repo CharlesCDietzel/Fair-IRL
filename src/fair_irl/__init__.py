@@ -1,2 +1,3 @@
-def main() -> None:
-    print("Hello from fair-irl!")
+from fair_irl.Fair_IRL_Biased_Demonstrations import main
+
+__all__ = ["main"]

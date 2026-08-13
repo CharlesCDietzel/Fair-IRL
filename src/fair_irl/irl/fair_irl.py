@@ -5,10 +5,10 @@ import numpy as np
 import os
 import tempfile
 import pandas as pd
-from research.rl.env.clf_mdp import *
-from research.rl.env.clf_mdp_policy import *
-from research.rl.env.objectives import *
-from research.utils import *
+from fair_irl.rl.env.clf_mdp import *
+from fair_irl.rl.env.clf_mdp_policy import *
+from fair_irl.rl.env.objectives import *
+from fair_irl.utils import *
 from sklearn.model_selection import train_test_split, KFold
 from sklearn.neural_network import MLPClassifier
 from sklearn.svm import SVC
@@ -72,7 +72,7 @@ def compute_optimal_policy(
 
     Returns
     -------
-    opt_pol : research.rl.env.clf_mdp.ClassificationMDPPolicy
+    opt_pol : fair_irl.rl.env.clf_mdp.ClassificationMDPPolicy
         The optimal policy. If there are multiple, it randomly selects one.
     """
     clf_mdp = ClassificationMDP(

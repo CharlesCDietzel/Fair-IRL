@@ -1,22 +1,9 @@
 import cProfile
-import os.path
+import logging
 import pstats
 import random
 import subprocess
-import sys
 from pathlib import Path
-
-# Add parent directory to current path. Needed for research imports.
-try:
-    # If running as a script, __file__ is available
-    p = Path(__file__).resolve().parent.parent.parent
-except NameError:
-    # Fallback for Jupyter Notebook execution
-    p = Path(os.getcwd()).resolve().parent.parent
-if p not in sys.path:
-    sys.path.insert(0, str(p))
-
-import logging
 
 import numpy as np
 import pandas as pd
@@ -28,10 +15,10 @@ import warnings
 
 from IPython.display import HTML, display
 
-from experiments.irl.datasets import *
-from experiments.irl.experiment_utils import *
-from research.irl.fair_irl import *
-from research.utils import *
+from fair_irl.datasets import *
+from fair_irl.experiment_utils import *
+from fair_irl.irl.fair_irl import *
+from fair_irl.utils import *
 
 
 def play_notification():
@@ -485,22 +472,22 @@ def main():
     datasets_extra3 = [
         "COMPAS",
         # "Boston",
-        # "Adult",
-        # "ACSIncome__MA",
-        # "ACSIncome__MS",
-        # "ACSIncome__CA",
-        # "ACSIncome__IL",
-        # "ACSIncome__AL",
-        # "ACSIncome__HI",
+        "Adult",
+        "ACSIncome__MA",
+        "ACSIncome__MS",
+        "ACSIncome__CA",
+        "ACSIncome__IL",
+        "ACSIncome__AL",
+        "ACSIncome__HI",
     ]
     # datasets_extra3 = ["Adult"]
 
     # Run experiments
     extensions = [".csv", ".csv", ".json"]
     folder_paths = [
-        "./data/experiment_output/fair_irl/exp_conv_details/",
-        "./data/experiment_output/fair_irl/exp_results/",
-        "./data/experiment_output/fair_irl/exp_info/",
+        "./experiment_output/fair_irl/exp_conv_details/",
+        "./experiment_output/fair_irl/exp_results/",
+        "./experiment_output/fair_irl/exp_info/",
     ]
     for extension, folder_path in zip(extensions, folder_paths):
         folder = Path(folder_path)

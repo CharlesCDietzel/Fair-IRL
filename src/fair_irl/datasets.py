@@ -4,7 +4,7 @@ import pandas as pd
 from imblearn.under_sampling import RandomUnderSampler
 from fairlearn.datasets import fetch_adult, fetch_boston
 from folktables import ACSDataSource, ACSIncome
-from research.utils import *
+from fair_irl.utils import *
 
 
 def generate_dataset(dataset_name, n_samples: int | None = None):

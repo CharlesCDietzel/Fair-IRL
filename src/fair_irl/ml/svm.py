@@ -10,7 +10,7 @@ from sklearn.utils.validation import check_X_y, check_array, check_is_fitted
 
 from tabulate import tabulate
 
-from research.ml.kernel import KERNEL_MAP
+from fair_irl.ml.kernel import KERNEL_MAP
 
 
 class SVM(BaseEstimator, ClassifierMixin):

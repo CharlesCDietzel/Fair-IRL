@@ -39,12 +39,12 @@ from sklearn.model_selection import train_test_split
 from sklearn.metrics import accuracy_score, precision_score
 from sklearn.preprocessing import normalize
 
-from research.irl.fair_irl import *
-from research.ml.svm import SVM
-from research.rl.env.clf_mdp import *
-from research.rl.env.clf_mdp_policy import *
-from research.rl.env.objectives import *
-from research.utils import *
+from fair_irl.irl.fair_irl import *
+from fair_irl.ml.svm import SVM
+from fair_irl.rl.env.clf_mdp import *
+from fair_irl.rl.env.clf_mdp_policy import *
+from fair_irl.rl.env.objectives import *
+from fair_irl.utils import *
 
 from .datasets import *
 
@@ -894,9 +894,9 @@ def new_trial_result(
 
     Parameters
     ---------
-    feat_obj_set : research.irl.fair_irl.ObjectiveSet
+    feat_obj_set : fair_irl.irl.fair_irl.ObjectiveSet
         The set of objectives for the feature expectations.
-    perf_obj_set : research.irl.fair_irl.ObjectiveSet
+    perf_obj_set : fair_irl.irl.fair_irl.ObjectiveSet
         The set of objectives for the performance measures.
     muE_train : array-like<float>, shape(n_expert_demos, n_objectives)
         The feature expectations of the expert demonstrations, specifically on
@@ -2655,10 +2655,10 @@ def run_bias_experiment(
 
     Returns
     -------
-    source_clf_pol : research.rl.env.clf_mdp.ClassificationMDPPolicy
+    source_clf_pol : fair_irl.rl.env.clf_mdp.ClassificationMDPPolicy
         The classification MDP optimal policy for the source domain. This is
         returned only for debugging or inpsection purposes.
-    target_clf_pol : research.rl.env.clf_mdp.ClassificationMDPPolicy
+    target_clf_pol : fair_irl.rl.env.clf_mdp.ClassificationMDPPolicy
         The classification MDP optimal policy for the target domain. This is
         returned only for debugging or inpsection purposes.
 
@@ -2667,10 +2667,10 @@ def run_bias_experiment(
     exp_df : pandas.DataFrame
         Saves experiment results as a CSV where each row in the CSV represents
         the relevant results of one trial. The file is stored as
-        "./data/experiment_output/fair_irl/exp_results/{timestamp}.csv"
+        "./experiment_output/fair_irl/exp_results/{timestamp}.csv"
     exp_info : dict
         Saves the experiment parameters and metadata metadata as a JSON file
-        "./data/experiment_output/fair_irl/exp_info/{timestamp}.json"
+        "./experiment_output/fair_irl/exp_info/{timestamp}.json"
     source_X : pandas.DataFrame, Optional
         The X (including z) columns for the source domain.
     source_y : pandas.Series, Optional
@@ -2783,7 +2783,7 @@ def run_bias_experiment(
 
             # Persist the irl loop details so we can look at convergence
             df_irl.to_csv(
-                f"./data/experiment_output/fair_irl/exp_conv_details/{timestamp}_{weight_adjust_names[i]}_trial{trial_i}.csv",
+                f"./experiment_output/fair_irl/exp_conv_details/{timestamp}_{weight_adjust_names[i]}_trial{trial_i}.csv",
                 index=None,
             )
 
@@ -2797,12 +2797,12 @@ def run_bias_experiment(
             results[i],
         )
         exp_df.to_csv(
-            f"./data/experiment_output/fair_irl/exp_results/{timestamp}_{weight_adjust_names[i]}.csv",
+            f"./experiment_output/fair_irl/exp_results/{timestamp}_{weight_adjust_names[i]}.csv",
             index=None,
         )
 
         # Persist trial info
         exp_info["timestamp"] = timestamp
         exp_info["WEIGHT_ADJUSTS"] = weight_adjusts
-        fp = f"./data/experiment_output/fair_irl/exp_info/{timestamp}_{weight_adjust_names[i]}.json"
+        fp = f"./experiment_output/fair_irl/exp_info/{timestamp}_{weight_adjust_names[i]}.json"
         json.dump(exp_info, open(fp, "w"))
