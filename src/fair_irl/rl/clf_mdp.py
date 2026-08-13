@@ -150,12 +150,15 @@ class ClassificationMDP:
                         self.state_reducer_[x] = {}
 
                     self.state_reducer_[x][x_val] = default_val
-                    if clf_df[x].dtype == bool:
-                        # Casting to object matches pandas <3 behavior, which
-                        # silently upcast bool columns to object when
-                        # assigning an incompatible (non-bool) value.
+                    mask = clf_df[x] == x_val
+                    try:
+                        clf_df.loc[mask, x] = default_val
+                    except TypeError:
+                        # Casting to object matches pandas <3 behavior,
+                        # which silently upcast columns (e.g. bool, str)
+                        # to object when assigning an incompatible value.
                         clf_df[x] = clf_df[x].astype(object)
-                    clf_df.loc[clf_df[x] == x_val, x] = default_val
+                        clf_df.loc[mask, x] = default_val
                 except KeyError:
                     continue
 

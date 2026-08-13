@@ -3,16 +3,11 @@ import logging
 import pstats
 import random
 import subprocess
+import warnings
 from pathlib import Path
 
 import numpy as np
 import pandas as pd
-
-# TODO: Remove this once we are on pandas 3.0
-pd.options.mode.copy_on_write = "warn"
-
-import warnings
-
 from IPython.display import HTML, display
 
 from fair_irl.datasets import *
@@ -573,7 +568,15 @@ def main():
             )
 
             for f in source_feature_types["categoric"]:
-                source_X[f] = source_X[f].astype(str)
+                # .map(str) (rather than .astype(str)) matches Pandas < 3
+                # behavior: it naively stringifies every value, including
+                # missing ones (NaN -> "nan"). Pandas >= 3's .astype(str) is
+                # NA-aware and leaves missing values as missing instead.
+                # .astype(object) then keeps the legacy object dtype instead
+                # of the new strict "str" dtype, which rejects assigning
+                # non-string sentinel values used elsewhere in the pipeline
+                # (e.g. state reduction).
+                source_X[f] = source_X[f].map(str).astype(object)
 
             source_X_cols = (
                 source_feature_types["boolean"]

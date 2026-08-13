@@ -105,6 +105,32 @@ def is_clf_fitted(clf_inst):
     return is_fitted
 
 
+def use_legacy_str_dtype(df):
+    """
+    Convert any columns using pandas >= 3.0's default "str" extension dtype
+    back to the legacy "object" dtype, in-place.
+
+    Pandas >= 3.0 infers a strict "str" dtype for string-like columns (e.g.
+    from `pd.read_csv` or `.astype(str)`), which rejects assigning
+    non-string values (unlike the "object" dtype used by default in
+    Pandas < 3). Calling this right after a DataFrame is loaded/created
+    keeps string columns behaving like they did in Pandas < 3.
+
+    Parameters
+    ----------
+    df : pandas.DataFrame
+
+    Returns
+    -------
+    df : pandas.DataFrame
+        The same DataFrame, mutated in-place.
+    """
+    str_cols = df.select_dtypes(include="str").columns
+    if len(str_cols):
+        df[str_cols] = df[str_cols].astype(object)
+    return df
+
+
 def df_to_log(df, title="", tab_level=1):
     tab_prefix = tab_level * "\t"
     str_out = (

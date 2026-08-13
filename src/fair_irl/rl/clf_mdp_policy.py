@@ -102,12 +102,15 @@ class ClassificationMDPPolicy(BaseEstimator, ClassifierMixin):
         for x in self.mdp.state_reducer_.keys():
             for x_val in self.mdp.state_reducer_[x]:
                 default_val = self.mdp.state_reducer_[x][x_val]
-                if df[x].dtype == bool and not isinstance(default_val, (bool, np.bool_)):
+                mask = df[x] == x_val
+                try:
+                    df.loc[mask, x] = default_val
+                except TypeError:
                     # Casting to object matches pandas <3 behavior, which
-                    # silently upcast bool columns to object when assigning
-                    # an incompatible (non-bool) value.
+                    # silently upcast columns (e.g. bool, str) to object
+                    # when assigning an incompatible value.
                     df[x] = df[x].astype(object)
-                df.loc[df[x] == x_val, x] = default_val
+                    df.loc[mask, x] = default_val
 
         n_state_lookup_errors = 0
 

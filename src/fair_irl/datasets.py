@@ -75,6 +75,7 @@ def generate_adult_dataset(
     data = fetch_adult(as_frame=True)
     df = data.data.copy()
     df["income"] = data.target.copy()
+    use_legacy_str_dtype(df)
 
     # Take sample if possible
     if n is not None and n < len(df):
@@ -191,6 +192,7 @@ def generate_compas_dataset(
 
     # Import dataset
     df = pd.read_csv(filepath)
+    use_legacy_str_dtype(df)
 
     # Take sample if possible
     if n is not None and n < len(df):
@@ -299,6 +301,7 @@ def generate_boston_housing_dataset(n: int | None = None):
     df = data.data.copy()
     df["LSTAT_binary"] = df["LSTAT"] >= df["LSTAT"].median()
     df["MEDV"] = data.target.copy()
+    use_legacy_str_dtype(df)
 
     # Take sample if possible
     if n is not None and n < len(df):
@@ -398,6 +401,7 @@ def generate_acs_income(n: int | None = None, state=None):
     df["y"] = y
     df["y"] = df["y"].astype(int)
     del X, y
+    use_legacy_str_dtype(df)
 
     # Take sample if possible
     if n is not None and n < len(df):
