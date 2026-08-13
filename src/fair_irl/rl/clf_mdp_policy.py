@@ -101,7 +101,13 @@ class ClassificationMDPPolicy(BaseEstimator, ClassifierMixin):
         # Transform state input using fitted state_reducer_
         for x in self.mdp.state_reducer_.keys():
             for x_val in self.mdp.state_reducer_[x]:
-                df.loc[df[x] == x_val, x] = self.mdp.state_reducer_[x][x_val]
+                default_val = self.mdp.state_reducer_[x][x_val]
+                if df[x].dtype == bool and not isinstance(default_val, (bool, np.bool_)):
+                    # Casting to object matches pandas <3 behavior, which
+                    # silently upcast bool columns to object when assigning
+                    # an incompatible (non-bool) value.
+                    df[x] = df[x].astype(object)
+                df.loc[df[x] == x_val, x] = default_val
 
         n_state_lookup_errors = 0
 

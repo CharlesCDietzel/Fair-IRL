@@ -144,6 +144,7 @@ class SVM(BaseEstimator, ClassifierMixin):
 
         # Sklearn input validation
         X, y = check_X_y(X, y)  # Check that X and y have correct shape
+        y = np.array(y, copy=True)  # check_X_y may return a read-only view
         self.classes_ = unique_labels(y)  # Store the classes seen during fit
 
         if vectorized:

@@ -1982,13 +1982,17 @@ def _build_df_irl(
     df_irl["is_expert"] = y_irl.copy()
 
     for i, col in enumerate(feat_obj_set_cols):
-        df_irl.columns.values[i] = f"muL_train_{col}"
         df_irl[f"muL_val_{col}"] = [0.0] * n_prefix + np.array(muL_val_history)[
             :, i
         ].tolist()
         df_irl[f"muL_test_{col}"] = [0.0] * n_prefix + np.array(muL_test_history)[
             :, i
         ].tolist()
+
+    new_columns = df_irl.columns.tolist()
+    for i, col in enumerate(feat_obj_set_cols):
+        new_columns[i] = f"muL_train_{col}"
+    df_irl.columns = new_columns
 
     for i, col in enumerate(perf_obj_set_cols):
         df_irl[f"muL_perf_train_{col}"] = [0.0] * n_prefix + np.array(
