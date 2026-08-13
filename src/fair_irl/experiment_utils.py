@@ -1627,7 +1627,7 @@ def _irl_apply_weight_adjustments(
             library = weight_adjust[1]
             optimizer = weight_adjust[2]
             # TODO: Make n_steps configurable via exp_info
-            n_steps = 500
+            n_steps = 5
             if library == "optuna":
                 objective = partial(
                     optuna_objective,
@@ -1646,8 +1646,16 @@ def _irl_apply_weight_adjustments(
                 if optimizer == "CMA-ES":
                     sampler = optuna.samplers.CmaEsSampler(
                         x0={f"unnormalized_w{j}": float(x0[j]) for j in range(n_weights)},
+                        seed=exp_info["RANDOM_SEED"],
                     )
-                    study = optuna.create_study(direction="minimize", sampler=sampler)
+                    study = optuna.create_study(
+                        direction="minimize",
+                        sampler=sampler,
+                        # optuna.create_study() otherwise generates a random
+                        # UUID study name (via uuid.uuid4(), independent of
+                        # any seed), which is a source of non-determinism.
+                        study_name=f"opt_debias_{exp_info['RANDOM_SEED']}",
+                    )
                     study.optimize(objective, n_trials=n_steps)
                 unnormalized_wi = np.array([study.best_params[f"unnormalized_w{j}"] for j in range(n_weights)])
             elif library == "pybobyqa":
@@ -1668,6 +1676,8 @@ def _irl_apply_weight_adjustments(
                 upper_bounds = 1.0 * np.ones(n_weights)
                 x0 = np.clip(np.asarray(wi, dtype=float), lower_bounds, upper_bounds)
                 if optimizer == "Multi-Start BOBYQA":
+                    # Py-BOBYQA has no seed parameter of its own; it draws
+                    # its multi-start restarts from the global numpy RNG
                     soln = pybobyqa.solve(
                         objective,
                         x0,
@@ -1676,6 +1686,7 @@ def _irl_apply_weight_adjustments(
                         maxfun=n_steps
                     )
                 unnormalized_wi = np.array(soln.x)
+                logging.info(f"unnormalized_wi: {unnormalized_wi}")
             elif library == "nevergrad":
                 objective = partial(
                     nevergrad_objective,
@@ -1691,6 +1702,7 @@ def _irl_apply_weight_adjustments(
                 )
                 n_weights = len(feat_obj_set.objectives)
                 parametrization = ng.p.Array(shape=(n_weights,)).set_bounds(-1.0, 1.0)
+                parametrization.random_state = np.random.RandomState(exp_info["RANDOM_SEED"])
                 if optimizer == "BayesOpt":
                     ng_optimizer = ng.optimizers.BO(parametrization=parametrization, budget=n_steps)
                 recommendation = ng_optimizer.minimize(objective)
