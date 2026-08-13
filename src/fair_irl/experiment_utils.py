@@ -41,9 +41,9 @@ from sklearn.preprocessing import normalize
 
 from fair_irl.irl.fair_irl import *
 from fair_irl.ml.svm import SVM
-from fair_irl.rl.env.clf_mdp import *
-from fair_irl.rl.env.clf_mdp_policy import *
-from fair_irl.rl.env.objectives import *
+from fair_irl.rl.clf_mdp import *
+from fair_irl.rl.clf_mdp_policy import *
+from fair_irl.rl.objectives import *
 from fair_irl.utils import *
 
 from .datasets import *
@@ -2655,10 +2655,10 @@ def run_bias_experiment(
 
     Returns
     -------
-    source_clf_pol : fair_irl.rl.env.clf_mdp.ClassificationMDPPolicy
+    source_clf_pol : fair_irl.rl.clf_mdp.ClassificationMDPPolicy
         The classification MDP optimal policy for the source domain. This is
         returned only for debugging or inpsection purposes.
-    target_clf_pol : fair_irl.rl.env.clf_mdp.ClassificationMDPPolicy
+    target_clf_pol : fair_irl.rl.clf_mdp.ClassificationMDPPolicy
         The classification MDP optimal policy for the target domain. This is
         returned only for debugging or inpsection purposes.
 
