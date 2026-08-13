@@ -27,7 +27,7 @@ dependencies = [
 ]
 
 [project.scripts]
-fair-irl = "fair_irl:main"
+fair-irl = "fair_irl.Fair_IRL_Biased_Demonstrations:main"
 
 [build-system]
 requires = ["uv_build>=0.12.1,<0.13.0"]
