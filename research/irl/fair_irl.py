@@ -231,14 +231,6 @@ def add_demo_bias(demo, bias_types=(), dataset=None):
                 demo.loc[rz_indices, "yhat"] = ry
                 # Set yhat to nry for sampled rows
                 demo.loc[nrz_indices, "yhat"] = nry
-            # case "broken_redlining":
-            #     # This code is bugged, don't use it. It's only still here for replicating old results.
-            #     minority_z = demo["z"].value_counts(ascending=True).index[0]
-            #     minority_yhat = demo["yhat"].value_counts(ascending=True).index[0]
-            #     z_mask = demo["z"] == minority_z
-            #     random_mask = np.zeros(len(demo), dtype=bool)
-            #     random_mask[z_mask] = np.random.random(z_mask.sum()) < percent
-            #     demo.loc[random_mask, "yhat"] = minority_yhat
         demo.set_index("index", inplace=True)
         demo.index.name = None
     return demo
@@ -399,6 +391,7 @@ def _apply_corruption(params, percent, noise_type, magnitude):
 
 
 def add_corruption_bias(X, y, feature_types, bias_types=()):
+    yhat = None
     for bias_type in bias_types:
         bias_type_name = bias_type[0]
         if len(bias_type) > 1:
@@ -419,9 +412,53 @@ def add_corruption_bias(X, y, feature_types, bias_types=()):
                     y,
                     can_observe_y=False,
                 )
-                X = demo.drop(columns=["yhat", "y"])
-                y = demo["yhat"]
-    return X, y
+                yhat = demo["yhat"]
+    return yhat
+
+
+def generate_non_overfit_demos(
+    exp_info,
+    X,
+    y,
+    feature_types,
+    clf,
+    n_demos=2,
+    yhat=None,
+):
+    demos_folds = []  # list of demo dataframes with no bias
+    demos_folds_biased = []  # list of demo dataframes with bias
+
+    k_fold = KFold(n_demos)
+    for train, test in k_fold.split(X, y):
+        X_train, y_train = (
+            X.iloc[train],
+            y.iloc[train],
+        )
+        X_test, y_test = (
+            X.iloc[test],
+            y.iloc[test],
+        )
+        if yhat is not None:
+            yhat_train = yhat.iloc[train]
+
+        # Generate demo with bias
+        clf_fold = copy.deepcopy(clf)
+        clf_fold.fit(X_train, y_train)
+        demos_fold = generate_demo(clf_fold, X_test, y_test)
+        if yhat is not None:
+            clf_fold_biased = copy.deepcopy(clf)
+            clf_fold_biased.fit(X_train, yhat_train)
+            demos_fold_biased = generate_demo(clf_fold_biased, X_test, y_test)
+            demos_folds_biased.append(demos_fold_biased)
+
+        demos_folds.append(demos_fold)
+
+    # Combine all the biased demos into one dataframe and all the unbiased demos into another dataframe
+    # Preserves the original data sample order from the dataset.
+    if yhat is None:
+        return pd.concat(demos_folds), None
+    else:
+        return pd.concat(demos_folds), pd.concat(demos_folds_biased)
 
 
 def generate_mu_and_demos(
@@ -431,7 +468,7 @@ def generate_mu_and_demos(
     feature_types,
     clf,
     obj_set,
-    n_demos=3,
+    n_demos=2,
     bias_types=(),
 ):
     """
@@ -451,7 +488,7 @@ def generate_mu_and_demos(
         Sklearn classifier pipeline.
     obj_set : ObjectiveSet
         The objective set.
-    n_demos : int, default 3
+    n_demos : int, default 2
         The number of demonstrations to generate (also the k in k folds).
 
     Returns
@@ -465,73 +502,36 @@ def generate_mu_and_demos(
     demos_unbiased : pandas.DataFrame
         A dataframe of all the demonstrations across the K-folds with no bias added.
     """
-    mu = np.zeros((1, len(obj_set.objectives)))  # demo feat exp with bias
-    demos = []  # list of demo dataframes with bias
+    mu_biased = np.zeros((1, len(obj_set.objectives)))  # demo feat exp with bias
 
     mu_unbiased = np.zeros((1, len(obj_set.objectives)))  # demo feat exp no bias
-    demos_unbiased = []  # list of demo dataframes with no bias
 
     if n_demos < 2:
         n_demos = 2  # KFold requires at least 2 splits
 
-    X_unbiased, y_unbiased = X.copy(), y.copy()
-    X_biased, y_biased = add_corruption_bias(
-        X_unbiased, y_unbiased, feature_types, bias_types=bias_types
+    yhat_biased = add_corruption_bias(X, y, feature_types, bias_types=bias_types)
+    unbiased_demos, biased_demos = generate_non_overfit_demos(
+        exp_info, X, y, feature_types, clf, n_demos=n_demos, yhat=yhat_biased
+    )
+    if biased_demos is None:
+        biased_demos = unbiased_demos.copy()
+    biased_demos = add_demo_bias(
+        biased_demos, bias_types=bias_types, dataset=exp_info["DATASET"]
     )
 
-    k_fold = KFold(n_demos)
-    for k, (train, test) in enumerate(k_fold.split(X_unbiased, y_unbiased)):
-        _X_train_unbiased, _y_train_unbiased = (
-            X_unbiased.iloc[train],
-            y_unbiased.iloc[train],
-        )
-        _X_test_unbiased, _y_test_unbiased = (
-            X_unbiased.iloc[test],
-            y_unbiased.iloc[test],
-        )
-        _X_train_biased, _y_train_biased = X_biased.iloc[train], y_biased.iloc[train]
-
-        # Generate demo with bias
-        clf_unbiased = copy.deepcopy(clf)
-        clf_unbiased.fit(_X_train_unbiased, _y_train_unbiased)
-        demo_unbiased = generate_demo(clf_unbiased, _X_test_unbiased, _y_test_unbiased)
-        if y_unbiased.equals(y_biased) and X_unbiased.equals(X_biased):
-            # if no corruption bias was added, then the biased classifier is the same as the unbiased
-            # classifier. Thus, we can skip training a biased classifier and just use the unbiased one.
-            demo_biased = add_demo_bias(
-                demo_unbiased.copy(), bias_types=bias_types, dataset=exp_info["DATASET"]
-            )
-        else:
-            clf_biased = copy.deepcopy(clf)
-            clf_biased.fit(_X_train_biased, _y_train_biased)
-            # Use the biased (corrupted) classifier to generate the biased demo, but use the unbiased
-            # test set to ensure that the biased demos have biased yhat but unbiased X and y.
-            demo_biased = generate_demo(clf_biased, _X_test_unbiased, _y_test_unbiased)
-            demo_biased = add_demo_bias(
-                demo_biased, bias_types=bias_types, dataset=exp_info["DATASET"]
-            )
-
-        demos.append(demo_biased)
-        demos_unbiased.append(demo_unbiased)
-
-    # Combine all the biased demos into one dataframe and all the unbiased demos into another dataframe
-    # Preserves the original data sample order from the dataset.
-    demos_combined = pd.concat(demos)
-    demos_unbiased_combined = pd.concat(demos_unbiased)
-    # if bias_types != ():
     logging.info(f"Bias types added: {bias_types}")
     logging.info(
-        f"Percent of y_unbiased unchanged with added bias: {((y_unbiased == y_biased).mean() * 100.0).item()}%"
-    )
-    logging.info(
-        f"Percent of yhat unchanged with added bias: {((demos_unbiased_combined["yhat"] == demos_combined["yhat"]).mean() * 100.0).item()}%"
+        f"Percent of yhat unchanged with added bias: {((unbiased_demos["yhat"] == biased_demos["yhat"]).mean() * 100.0).item()}%"
     )
 
     # Compute mu for the combined demos and combinded unbiased demos
-    mu[0] = obj_set.compute_demo_feature_exp(demos_combined)
-    mu_unbiased[0] = obj_set.compute_demo_feature_exp(demos_unbiased_combined)
+    mu_unbiased[0] = obj_set.compute_demo_feature_exp(unbiased_demos)
+    mu_biased[0] = obj_set.compute_demo_feature_exp(biased_demos)
 
-    return mu, demos_combined, mu_unbiased, demos_unbiased_combined
+    logging.info(f"mu_unbiased[0] = {mu_unbiased[0]}")
+    logging.info(f"mu_biased[0] = {mu_biased[0]}")
+            
+    return mu_biased, biased_demos, mu_unbiased, unbiased_demos
 
 
 def init_muL_from_muE(non_expert_algo, muE):

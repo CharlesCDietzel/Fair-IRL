@@ -443,7 +443,7 @@ extra3_bias_types_list = (
     # and also generates different kinds of bias for each type of Postprocessing classifier,
     # so don't use it for the final paper results.
     # (("unbalanced_redlining", 0.2),),
-    # (("balanced_redlining", 0.2),),
+    (("balanced_redlining", 0.2),),
     # (("perfectly_balanced_redlining", 0.1),),
     # (("perfectly_balanced_redlining", 0.2),),
     # (("perfectly_balanced_redlining", 0.3),),
@@ -453,7 +453,7 @@ extra3_bias_types_list = (
     # (("perfectly_balanced_redlining", 0.7),),
     # (("perfectly_balanced_redlining", 0.8),),
     # (("perfectly_balanced_redlining", 0.9),),
-    # (("corruption_bias", "CatBoost", 0.001, "gaussian", 1.0),),
+    (("corruption_bias", "CatBoost", 0.001, "gaussian", 1.0),),
 )
 extra3_weight_adjusts_list = (
     (),  # need initial empty list for this one, otherwise weight adjustment code won't work correctly
@@ -477,13 +477,13 @@ expert_algos_extra3 = ["OptAcc"]
 datasets_extra3 = [
     "COMPAS",
     # "Boston",
-    "Adult",
-    "ACSIncome__MA",
-    "ACSIncome__MS",
-    "ACSIncome__CA",
-    "ACSIncome__IL",
-    "ACSIncome__AL",
-    "ACSIncome__HI",
+    # "Adult",
+    # "ACSIncome__MA",
+    # "ACSIncome__MS",
+    # "ACSIncome__CA",
+    # "ACSIncome__IL",
+    # "ACSIncome__AL",
+    # "ACSIncome__HI",
 ]
 # datasets_extra3 = ["Adult"]
 
