@@ -346,7 +346,6 @@ def main():
     # bias_types_list = (("perfectly_balanced_redlining"))
 
     weight_adjusts_list = (
-        (),  # need initial empty list for this one, otherwise weight adjustment code won't work correctly
         # (("mul_negative_weights", 0.0),),
         # (("mul_negative_weights", 0.1),),
         # (("mul_negative_weights", 0.2),),
@@ -394,8 +393,8 @@ def main():
     # Experiment to test how experts with different fairness/accuracy tradeoffs affect the learned fairness weights and feature expectations.
     extra_bias_types_list = ((),)
     extra_weight_adjusts_list = (
-        (),
-        (("ml_debias",),),
+        # (),
+        # (("ml_debias",),),
     )
     expert_algos_extra = [
         "DemParRed_0.01",
@@ -413,7 +412,7 @@ def main():
 
     # Experiment to test how different experts affect the learned weights and feature expectations on one dataset. Prove that experts which optimize for one thing increase the weight on that thing, and decrease other weights.
     extra2_bias_types_list = ((),)
-    extra2_weight_adjusts_list = ((),)
+    extra2_weight_adjusts_list = ()
     expert_algos_extra2 = [
         "OptAcc",
         "HardtDemPar",
@@ -428,7 +427,7 @@ def main():
 
     # ONLY USED FOR TESTING, NOT INCLUDED IN PAPER RESULTS
     extra3_bias_types_list = (
-        (),
+        # (),
         # ("threshold_swapping",), # This doesn't work for non postprocessing classifiers,
         # and also generates different kinds of bias for each type of Postprocessing classifier,
         # so don't use it for the final paper results.
@@ -443,10 +442,10 @@ def main():
         # (("perfectly_balanced_redlining", 0.7),),
         # (("perfectly_balanced_redlining", 0.8),),
         # (("perfectly_balanced_redlining", 0.9),),
-        (("corruption_bias", "CatBoost", 0.001, "gaussian", 1.0),),
+        # (("corruption_bias", "CatBoost", 0.001, "gaussian", 1.0),),
     )
     extra3_weight_adjusts_list = (
-        (),  # need initial empty list for this one, otherwise weight adjustment code won't work correctly
+        # (),
         (("mul_negative_weights", 0.0),),
         # (("mul_negative_weights", 0.1),),
         # (("mul_negative_weights", 0.2),),
@@ -459,23 +458,23 @@ def main():
         # (("mul_negative_weights", 0.9),),
         # ("sqrt_negative_weights"),
         # ("ln_negative_weights"),
-        (("opt_debias", "optuna", "CMA-ES"),),
+        # (("opt_debias", "optuna", "CMA-ES"),),
         # (("opt_debias", "pybobyqa", "Multi-Start BOBYQA"),),
         # (("opt_debias", "nevergrad", "BayesOpt"),),
     )
     expert_algos_extra3 = ["OptAcc"]
-    datasets_extra3 = [
-        "COMPAS",
-        # "Boston",
-        "Adult",
-        "ACSIncome__MA",
-        "ACSIncome__MS",
-        "ACSIncome__CA",
-        "ACSIncome__IL",
-        "ACSIncome__AL",
-        "ACSIncome__HI",
-    ]
-    # datasets_extra3 = ["Adult"]
+    # datasets_extra3 = [
+    #     "COMPAS",
+    #     # "Boston",
+    #     "Adult",
+    #     "ACSIncome__MA",
+    #     "ACSIncome__MS",
+    #     "ACSIncome__CA",
+    #     "ACSIncome__IL",
+    #     "ACSIncome__AL",
+    #     "ACSIncome__HI",
+    # ]
+    datasets_extra3 = ["Adult"]
 
     # Run experiments
     extensions = [".csv", ".csv", ".json"]
@@ -607,7 +606,7 @@ def main():
 
     logging.info("TRAINING FINISHED SUCESSFULLY!")
 
-    play_notification()
+    # play_notification()
 
 
 if __name__ == "__main__":
