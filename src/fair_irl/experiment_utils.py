@@ -717,6 +717,14 @@ def generate_expert_algo_lookup(feature_types):
         lambda row: int(row["decile_score"] >= 6)
     )
 
+    # OptClfMDPPol: optimal classifier policy (see compute_optimal_policy() in
+    # fair_irl.py), with reward weights split equally (and positively) across
+    # every feature-expectation objective. Its ClassificationMDPPolicy is
+    # actually built per-fold in generate_non_overfit_demos() since it depends
+    # on the objective set and training fold, neither of which is available
+    # here yet.
+    opt_clf_mdp_pol_expert = OptClfMDPPolicyExpert(feature_types)
+
     expert_algo_lookup = {
         # Experts
         "OptAcc": opt_acc_pipe,
@@ -744,6 +752,7 @@ def generate_expert_algo_lookup(feature_types):
         "EqOddsRed": eq_odds_red_wrapper,
         "BoundedGroupLoss": bgl_wrapper,
         "COMPAS": compas_score_high,
+        "OptClfMDPPol": opt_clf_mdp_pol_expert,
         # Initial policies
         "OptAccNoisy": UnfairNoisyClassifier(clf=opt_acc_pipe, prob=[0.15, 0.25]),
         "HardtDemParNoisy": UnfairNoisyClassifier(

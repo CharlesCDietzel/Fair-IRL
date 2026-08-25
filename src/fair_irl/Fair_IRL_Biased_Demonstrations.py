@@ -427,12 +427,12 @@ def main():
 
     # ONLY USED FOR TESTING, NOT INCLUDED IN PAPER RESULTS
     extra3_bias_types_list = (
-        # (),
+        (),
         # ("threshold_swapping",), # This doesn't work for non postprocessing classifiers,
         # and also generates different kinds of bias for each type of Postprocessing classifier,
         # so don't use it for the final paper results.
         # (("unbalanced_redlining", 0.2),),
-        (("balanced_redlining", 0.2),),
+        # (("balanced_redlining", 0.2),),
         # (("perfectly_balanced_redlining", 0.1),),
         # (("perfectly_balanced_redlining", 0.2),),
         # (("perfectly_balanced_redlining", 0.3),),
@@ -446,7 +446,7 @@ def main():
     )
     extra3_weight_adjusts_list = (
         # (),
-        (("mul_negative_weights", 0.0),),
+        # (("mul_negative_weights", 0.0),),
         # (("mul_negative_weights", 0.1),),
         # (("mul_negative_weights", 0.2),),
         # (("mul_negative_weights", 0.3),),
@@ -462,7 +462,8 @@ def main():
         # (("opt_debias", "pybobyqa", "Multi-Start BOBYQA"),),
         # (("opt_debias", "nevergrad", "BayesOpt"),),
     )
-    expert_algos_extra3 = ["OptAcc"]
+    expert_algos_extra3 = ["OptAcc", "OptClfMDPPol"]
+    # expert_algos_extra3 = ["OptClfMDPPol"]
     # datasets_extra3 = [
     #     "COMPAS",
     #     # "Boston",

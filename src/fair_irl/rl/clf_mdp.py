@@ -250,7 +250,7 @@ class ClassificationMDP:
 
         return None
 
-    def compute_optimal_policies(self, skip_error_terms=False, method="highs"):
+    def compute_optimal_policies(self, skip_error_terms=True, method="highs"):
         """
         Computes the optimal policies for the classification MDP.
 
@@ -560,7 +560,7 @@ def _find_all_solutions_lp(
     A_ub=None,
     b_ub=None,
     error_term=1e-12,
-    skip_error_terms=False,
+    skip_error_terms=True,
     method="highs",
 ):
     """

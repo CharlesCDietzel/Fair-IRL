@@ -9,6 +9,7 @@ from fair_irl.rl.clf_mdp import *
 from fair_irl.rl.clf_mdp_policy import *
 from fair_irl.rl.objectives import *
 from fair_irl.utils import *
+from sklearn.ensemble import RandomForestClassifier
 from sklearn.model_selection import train_test_split, KFold
 from sklearn.neural_network import MLPClassifier
 from sklearn.svm import SVC
@@ -22,7 +23,7 @@ def compute_optimal_policy(
     x_cols,
     obj_set,
     reward_weights,
-    skip_error_terms=False,
+    skip_error_terms=True,
     method="highs",
     gamma=1e-9,
     min_freq_fill_pct=0,
@@ -109,6 +110,70 @@ def compute_optimal_policy(
     )
 
     return clf_pol
+
+
+class OptClfMDPPolicyExpert:
+    """
+    Configuration holder for the "OptClfMDPPol" expert algo (see
+    `experiment_utils.generate_expert_algo_lookup()`).
+
+    Unlike the other entries in `expert_algo_lookup`, a `ClassificationMDPPolicy`
+    can't be built until the feature-expectation objective set (`obj_set`) and
+    a concrete training fold (`X_train`, `y_train`) are known, neither of which
+    is available yet when `expert_algo_lookup` is constructed. This class just
+    holds `feature_types` and defers the actual `compute_optimal_policy()` call
+    to `build_policy()`, which `generate_non_overfit_demos()` invokes once per
+    fold instead of the usual `clf.fit()`/`clf.predict()`.
+
+    Parameters
+    ----------
+    feature_types : dict<str, list>
+        Mapping of column names to their type of feature.
+    """
+
+    def __init__(self, feature_types):
+        self.feature_types = feature_types
+
+    def build_policy(self, X_train, y_train, obj_set, exp_info):
+        """
+        Fits the `y|x` predictor on `(X_train, y_train)` and computes the
+        optimal classifier policy for that data, using equal, positive reward
+        weights (summing to 1) across every objective in `obj_set`.
+
+        Returns
+        -------
+        clf_pol : ClassificationMDPPolicy
+        """
+        x_cols = (
+            self.feature_types["boolean"]
+            + self.feature_types["categoric"]
+            + self.feature_types["continuous"]
+        )
+        x_cols.remove("z")
+
+        inner_clf = sklearn_clf_pipeline(
+            feature_types=self.feature_types,
+            clf_inst=RandomForestClassifier(),
+        )
+        inner_clf.fit(X_train, y_train)
+
+        clf_df = pd.DataFrame(X_train).copy()
+        clf_df["y"] = y_train
+
+        n_objs = len(obj_set.objectives)
+        reward_weights = {obj.name: 1.0 / n_objs for obj in obj_set.objectives}
+
+        return compute_optimal_policy(
+            clf_df=clf_df,
+            clf=inner_clf,
+            x_cols=x_cols,
+            obj_set=obj_set,
+            reward_weights=reward_weights,
+            skip_error_terms=True,
+            method=exp_info["METHOD"],
+            min_freq_fill_pct=exp_info["MIN_FREQ_FILL_PCT"],
+            restrict_y=exp_info["RESTRICT_Y_ACTION"],
+        )
 
 
 def generate_demo(clf, X_test, y_test, can_observe_y=False):
@@ -424,6 +489,7 @@ def generate_non_overfit_demos(
     clf,
     n_demos=2,
     yhat=None,
+    obj_set=None,
 ):
     demos_folds = []  # list of demo dataframes with no bias
     demos_folds_biased = []  # list of demo dataframes with bias
@@ -442,12 +508,23 @@ def generate_non_overfit_demos(
             yhat_train = yhat.iloc[train]
 
         # Generate demo with bias
-        clf_fold = copy.deepcopy(clf)
-        clf_fold.fit(X_train, y_train)
+        if isinstance(clf, OptClfMDPPolicyExpert):
+            # A ClassificationMDPPolicy can't be fit like a regular
+            # classifier: it must be rebuilt (via compute_optimal_policy())
+            # from this fold's own training data instead.
+            clf_fold = clf.build_policy(X_train, y_train, obj_set, exp_info)
+        else:
+            clf_fold = copy.deepcopy(clf)
+            clf_fold.fit(X_train, y_train)
         demos_fold = generate_demo(clf_fold, X_test, y_test)
         if yhat is not None:
-            clf_fold_biased = copy.deepcopy(clf)
-            clf_fold_biased.fit(X_train, yhat_train)
+            if isinstance(clf, OptClfMDPPolicyExpert):
+                clf_fold_biased = clf.build_policy(
+                    X_train, yhat_train, obj_set, exp_info
+                )
+            else:
+                clf_fold_biased = copy.deepcopy(clf)
+                clf_fold_biased.fit(X_train, yhat_train)
             demos_fold_biased = generate_demo(clf_fold_biased, X_test, y_test)
             demos_folds_biased.append(demos_fold_biased)
 
@@ -511,7 +588,14 @@ def generate_mu_and_demos(
 
     yhat_biased = add_corruption_bias(X, y, feature_types, bias_types=bias_types)
     unbiased_demos, biased_demos = generate_non_overfit_demos(
-        exp_info, X, y, feature_types, clf, n_demos=n_demos, yhat=yhat_biased
+        exp_info,
+        X,
+        y,
+        feature_types,
+        clf,
+        n_demos=n_demos,
+        yhat=yhat_biased,
+        obj_set=obj_set,
     )
     if biased_demos is None:
         biased_demos = unbiased_demos.copy()
