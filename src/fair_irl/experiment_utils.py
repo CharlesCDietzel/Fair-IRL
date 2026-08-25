@@ -1714,7 +1714,10 @@ def _irl_apply_weight_adjustments(
                     demoE=demoE,
                 )
                 n_weights = len(feat_obj_set.objectives)
-                parametrization = ng.p.Array(shape=(n_weights,)).set_bounds(-1.0, 1.0)
+                # parametrization = ng.p.Array(shape=(n_weights,)).set_bounds(-1.0, 1.0)
+                parametrization = ng.p.Array(
+                    init=np.asarray(wi, dtype=float)
+                ).set_bounds(-1.0, 1.0)
                 parametrization.random_state = np.random.RandomState(
                     exp_info["RANDOM_SEED"]
                 )
@@ -2676,14 +2679,14 @@ def _irl_build_trial_return_val(
     return return_val, best_weight
 
 
-def run_trial_source_domain(
+def run_experiment_trial(
     exp_info,
     X=None,
     y=None,
     feature_types=None,
 ):
     """
-    Runs 1 trial to learn weights in the source domain.
+    Runs 1 trial to learn an optimal classifier.
 
     X, y, feature_types don't need to be passed. If they are, then
     `generate_dataset()` is not invoked.
@@ -3259,7 +3262,7 @@ def run_bias_experiment(
         trial_start = datetime.datetime.now()
 
         # Run trials to learn weights on source domain
-        return_vals = run_trial_source_domain(
+        return_vals = run_experiment_trial(
             exp_info,
             X=source_X,
             y=source_y,
