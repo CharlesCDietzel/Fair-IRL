@@ -1304,16 +1304,32 @@ def compute_subdominance(
     return final_subdom
 
 
-# Helper to compute subdominance for a specific set
-def compute_iteration_subdominance(
-    exp_info,
-    raw_demo_ref,
-    clf_demo_cur,
-    subdominance_type="all",
-):
-    # Compute subdominance metric for the learned policy
+# Helper to sample the subdominance groups of a reference (expert) demo set once,
+# so that every subsequent compute_iteration_subdominance() call against that
+# reference reuses the same groups and the same reference feature losses.
+def generate_subdominance_groups(exp_info, raw_demo_ref):
+    """Sample the subdominance demo groups for one expert demo set.
+
+    Parameters
+    ----------
+    exp_info : dict
+        Metadata about the experiment.
+    raw_demo_ref : pandas.DataFrame
+        The expert (raw) demos the learned policy is scored against.
+
+    Returns
+    -------
+    group_idxs : list<numpy.ndarray>
+        The positional indices of each subdominance group. Sampled once here so
+        that every learned policy is compared against the expert on the exact
+        same groups.
+    raw_demos : list<pandas.DataFrame>
+        The expert demos of each subdominance group.
+    raw_demos_feat_loss : numpy.ndarray
+        The feature losses of each expert demo group. Shape is
+        (n_subdominance_groups, n_subdominance_metrics).
+    """
     raw_demo = raw_demo_ref.copy()
-    clf_demo = clf_demo_cur.copy()
     # OLD IMPLEMENTATION: Split the raw and clf demos into subdominance groups, where there are no repeated demos in each group.
     # raw_demos = np.array_split(raw_demo, exp_info["N_SUBDOMINANCE_GROUPS"])
     # clf_demos = np.array_split(clf_demo, exp_info["N_SUBDOMINANCE_GROUPS"])
@@ -1321,15 +1337,14 @@ def compute_iteration_subdominance(
     # sampled randomly without replacement. This way, each group contains a large and diverse set of demos, from which we can
     # more accurately and robustly compute the feature losses. This will help to improve the robustness of the subdominance
     # metric, especially when the number of demos is small.
-    # ADD NEW IMPLEMENTATION HERE:
     n_demos = len(raw_demo)
     group_size = n_demos // 2
+    group_idxs = []
     raw_demos = []
-    clf_demos = []
     for _ in range(exp_info["N_SUBDOMINANCE_GROUPS"]):
         group_idx = np.random.choice(n_demos, size=group_size, replace=False)
+        group_idxs.append(group_idx)
         raw_demos.append(raw_demo.iloc[group_idx])
-        clf_demos.append(clf_demo.iloc[group_idx])
 
     raw_demos_feat_loss = np.array(
         [
@@ -1337,6 +1352,36 @@ def compute_iteration_subdominance(
             for raw_demo_group in raw_demos
         ]
     )
+    return group_idxs, raw_demos, raw_demos_feat_loss
+
+
+# Helper to compute subdominance for a specific set
+def compute_iteration_subdominance(
+    exp_info,
+    group_idxs,
+    raw_demos,
+    raw_demos_feat_loss,
+    clf_demo_cur,
+    subdominance_type="all",
+):
+    """Compute the subdominance metric of a learned policy's demos.
+
+    `group_idxs`, `raw_demos` and `raw_demos_feat_loss` come from
+    `generate_subdominance_groups()`, which is called once per expert demo set in
+    `_split_dataset_and_generate_expert_demos()`. Reusing them here keeps the
+    subdominance groups (and the expert feature losses computed from them)
+    identical across every call, so the subdominance values of different learned
+    policies are directly comparable.
+
+    `raw_demos` is not needed to compute the metric itself -- it is carried
+    alongside its feature losses so callers hold the groups those losses came
+    from.
+    """
+    # Compute subdominance metric for the learned policy, using the same
+    # subdominance groups that the expert feature losses were computed on.
+    clf_demo = clf_demo_cur.copy()
+    clf_demos = [clf_demo.iloc[group_idx] for group_idx in group_idxs]
+
     clf_demos_feat_loss = np.array(
         [
             compute_relevant_feat_loss(exp_info, clf_demo_group)
@@ -1494,6 +1539,13 @@ def _split_dataset_and_generate_expert_demos(
         The three data splits.
     (expert_train, expert_val, expert_test) : ExpertDemos
         The expert demonstrations for each of those splits.
+    (subdom_groups_train, subdom_groups_val, subdom_groups_test) : tuple
+        The subdominance groups of each split's expert demos, as
+        `(group_idxs, raw_demos, raw_demos_feat_loss)` triples produced by
+        `generate_subdominance_groups()`. They are sampled once here and passed
+        to every subsequent `compute_iteration_subdominance()` call, so that all
+        subdominance computations of this trial share the same groups and the
+        same expert feature losses.
     """
     max_muE_cosine_dist_split = 0.002
 
@@ -1559,6 +1611,14 @@ def _split_dataset_and_generate_expert_demos(
             "INFO: Split check failed; retrying train/validation/test split..."
         )
 
+    # Sample the subdominance groups (and compute the expert feature losses on
+    # them) once per split, so that every compute_iteration_subdominance() call
+    # of this trial reuses the same groups.
+    logging.info("Generating subdominance groups for the expert demonstrations...")
+    subdom_groups_train = generate_subdominance_groups(exp_info, expert_train.demo)
+    subdom_groups_val = generate_subdominance_groups(exp_info, expert_val.demo)
+    subdom_groups_test = generate_subdominance_groups(exp_info, expert_test.demo)
+
     return (
         X_train,
         X_val,
@@ -1569,6 +1629,9 @@ def _split_dataset_and_generate_expert_demos(
         expert_train,
         expert_val,
         expert_test,
+        subdom_groups_train,
+        subdom_groups_val,
+        subdom_groups_test,
     )
 
 
@@ -1657,7 +1720,7 @@ def _apply_weight_adjustments(
     X,
     y,
     can_observe_y,
-    demoE,
+    subdom_groups,
 ):
     """Apply a sequence of weight adjustment operations to wi and return the result."""
     for weight_adjust in weight_adjusts:
@@ -1680,7 +1743,7 @@ def _apply_weight_adjustments(
                     X=X,
                     y=y,
                     can_observe_y=can_observe_y,
-                    demoE=demoE,
+                    subdom_groups=subdom_groups,
                 )
                 n_weights = len(feat_obj_set.objectives)
                 x0 = np.clip(np.asarray(wi, dtype=float), -1.0, 1.0)
@@ -1714,7 +1777,7 @@ def _apply_weight_adjustments(
                     X=X,
                     y=y,
                     can_observe_y=can_observe_y,
-                    demoE=demoE,
+                    subdom_groups=subdom_groups,
                 )
                 n_weights = len(feat_obj_set.objectives)
                 lower_bounds = -1.0 * np.ones(n_weights)
@@ -1743,7 +1806,7 @@ def _apply_weight_adjustments(
                     X=X,
                     y=y,
                     can_observe_y=can_observe_y,
-                    demoE=demoE,
+                    subdom_groups=subdom_groups,
                 )
                 n_weights = len(feat_obj_set.objectives)
                 # parametrization = ng.p.Array(shape=(n_weights,)).set_bounds(-1.0, 1.0)
@@ -1765,7 +1828,16 @@ def _apply_weight_adjustments(
 
 
 def optuna_objective(
-    trial, feat_obj_set, demo_df, clf, x_cols, exp_info, X, y, can_observe_y, demoE
+    trial,
+    feat_obj_set,
+    demo_df,
+    clf,
+    x_cols,
+    exp_info,
+    X,
+    y,
+    can_observe_y,
+    subdom_groups,
 ):
     """Objective function for Optuna optimization of weights."""
     n_weights = len(feat_obj_set.objectives)
@@ -1783,7 +1855,7 @@ def optuna_objective(
         X,
         y,
         can_observe_y,
-        demoE,
+        subdom_groups,
     )
     return subdominance_loss
 
@@ -1798,7 +1870,7 @@ def pybobyqa_objective(
     X,
     y,
     can_observe_y,
-    demoE,
+    subdom_groups,
 ):
     """Objective function for Py-BOBYQA optimization of weights."""
     unnormalized_weights = np.array(unnormalized_weights)
@@ -1813,7 +1885,7 @@ def pybobyqa_objective(
         X,
         y,
         can_observe_y,
-        demoE,
+        subdom_groups,
     )
     return subdominance_loss
 
@@ -1828,7 +1900,7 @@ def nevergrad_objective(
     X,
     y,
     can_observe_y,
-    demoE,
+    subdom_groups,
 ):
     """Objective function for Nevergrad optimization of weights."""
     unnormalized_weights = np.array(unnormalized_weights)
@@ -1843,7 +1915,7 @@ def nevergrad_objective(
         X,
         y,
         can_observe_y,
-        demoE,
+        subdom_groups,
     )
     return subdominance_loss
 
@@ -1858,7 +1930,7 @@ def subdominance_of_weights(
     X,
     y,
     can_observe_y,
-    demoE,
+    subdom_groups,
 ):
     """Computes the subdominance loss for a given set of weights. Uses the weights to
     compute the optimal policy, uses that policy to generate demos, uses the demos to
@@ -1888,8 +1960,14 @@ def subdominance_of_weights(
     # lp = LineProfiler()
     # lp.add_function(compute_iteration_subdominance)
     # lp.enable_by_count()
+    group_idxs, raw_demos, raw_demos_feat_loss = subdom_groups
     sum_abs_subdom = compute_iteration_subdominance(
-        exp_info, demoE, demo, subdominance_type="sum_abs"
+        exp_info,
+        group_idxs,
+        raw_demos,
+        raw_demos_feat_loss,
+        demo,
+        subdominance_type="sum_abs",
     )
     # lp.disable_by_count()
     # lp.print_stats()
@@ -1907,9 +1985,9 @@ def _evaluate_policy(
     y_train,
     y_val,
     y_test,
-    demoE_train,
-    demoE_val,
-    demoE_test,
+    subdom_groups_train,
+    subdom_groups_val,
+    subdom_groups_test,
     muE_train,
     muE_val,
     muE_test,
@@ -1960,21 +2038,27 @@ def _evaluate_policy(
         sum_abs_subdominance,
         max_rel_subdominance,
         sum_rel_subdominance,
-    ) = compute_iteration_subdominance(exp_info, demoE_train, demo_train)
+    ) = compute_iteration_subdominance(
+        exp_info, *subdom_groups_train, clf_demo_cur=demo_train
+    )
 
     (
         max_abs_subdom_v,
         sum_abs_subdom_v,
         max_rel_subdom_v,
         sum_rel_subdom_v,
-    ) = compute_iteration_subdominance(exp_info, demoE_val, demo_val)
+    ) = compute_iteration_subdominance(
+        exp_info, *subdom_groups_val, clf_demo_cur=demo_val
+    )
 
     (
         max_abs_subdom_t,
         sum_abs_subdom_t,
         max_rel_subdom_t,
         sum_rel_subdom_t,
-    ) = compute_iteration_subdominance(exp_info, demoE_test, demo_test)
+    ) = compute_iteration_subdominance(
+        exp_info, *subdom_groups_test, clf_demo_cur=demo_test
+    )
 
     return (
         demo_train,
@@ -2120,6 +2204,9 @@ def run_experiment_trial(
         expert_train,
         expert_val,
         expert_test,
+        subdom_groups_train,
+        subdom_groups_val,
+        subdom_groups_test,
     ) = _split_dataset_and_generate_expert_demos(
         exp_info,
         expert_algo_lookup,
@@ -2180,7 +2267,7 @@ def run_experiment_trial(
                 X_train,  # could switch to X_val
                 y_train,  # could switch to y_val
                 can_observe_y,
-                expert_train.demo,  # could switch to expert_val.demo
+                subdom_groups_train,  # could switch to subdom_groups_val
             )
 
             # Learn a policy that maximizes the reward function.
@@ -2216,9 +2303,9 @@ def run_experiment_trial(
                 y_train,
                 y_val,
                 y_test,
-                expert_train.demo,
-                expert_val.demo,
-                expert_test.demo,
+                subdom_groups_train,
+                subdom_groups_val,
+                subdom_groups_test,
                 expert_train.mu,
                 expert_val.mu,
                 expert_test.mu,
