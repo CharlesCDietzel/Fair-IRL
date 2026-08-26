@@ -4,7 +4,6 @@ import pstats
 import random
 import subprocess
 import warnings
-from pathlib import Path
 
 import numpy as np
 import pandas as pd
@@ -477,18 +476,18 @@ def main():
     # ]
     datasets_extra3 = ["Adult"]
 
-    # Run experiments
-    extensions = [".csv", ".csv", ".json"]
-    folder_paths = [
-        "./experiment_output/fair_irl/exp_conv_details/",
-        "./experiment_output/fair_irl/exp_results/",
-        "./experiment_output/fair_irl/exp_info/",
-    ]
-    for extension, folder_path in zip(extensions, folder_paths):
-        folder = Path(folder_path)
-        for file_path in folder.glob(f"*{extension}"):
-            if file_path.is_file():
-                file_path.unlink()  # Delete the file
+    # Run experiments. Results are reported to Weights & Biases (project
+    # `WANDB_PROJECT`, default "fair-irl"); the server address and credentials
+    # come from the usual wandb configuration, i.e. the WANDB_BASE_URL
+    # environment variable or ~/.config/wandb/settings.
+    #
+    # Every run of every experiment below shares this one session id, which is
+    # what lets the plotting notebook pick out this execution's results rather
+    # than mixing them with those of earlier executions.
+    session_id = new_session_id()
+    logging.info(f"Logging results to W&B project: {WANDB_PROJECT}")
+    logging.info(f"W&B session: {session_id}")
+
     # Create config for each experiment
     for exp_dict in exp_list:
         base_exp_info = exp_dict["base_exp_info"]
@@ -598,6 +597,7 @@ def main():
                 source_X=_source_X,
                 source_y=source_y,
                 source_feature_types=source_feature_types,
+                session_id=session_id,
             )
         #     stats = pstats.Stats(pr)
         #     stats.sort_stats("cumulative").print_stats(100)
@@ -605,7 +605,7 @@ def main():
         #     break
         # break
 
-    logging.info("TRAINING FINISHED SUCESSFULLY!")
+    logging.info(f"TRAINING FINISHED SUCESSFULLY! W&B session: {session_id}")
 
     # play_notification()
 

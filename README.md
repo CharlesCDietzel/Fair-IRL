@@ -16,15 +16,24 @@ uv sync
 source .venv/bin/activate 
 ```
 
-Use VSCode or your IDE of choice to view the various python notebooks. 
+Once you have created and sourced the environment, you will also need to set up and start the wandb server. To do this, first install docker engine following the instructions here: https://docs.docker.com/engine/install/ubuntu/. NOTE: These instructions assume you are using Ubuntu. If not, google for how to install docker engine. If you are using Windows, idk man, figure it out. 
+
+After docker is installed and the docker service is started, run ```wandb server start```. This will pull and automatically start the wandb server inside a docker container. 
+
+Once the command finishes, you will see a terminal prompt asking you to provide an API key. Click the URL in the terminal (which will look something like http://localhost:8080/login) to go to a screen where you will need to make an account. Don't worry, the account will only be created on your local machine and will not exist exist on the internet. 
+
+After you make your account, wandb will then give you your API key, which you should copy and paste into the terminal prompt. After you have done this, congratulations! You have completed the setup. 
+
+IMPORTANT NOTE: You will need to re-run ```wandb server start``` each time you restart your computer if you want to run this code. 
+
+# Reproducing Results
+
+To reproduce the results, run ```python3 src/fair_irl/Fair_IRL_Biased_Demonstrations.py```
+
+# Figures
+
+Use VSCode or your IDE of choice to view and run the various python notebooks. 
 
 # Publications
 
-Here is the code supporting published papers:
-
-TMLR, 2024:
-- [Experiment code](https://github.com/jackblandin/research/blob/master/experiments/fairness/group-fairness-in-rl-through-multi-objective-rewards--experiments.ipynb)
-- [Figure generation code](https://github.com/jackblandin/research/blob/master/experiments/fairness/group-fairness-in-rl-through-multi-objective-rewards--heatmaps.ipynb)
-
-FAccT, 2024:
-- [Experiment code](https://github.com/jackblandin/research/blob/master/experiments/irl/Fair%20IRL%20Experiments.ipynb)
+Currently, there are no publications that correspond to this code. Watch this space! Or don't, I'm not your dad. 
