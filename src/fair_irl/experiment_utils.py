@@ -1721,8 +1721,14 @@ def _apply_weight_adjustments(
     y,
     can_observe_y,
     subdom_groups,
+    run=None,
 ):
-    """Apply a sequence of weight adjustment operations to wi and return the result."""
+    """Apply a sequence of weight adjustment operations to wi and return the result.
+
+    `run` is the W&B run of the policy these weights are being learned for, or
+    `None` to disable W&B logging. Only the adjustments that iterate (i.e.
+    `"opt_debias"`) report anything to it.
+    """
     for weight_adjust in weight_adjusts:
         if weight_adjust[0] == "mul_negative_weights":
             mul_factor = weight_adjust[1]
@@ -1731,100 +1737,385 @@ def _apply_weight_adjustments(
             library = weight_adjust[1]
             optimizer = weight_adjust[2]
             # TODO: Make n_steps configurable via exp_info
-            n_steps = 5
-            if library == "optuna":
-                objective = partial(
-                    optuna_objective,
-                    feat_obj_set=feat_obj_set,
-                    demo_df=demo_df,
-                    clf=clf,
-                    x_cols=x_cols,
-                    exp_info=exp_info,
-                    X=X,
-                    y=y,
-                    can_observe_y=can_observe_y,
-                    subdom_groups=subdom_groups,
-                )
-                n_weights = len(feat_obj_set.objectives)
-                x0 = np.clip(np.asarray(wi, dtype=float), -1.0, 1.0)
-                if optimizer == "CMA-ES":
-                    sampler = optuna.samplers.CmaEsSampler(
-                        x0={
-                            f"unnormalized_w{j}": float(x0[j]) for j in range(n_weights)
-                        },
-                        seed=exp_info["RANDOM_SEED"],
-                    )
-                    study = optuna.create_study(
-                        direction="minimize",
-                        sampler=sampler,
-                        # optuna.create_study() otherwise generates a random
-                        # UUID study name (via uuid.uuid4(), independent of
-                        # any seed), which is a source of non-determinism.
-                        study_name=f"opt_debias_{exp_info['RANDOM_SEED']}",
-                    )
-                    study.optimize(objective, n_trials=n_steps)
-                unnormalized_wi = np.array(
-                    [study.best_params[f"unnormalized_w{j}"] for j in range(n_weights)]
-                )
-            elif library == "pybobyqa":
-                objective = partial(
-                    pybobyqa_objective,
-                    feat_obj_set=feat_obj_set,
-                    demo_df=demo_df,
-                    clf=clf,
-                    x_cols=x_cols,
-                    exp_info=exp_info,
-                    X=X,
-                    y=y,
-                    can_observe_y=can_observe_y,
-                    subdom_groups=subdom_groups,
-                )
-                n_weights = len(feat_obj_set.objectives)
-                lower_bounds = -1.0 * np.ones(n_weights)
-                upper_bounds = 1.0 * np.ones(n_weights)
-                x0 = np.clip(np.asarray(wi, dtype=float), lower_bounds, upper_bounds)
-                if optimizer == "Multi-Start BOBYQA":
-                    # Py-BOBYQA has no seed parameter of its own; it draws
-                    # its multi-start restarts from the global numpy RNG
-                    soln = pybobyqa.solve(
-                        objective,
-                        x0,
-                        bounds=(lower_bounds, upper_bounds),
-                        seek_global_minimum=True,
-                        maxfun=n_steps,
-                    )
-                unnormalized_wi = np.array(soln.x)
-                logging.info(f"unnormalized_wi: {unnormalized_wi}")
-            elif library == "nevergrad":
-                objective = partial(
-                    nevergrad_objective,
-                    feat_obj_set=feat_obj_set,
-                    demo_df=demo_df,
-                    clf=clf,
-                    x_cols=x_cols,
-                    exp_info=exp_info,
-                    X=X,
-                    y=y,
-                    can_observe_y=can_observe_y,
-                    subdom_groups=subdom_groups,
-                )
-                n_weights = len(feat_obj_set.objectives)
-                # parametrization = ng.p.Array(shape=(n_weights,)).set_bounds(-1.0, 1.0)
-                parametrization = ng.p.Array(
-                    init=np.asarray(wi, dtype=float)
-                ).set_bounds(-1.0, 1.0)
-                parametrization.random_state = np.random.RandomState(
-                    exp_info["RANDOM_SEED"]
-                )
-                if optimizer == "BayesOpt":
-                    ng_optimizer = ng.optimizers.BO(
-                        parametrization=parametrization, budget=n_steps
-                    )
-                recommendation = ng_optimizer.minimize(objective)
-                unnormalized_wi = np.array(recommendation.value)
-            wi = normalize(unnormalized_wi.reshape(1, -1), norm="l1").flatten()
+            n_steps = weight_adjust[3] if 3 < len(weight_adjust) else 5
+            wi = iteratively_optimize_weights(
+                wi,
+                feat_obj_set,
+                demo_df,
+                clf,
+                x_cols,
+                exp_info,
+                X,
+                y,
+                can_observe_y,
+                subdom_groups,
+                library,
+                optimizer,
+                n_steps,
+                run=run,
+            )
         wi = normalize(wi.reshape(1, -1), norm="l1").flatten()
     return wi
+
+
+# The most iterations `iteratively_optimize_weights()` runs before giving up on
+# finding a better weight set. This is only a safety net -- the loop is expected
+# to stop on its own as soon as an iteration fails to improve.
+# TODO: Make this configurable via exp_info
+OPT_DEBIAS_MAX_ITERATIONS = 10
+
+
+def _append_subdominance_groups(exp_info, subdom_groups, clf_demo):
+    """Add the demos of a learned policy to a set of subdominance groups.
+
+    `clf_demo` is sampled into `N_SUBDOMINANCE_GROUPS` new groups exactly the
+    way `generate_subdominance_groups()` samples an expert demo set, and those
+    groups are appended to the ones `subdom_groups` already holds. In other
+    words, the learned policy's demos become additional *raw* (reference) demos
+    that any later policy is scored against.
+
+    Returns a brand new tuple of brand new containers, so `subdom_groups` --
+    which the caller shares with every other weight adjustment of the trial --
+    is left completely untouched.
+
+    Parameters
+    ----------
+    exp_info : dict
+        Metadata about the experiment.
+    subdom_groups : tuple
+        `(group_idxs, raw_demos, raw_demos_feat_loss)`, as returned by
+        `generate_subdominance_groups()` or by this function.
+    clf_demo : pandas.DataFrame
+        The demos of the learned policy to add as reference demos. Must cover
+        the same rows as the demos the groups already hold, since the groups
+        are positional indices into whichever demo set is being scored.
+
+    Returns
+    -------
+    subdom_groups : tuple
+        The same three elements, each `N_SUBDOMINANCE_GROUPS` entries longer.
+    """
+    group_idxs, raw_demos, raw_demos_feat_loss = subdom_groups
+    (
+        new_group_idxs,
+        new_raw_demos,
+        new_raw_demos_feat_loss,
+    ) = generate_subdominance_groups(exp_info, clf_demo)
+    return (
+        list(group_idxs) + list(new_group_idxs),
+        list(raw_demos) + list(new_raw_demos),
+        np.concatenate([raw_demos_feat_loss, new_raw_demos_feat_loss]),
+    )
+
+
+def _log_opt_debias_iteration(
+    run,
+    feat_obj_set,
+    iteration,
+    wi,
+    muL,
+    expert_subdom,
+    augmented_subdom,
+    n_groups,
+):
+    """Report one `iteratively_optimize_weights()` iteration to the console and W&B."""
+    logging.info(
+        f"\t\t opt_debias iteration {iteration}: "
+        f"sum_abs_subdominance = {expert_subdom:.5f} "
+        f"({augmented_subdom:.5f} vs the {n_groups} augmented groups)"
+    )
+    logging.info(f"\t\t\t weights \t= {str(np.round(wi, 2)).replace('0.', '.')}")
+    logging.info(f"\t\t\t muL \t\t= {str(np.round(muL, 2)).replace('0.', '.')}")
+
+    if run is None:
+        return
+
+    metrics = {
+        "opt_debias/iteration": iteration,
+        "opt_debias/sum_abs_subdominance": expert_subdom,
+        "opt_debias/sum_abs_subdominance_augmented": augmented_subdom,
+        "opt_debias/n_subdominance_groups": n_groups,
+    }
+    for j, obj in enumerate(feat_obj_set.objectives):
+        metrics[f"opt_debias/weight/{obj.name}"] = wi[j]
+        metrics[f"opt_debias/muL/{obj.name}"] = muL[j]
+
+    run.log(metrics)
+
+
+def iteratively_optimize_weights(
+    wi,
+    feat_obj_set,
+    demo_df,
+    clf,
+    x_cols,
+    exp_info,
+    X,
+    y,
+    can_observe_y,
+    subdom_groups,
+    library,
+    optimizer,
+    n_steps,
+    run=None,
+):
+    """Optimize the reward weights against a growing set of subdominance groups.
+
+    Each iteration
+
+    1. optimizes the weights with `optimize_weights()`, starting from the
+       previous iteration's weights and scoring against every subdominance
+       group accumulated so far,
+    2. computes the optimal policy of those weights and the demos it produces,
+       and
+    3. appends those demos -- sampled into `N_SUBDOMINANCE_GROUPS` groups the
+       same way the expert demos were -- to the subdominance groups as extra
+       raw demos, so that the next iteration is also penalized for behaving
+       like this iteration's policy.
+
+    Iterating stops as soon as an iteration's policy fails to improve on the
+    best sum-aggregated absolute subdominance seen so far, and the weights of
+    the lowest-subdominance iteration are returned.
+
+    Improvement is judged against the *original* `subdom_groups` (the expert
+    demos), not against the augmented ones: only the original groups stay fixed
+    across iterations, so only subdominance measured against them is comparable
+    from one iteration to the next. The subdominance against the augmented
+    groups -- the quantity `optimize_weights()` actually minimizes -- is
+    reported alongside it, but is not what the stopping rule looks at.
+
+    `subdom_groups` is never mutated. The appended groups only ever go into
+    containers created by `_append_subdominance_groups()`, so the caller's
+    groups stay usable by the trial's other weight adjustments.
+
+    Parameters
+    ----------
+    wi : array-like<float>
+        The weights to start optimizing from.
+    subdom_groups : tuple
+        The expert `(group_idxs, raw_demos, raw_demos_feat_loss)` of the split
+        being optimized against.
+    run : wandb.sdk.wandb_run.Run or None
+        The W&B run to report each iteration to. `None` disables W&B logging.
+
+    Returns
+    -------
+    wi : numpy.ndarray
+        The L1 normalized weights of the iteration with the lowest
+        subdominance against the expert subdominance groups.
+    """
+    if run is not None:
+        # Plot every `opt_debias/` metric against the iteration it came from
+        # rather than against the run's global step.
+        run.define_metric("opt_debias/iteration")
+        run.define_metric("opt_debias/*", step_metric="opt_debias/iteration")
+
+    expert_subdom_groups = subdom_groups
+    cur_subdom_groups = subdom_groups
+    cur_wi = normalize(np.asarray(wi, dtype=float).reshape(1, -1), norm="l1").flatten()
+
+    best_wi = cur_wi
+    best_subdom = np.inf
+    n_iterations = 0
+
+    for iteration in range(OPT_DEBIAS_MAX_ITERATIONS):
+        cur_wi = optimize_weights(
+            cur_wi,
+            feat_obj_set,
+            demo_df,
+            clf,
+            x_cols,
+            exp_info,
+            X,
+            y,
+            can_observe_y,
+            cur_subdom_groups,
+            library,
+            optimizer,
+            n_steps,
+        )
+
+        # The optimal classifier of this iteration's weights, and its demos.
+        reward_weights = {
+            obj.name: cur_wi[j] for j, obj in enumerate(feat_obj_set.objectives)
+        }
+        clf_pol = compute_optimal_policy(
+            clf_df=demo_df,
+            clf=clf,
+            x_cols=x_cols,
+            obj_set=feat_obj_set,
+            reward_weights=reward_weights,
+            skip_error_terms=True,
+            method=exp_info["METHOD"],
+            min_freq_fill_pct=exp_info["MIN_FREQ_FILL_PCT"],
+            restrict_y=exp_info["RESTRICT_Y_ACTION"],
+        )
+        demo = generate_demo(clf_pol, X, y, can_observe_y=can_observe_y)
+
+        expert_subdom = compute_iteration_subdominance(
+            exp_info,
+            *expert_subdom_groups,
+            clf_demo_cur=demo,
+            subdominance_type="sum_abs",
+        )
+        if cur_subdom_groups is expert_subdom_groups:
+            # First iteration: nothing has been appended yet, so the augmented
+            # groups still are the expert groups.
+            augmented_subdom = expert_subdom
+        else:
+            augmented_subdom = compute_iteration_subdominance(
+                exp_info,
+                *cur_subdom_groups,
+                clf_demo_cur=demo,
+                subdominance_type="sum_abs",
+            )
+
+        n_iterations = iteration + 1
+        _log_opt_debias_iteration(
+            run,
+            feat_obj_set,
+            iteration,
+            cur_wi,
+            feat_obj_set.compute_demo_feature_exp(demo),
+            expert_subdom,
+            augmented_subdom,
+            len(cur_subdom_groups[1]),
+        )
+
+        if expert_subdom >= best_subdom:
+            logging.info(
+                "\t\t opt_debias stopping: this iteration did not improve on "
+                f"the best sum_abs_subdominance ({best_subdom:.5f})"
+            )
+            break
+
+        best_subdom = expert_subdom
+        best_wi = cur_wi
+
+        # Treat this iteration's demos as raw demos of their own subdominance
+        # groups, so the next iteration has to beat this policy too.
+        cur_subdom_groups = _append_subdominance_groups(
+            exp_info, cur_subdom_groups, demo
+        )
+    else:
+        logging.info(
+            f"\t\t opt_debias stopping: hit the {OPT_DEBIAS_MAX_ITERATIONS} "
+            "iteration cap while still improving"
+        )
+
+    logging.info(
+        f"\t\t opt_debias ran {n_iterations} iteration(s); best "
+        f"sum_abs_subdominance = {best_subdom:.5f}"
+    )
+    if run is not None:
+        run.summary["opt_debias/n_iterations"] = n_iterations
+        run.summary["opt_debias/best_sum_abs_subdominance"] = best_subdom
+
+    return best_wi
+
+
+def optimize_weights(
+    wi,
+    feat_obj_set,
+    demo_df,
+    clf,
+    x_cols,
+    exp_info,
+    X,
+    y,
+    can_observe_y,
+    subdom_groups,
+    library,
+    optimizer,
+    n_steps,
+):
+    if library == "optuna":
+        objective = partial(
+            optuna_objective,
+            feat_obj_set=feat_obj_set,
+            demo_df=demo_df,
+            clf=clf,
+            x_cols=x_cols,
+            exp_info=exp_info,
+            X=X,
+            y=y,
+            can_observe_y=can_observe_y,
+            subdom_groups=subdom_groups,
+        )
+        n_weights = len(feat_obj_set.objectives)
+        x0 = np.clip(np.asarray(wi, dtype=float), -1.0, 1.0)
+        if optimizer == "CMA-ES":
+            sampler = optuna.samplers.CmaEsSampler(
+                x0={f"unnormalized_w{j}": float(x0[j]) for j in range(n_weights)},
+                seed=exp_info["RANDOM_SEED"],
+            )
+            study = optuna.create_study(
+                direction="minimize",
+                sampler=sampler,
+                # optuna.create_study() otherwise generates a random
+                # UUID study name (via uuid.uuid4(), independent of
+                # any seed), which is a source of non-determinism.
+                study_name=f"opt_debias_{exp_info['RANDOM_SEED']}",
+            )
+            study.optimize(objective, n_trials=n_steps)
+        unnormalized_wi = np.array(
+            [study.best_params[f"unnormalized_w{j}"] for j in range(n_weights)]
+        )
+    elif library == "pybobyqa":
+        objective = partial(
+            pybobyqa_objective,
+            feat_obj_set=feat_obj_set,
+            demo_df=demo_df,
+            clf=clf,
+            x_cols=x_cols,
+            exp_info=exp_info,
+            X=X,
+            y=y,
+            can_observe_y=can_observe_y,
+            subdom_groups=subdom_groups,
+        )
+        n_weights = len(feat_obj_set.objectives)
+        lower_bounds = -1.0 * np.ones(n_weights)
+        upper_bounds = 1.0 * np.ones(n_weights)
+        x0 = np.clip(np.asarray(wi, dtype=float), lower_bounds, upper_bounds)
+        if optimizer == "Multi-Start BOBYQA":
+            # Py-BOBYQA has no seed parameter of its own; it draws
+            # its multi-start restarts from the global numpy RNG
+            soln = pybobyqa.solve(
+                objective,
+                x0,
+                bounds=(lower_bounds, upper_bounds),
+                seek_global_minimum=True,
+                maxfun=n_steps,
+            )
+        unnormalized_wi = np.array(soln.x)
+        logging.info(f"unnormalized_wi: {unnormalized_wi}")
+    elif library == "nevergrad":
+        objective = partial(
+            nevergrad_objective,
+            feat_obj_set=feat_obj_set,
+            demo_df=demo_df,
+            clf=clf,
+            x_cols=x_cols,
+            exp_info=exp_info,
+            X=X,
+            y=y,
+            can_observe_y=can_observe_y,
+            subdom_groups=subdom_groups,
+        )
+        n_weights = len(feat_obj_set.objectives)
+        # parametrization = ng.p.Array(shape=(n_weights,)).set_bounds(-1.0, 1.0)
+        parametrization = ng.p.Array(init=np.asarray(wi, dtype=float)).set_bounds(
+            -1.0, 1.0
+        )
+        parametrization.random_state = np.random.RandomState(exp_info["RANDOM_SEED"])
+        if optimizer == "BayesOpt":
+            ng_optimizer = ng.optimizers.BO(
+                parametrization=parametrization, budget=n_steps
+            )
+        recommendation = ng_optimizer.minimize(objective)
+        unnormalized_wi = np.array(recommendation.value)
+    return normalize(unnormalized_wi.reshape(1, -1), norm="l1").flatten()
 
 
 def optuna_objective(
@@ -2268,6 +2559,7 @@ def run_experiment_trial(
                 y_train,  # could switch to y_val
                 can_observe_y,
                 subdom_groups_train,  # could switch to subdom_groups_val
+                run=run,
             )
 
             # Learn a policy that maximizes the reward function.

@@ -340,9 +340,9 @@ def main():
         # ("sqrt_negative_weights"),
         # ("ln_negative_weights"),
         # Optimization-based weight debiasing (see _ml_apply_weight_adjustment_debias in experiment_utils.py)
-        (("opt_debias", "optuna", "CMA-ES"),),
-        # (("opt_debias", "pybobyqa", "Multi-Start BOBYQA"),),
-        # (("opt_debias", "nevergrad", "BayesOpt"),),
+        (("opt_debias", "optuna", "CMA-ES", 500),),
+        # (("opt_debias", "pybobyqa", "Multi-Start BOBYQA", 500),),
+        # (("opt_debias", "nevergrad", "BayesOpt", 500),),
     )
 
     subdominance_perf_metrics_list = ("Acc",)
@@ -439,9 +439,9 @@ def main():
         # (("mul_negative_weights", 0.9),),
         # ("sqrt_negative_weights"),
         # ("ln_negative_weights"),
-        # (("opt_debias", "optuna", "CMA-ES"),),
-        # (("opt_debias", "pybobyqa", "Multi-Start BOBYQA"),),
-        # (("opt_debias", "nevergrad", "BayesOpt"),),
+        (("opt_debias", "optuna", "CMA-ES", 5),),
+        # (("opt_debias", "pybobyqa", "Multi-Start BOBYQA", 5),),
+        # (("opt_debias", "nevergrad", "BayesOpt", 5),),
     )
     expert_algos_extra3 = ["OptAcc", "OptClfMDPPol"]
     # expert_algos_extra3 = ["OptClfMDPPol"]
