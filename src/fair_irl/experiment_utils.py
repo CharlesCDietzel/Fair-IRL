@@ -1816,7 +1816,7 @@ def _irl_fit_clf_and_demo_df(feature_types, X_train, y_train):
     return clf, demo_df
 
 
-def _irl_apply_weight_adjustments(
+def _apply_weight_adjustments(
     wi,
     weight_adjusts,
     feat_obj_set,
@@ -2038,8 +2038,19 @@ def subdominance_of_weights(
     # Start by L1 normalizing the weights to ensure they sum to 1
     weights = normalize(unnormalized_weights.reshape(1, -1), norm="l1").flatten()
     # Compute the optimal policy for the given weights
-    clf_pol = _irl_compute_optimal_policy(
-        weights, feat_obj_set, demo_df, clf, x_cols, exp_info
+    reward_weights = {
+        obj.name: weights[j] for j, obj in enumerate(feat_obj_set.objectives)
+    }
+    clf_pol = compute_optimal_policy(
+        clf_df=demo_df,
+        clf=clf,
+        x_cols=x_cols,
+        obj_set=feat_obj_set,
+        reward_weights=reward_weights,
+        skip_error_terms=True,
+        method=exp_info["METHOD"],
+        min_freq_fill_pct=exp_info["MIN_FREQ_FILL_PCT"],
+        restrict_y=exp_info["RESTRICT_Y_ACTION"],
     )
     # Generate demos from the optimal policy
     demo = generate_demo(clf_pol, X, y, can_observe_y=can_observe_y)
@@ -2055,24 +2066,7 @@ def subdominance_of_weights(
     return sum_abs_subdom
 
 
-def _irl_compute_optimal_policy(wi, feat_obj_set, demo_df, clf, x_cols, exp_info):
-    """Build reward weights from wi and return the corresponding optimal classifier policy."""
-    reward_weights = {obj.name: wi[j] for j, obj in enumerate(feat_obj_set.objectives)}
-    clf_pol = compute_optimal_policy(
-        clf_df=demo_df,
-        clf=clf,
-        x_cols=x_cols,
-        obj_set=feat_obj_set,
-        reward_weights=reward_weights,
-        skip_error_terms=True,
-        method=exp_info["METHOD"],
-        min_freq_fill_pct=exp_info["MIN_FREQ_FILL_PCT"],
-        restrict_y=exp_info["RESTRICT_Y_ACTION"],
-    )
-    return clf_pol
-
-
-def _irl_evaluate_policy(
+def _evaluate_policy(
     clf_pol,
     wi,
     svm,
@@ -2366,8 +2360,19 @@ def _irl_find_final_weights(
         # Learn a policy that maximizes the reward function.
         history.weights.append(wi)
 
-        clf_pol = _irl_compute_optimal_policy(
-            wi, feat_obj_set, demo_df, clf, x_cols, exp_info
+        reward_weights = {
+            obj.name: wi[j] for j, obj in enumerate(feat_obj_set.objectives)
+        }
+        clf_pol = compute_optimal_policy(
+            clf_df=demo_df,
+            clf=clf,
+            x_cols=x_cols,
+            obj_set=feat_obj_set,
+            reward_weights=reward_weights,
+            skip_error_terms=True,
+            method=exp_info["METHOD"],
+            min_freq_fill_pct=exp_info["MIN_FREQ_FILL_PCT"],
+            restrict_y=exp_info["RESTRICT_Y_ACTION"],
         )
 
         ##
@@ -2375,7 +2380,7 @@ def _irl_find_final_weights(
         # a negative training example for next IRL Loop iteration.
         ##
 
-        evaluate_policy_result = _irl_evaluate_policy(
+        evaluate_policy_result = _evaluate_policy(
             clf_pol,
             wi,
             svm,
@@ -2756,7 +2761,7 @@ def run_experiment_trial(
             X_irl_exp, y_irl_exp, X_irl_learn, y_irl_learn = _build_irl_training_sets(
                 exp_info, expert_train.mu, muL_train_iters, feat_obj_set_cols
             )
-            wi = _irl_apply_weight_adjustments(
+            wi = _apply_weight_adjustments(
                 unadjusted_best_weight.copy(),
                 weight_adjusts,
                 feat_obj_set,
@@ -2772,8 +2777,19 @@ def run_experiment_trial(
             # Learn a policy that maximizes the reward function.
             history.weights.append(wi)
 
-            clf_pol = _irl_compute_optimal_policy(
-                wi, feat_obj_set, demo_df, clf, x_cols, exp_info
+            reward_weights = {
+                obj.name: wi[j] for j, obj in enumerate(feat_obj_set.objectives)
+            }
+            clf_pol = compute_optimal_policy(
+                clf_df=demo_df,
+                clf=clf,
+                x_cols=x_cols,
+                obj_set=feat_obj_set,
+                reward_weights=reward_weights,
+                skip_error_terms=True,
+                method=exp_info["METHOD"],
+                min_freq_fill_pct=exp_info["MIN_FREQ_FILL_PCT"],
+                restrict_y=exp_info["RESTRICT_Y_ACTION"],
             )
 
             ##
@@ -2781,7 +2797,7 @@ def run_experiment_trial(
             # as a negative training example for next IRL Loop iteration.
             ##
 
-            evaluate_policy_result = _irl_evaluate_policy(
+            evaluate_policy_result = _evaluate_policy(
                 clf_pol,
                 wi,
                 svm,
