@@ -2113,6 +2113,14 @@ def optimize_weights(
             ng_optimizer = ng.optimizers.BO(
                 parametrization=parametrization, budget=n_steps
             )
+        elif optimizer == "Nelder-Mead":
+            ng_optimizer = ng.optimizers.NelderMead(
+                parametrization=parametrization, budget=n_steps
+            )
+        elif optimizer == "Powell":
+            ng_optimizer = ng.optimizers.Powell(
+                parametrization=parametrization, budget=n_steps
+            )
         recommendation = ng_optimizer.minimize(objective)
         unnormalized_wi = np.array(recommendation.value)
     return normalize(unnormalized_wi.reshape(1, -1), norm="l1").flatten()

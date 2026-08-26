@@ -275,7 +275,8 @@ def main():
 
     # Set Experts
     expert_algos = [
-        "OptAcc",
+        "OptClfMDPPol"
+        # "OptAcc",
         # "CatBoostOptAcc",
         # "XGBoostOptAcc",
         # "HardtDemPar",
@@ -320,7 +321,7 @@ def main():
         # and also generates different kinds of bias for each type of Postprocessing classifier,
         # so don't use it for the final paper results.
         # (("unbalanced_redlining", 0.2),),
-        (("balanced_redlining", 0.2),),
+        # (("balanced_redlining", 0.2),),
         # (("perfectly_balanced_redlining", 0.2),),
         # (("corruption_bias", "CatBoost", 0.001, "gaussian", 1.0),),
     )
@@ -340,36 +341,15 @@ def main():
         # ("sqrt_negative_weights"),
         # ("ln_negative_weights"),
         # Optimization-based weight debiasing (see _ml_apply_weight_adjustment_debias in experiment_utils.py)
-        (("opt_debias", "optuna", "CMA-ES", 500),),
+        # (("opt_debias", "optuna", "CMA-ES", 500),),
         # (("opt_debias", "pybobyqa", "Multi-Start BOBYQA", 500),),
-        # (("opt_debias", "nevergrad", "BayesOpt", 500),),
+        (("opt_debias", "nevergrad", "BayesOpt", 200),),
+        # (("opt_debias", "nevergrad", "Nelder-Mead", 500),),
+        # (("opt_debias", "nevergrad", "Powell", 500),),
     )
 
     subdominance_perf_metrics_list = ("Acc",)
     subdominance_fair_metrics_list = ("AccPar", "DemPar", "EqOpp", "TNRPar")
-    # subdominance_fair_metrics_list = (
-    #     "AccPar",
-    #     "DemPar",
-    #     "EqOpp",
-    #     "FPRPar",
-    #     "EqOdds",
-    #     "TNRPar",
-    #     "FNRPar",
-    #     "PR_Z0",
-    #     "PR_Z1",
-    #     "NR_Z0",
-    #     "NR_Z1",
-    #     "TPR_Z0",
-    #     "TPR_Z1",
-    #     "TNR_Z0",
-    #     "TNR_Z1",
-    #     "FPR_Z0",
-    #     "FPR_Z1",
-    #     "FNR_Z0",
-    #     "FNR_Z1",
-    #     "PredPar",
-    #     "NegPredPar",
-    #     )
 
     # Experiment to test how experts with different fairness/accuracy tradeoffs affect the learned fairness weights and feature expectations.
     extra_bias_types_list = ((),)
@@ -442,9 +422,11 @@ def main():
         (("opt_debias", "optuna", "CMA-ES", 5),),
         # (("opt_debias", "pybobyqa", "Multi-Start BOBYQA", 5),),
         # (("opt_debias", "nevergrad", "BayesOpt", 5),),
+        # (("opt_debias", "nevergrad", "Nelder-Mead", 5),),
+        # (("opt_debias", "nevergrad", "Powell", 5),),
     )
-    expert_algos_extra3 = ["OptAcc", "OptClfMDPPol"]
-    # expert_algos_extra3 = ["OptClfMDPPol"]
+    # expert_algos_extra3 = ["OptAcc", "OptClfMDPPol"]
+    expert_algos_extra3 = ["OptClfMDPPol"]
     # datasets_extra3 = [
     #     "COMPAS",
     #     # "Boston",
@@ -506,35 +488,35 @@ def main():
         #                         "SUBDOMINANCE_FAIR_METRICS_LIST": subdominance_fair_metrics_list,
         #                     }
         #                 )
-        for expert_algo in expert_algos_extra3:
-            for bias_types in extra3_bias_types_list:
-                for source_dataset in source_states:
-                    if source_dataset in datasets_extra3:
-                        experiments.append(
-                            {
-                                "EXPERT_ALGO": expert_algo,
-                                "BIAS_TYPES": bias_types,
-                                "IRL_METHOD": "FairIRL",
-                                "DATASET": source_dataset,
-                                "WEIGHT_ADJUSTS_LIST": extra3_weight_adjusts_list,
-                                "SUBDOMINANCE_PERF_METRICS_LIST": subdominance_perf_metrics_list,
-                                "SUBDOMINANCE_FAIR_METRICS_LIST": subdominance_fair_metrics_list,
-                            }
-                        )
-        # for expert_algo in expert_algos:
-        #     for bias_types in bias_types_list:
+        # for expert_algo in expert_algos_extra3:
+        #     for bias_types in extra3_bias_types_list:
         #         for source_dataset in source_states:
-        #             experiments.append(
-        #                 {
-        #                     "EXPERT_ALGO": expert_algo,
-        #                     "BIAS_TYPES": bias_types,
-        #                     "IRL_METHOD": "FairIRL",
-        #                     "DATASET": source_dataset,
-        #                     "WEIGHT_ADJUSTS_LIST": weight_adjusts_list,
-        #                     "SUBDOMINANCE_PERF_METRICS_LIST": subdominance_perf_metrics_list,
-        #                     "SUBDOMINANCE_FAIR_METRICS_LIST": subdominance_fair_metrics_list,
-        #                 }
-        #             )
+        #             if source_dataset in datasets_extra3:
+        #                 experiments.append(
+        #                     {
+        #                         "EXPERT_ALGO": expert_algo,
+        #                         "BIAS_TYPES": bias_types,
+        #                         "IRL_METHOD": "FairIRL",
+        #                         "DATASET": source_dataset,
+        #                         "WEIGHT_ADJUSTS_LIST": extra3_weight_adjusts_list,
+        #                         "SUBDOMINANCE_PERF_METRICS_LIST": subdominance_perf_metrics_list,
+        #                         "SUBDOMINANCE_FAIR_METRICS_LIST": subdominance_fair_metrics_list,
+        #                     }
+        #                 )
+        for expert_algo in expert_algos:
+            for bias_types in bias_types_list:
+                for source_dataset in source_states:
+                    experiments.append(
+                        {
+                            "EXPERT_ALGO": expert_algo,
+                            "BIAS_TYPES": bias_types,
+                            "IRL_METHOD": "FairIRL",
+                            "DATASET": source_dataset,
+                            "WEIGHT_ADJUSTS_LIST": weight_adjusts_list,
+                            "SUBDOMINANCE_PERF_METRICS_LIST": subdominance_perf_metrics_list,
+                            "SUBDOMINANCE_FAIR_METRICS_LIST": subdominance_fair_metrics_list,
+                        }
+                    )
         for exp_i, experiment in enumerate(experiments):
             logging.info(f"EXPERIMENT {exp_i+1}/{len(experiments)}")
 
