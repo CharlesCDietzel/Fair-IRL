@@ -614,75 +614,19 @@ def generate_mu_and_demos(
 
     logging.info(f"mu_unbiased[0] = {mu_unbiased[0]}")
     logging.info(f"mu_biased[0] = {mu_biased[0]}")
-            
+
     return mu_biased, biased_demos, mu_unbiased, unbiased_demos
 
 
-def init_muL_from_muE(non_expert_algo, muE):
-    """
-    Initializes the learned feature expectations list (muL) with a single element
-    that is equal to the learned expert feature expectations (muE), with some
-    "degrading factor" applied to represent a worse initial policy than the expert.
-    The main advantage of initializing muL this way as opposed to training a
-    separate non-expert classifier is that this ensures that the initial muL value
-    contains the same pattern of error as muE, which should reduce the noise in
-    the learned feature weights and improve fairness preference matching between
-    muE and the final muL.
-
-    Parameters    ----------
-    non_expert_algo : str
-        The name of the non-expert algorithm. This is used to determine the degrading
-        factor applied to muE to get the initial muL.
-    muE : numpy.ndarray, shape (n_expert_demos, len(len(objective_set.objectives)))
-        Array of all expert feature expectations.
-    Returns
-    -------
-    muL : array-like<array-like<float>>
-        A numpy array containing a single element which is the initialized learned feature expectations.
-    """
-
-    absolute_degrading_factor = (
-        0.05  # reduce the magnitude of each feature expectation by 0.05.
-    )
-    relative_degrading_factor = 0.9333333333333
-
-    muE_avg = muE.mean(axis=0)
-    # # Calculate relative_degrading_factor such that the final magnitude of degredation is the same as
-    # # the absolute_degrading_factor.
-    # pre_muL = np.array([muE_avg - absolute_degrading_factor])
-    # muE_sum = np.sum(muE_avg)
-    # pre_muL_sum = np.sum(pre_muL)
-    # relative_degrading_factor = pre_muL_sum / muE_sum
-
-    if non_expert_algo == "DegradeAbsolute":
-        muL = np.array([muE_avg - absolute_degrading_factor])
-    elif non_expert_algo == "DegradeRelative":
-        muL = np.array([muE_avg * relative_degrading_factor])
-    elif non_expert_algo == "DegradeNoisy":
-        noise = np.random.uniform(
-            -absolute_degrading_factor, absolute_degrading_factor, size=muE_avg.shape
-        )
-        muL = np.array([muE_avg + noise])
-    elif non_expert_algo == "DegradeNoisyAbsolute":
-        noise = np.random.uniform(-absolute_degrading_factor * 2, 0, size=muE_avg.shape)
-        muL = np.array([muE_avg + noise])
-    elif non_expert_algo == "DegradeNoisyRelative":
-        noise = np.random.uniform(
-            2 * relative_degrading_factor - 1, 1, size=muE_avg.shape
-        )
-        muL = np.array([muE_avg * noise])
-    return muL
-
-
-def irl_error(
+def policy_error(
     w,
     muE,
     muL,
     dot_weights_feat_exp=True,
-    svm_margin=None,
 ):
     """
-    Computes t[i] = argmax_{mu[j] for j in muL} wT(muE-mu[j])
+    Computes how far a learned policy's feature expectations are from the
+    expert's, i.e. wT(muE-muL).
 
     Parameters
     ----------
@@ -690,19 +634,13 @@ def irl_error(
         Weights.
     muE : array-like<np.array<float>>, shape (n_expert_demos, len(len(objective_set.objectives)))
         Array of all expert feature expectations.
-    muL : array-like<array-like<float>>
-        List of all learned feature expectations.
+    muL : array-like<float>
+        The learned policy's feature expectations.
     dot_weights_feat_exp : bool, default True
         If True, error = l2_norm( (muE - muL).dot(w) )
         If False, error = l2_norm(muE - muL) * l2_norm(w)
-        The default value is the typical IRL one. Use the other if all feat
-        exp should be non-zero weights. Helps avoid issue of IRL nulling out
-        feat exp componets that it has trouble matching.
-    allow_neg_weights : bool, default False
-        If True, allows positive feature expectation errors to be nulled out
-        even if weights are negative.
-    svm_margin : float, optional
-        If provided, use this for error.
+        Use the latter if all feat exp should be non-zero weights. Helps avoid
+        the issue of nulling out feat exp componets that are hard to match.
 
     Returns
     -------
@@ -713,15 +651,13 @@ def irl_error(
     abs_l2_mu_delta : float
         The l2 norm of the muE and muL deltas, without normalizing by muE.
     err : float
-        The IRL error of the current policy.
-    svm_margin : float
-        The margin of the SVM separating the expert and learned feature expectations.
+        The error of the policy.
     """
     # Trying this out. Make mu delta errors RELATIVE to their magnitude. So
     # adding the muE.mean(axis=0) as a denominator
-    mu_deltas = (muE.mean(axis=0) - muL[-1]) / muE.mean(axis=0)
+    mu_deltas = (muE.mean(axis=0) - muL) / muE.mean(axis=0)
 
-    abs_mu_deltas = muE.mean(axis=0) - muL[-1]
+    abs_mu_deltas = muE.mean(axis=0) - muL
 
     if dot_weights_feat_exp:
         err = np.linalg.norm(w * mu_deltas, ord=2)
@@ -731,4 +667,4 @@ def irl_error(
     l2_mu_delta = np.linalg.norm(mu_deltas, ord=2)
     abs_l2_mu_delta = np.linalg.norm(abs_mu_deltas, ord=2)
 
-    return mu_deltas, l2_mu_delta, abs_l2_mu_delta, err, svm_margin
+    return mu_deltas, l2_mu_delta, abs_l2_mu_delta, err

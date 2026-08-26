@@ -94,34 +94,15 @@ def main():
         "EXPERT_ALGO": None,
         # "MIN_FREQ_FILL_PCT": 0.3,
         "RESTRICT_Y_ACTION": True,
-        # IRL Loop parameters
+        # Policy learning parameters
         "IRL_METHOD": None,
         "METHOD": "highs",
         # Plotting parameters
         "NOISE_FACTOR": 0.01,
         "ANNOTATE": True,
-        "NON_EXPERT_ALGOS": [
-            # 'OptAccNoisy',
-            # 'HardtDemParNoisy',
-            # 'HardtEqOppNoisy',
-            # 'HardtFPRNoisy',
-            # 'HardtTNRNoisy',
-            # "Dummy",
-            # 'DummyNoisy',
-            # "DegradeAbsolute",
-            "DegradeRelative",
-            # "DegradeNoisy",
-            # "DegradeNoisyAbsolute",
-            # "DegradeNoisyRelative",
-        ],
         "N_TRIALS": 1,  # TODO: CHANGE THIS BACK TO 3 FOR FINAL PAPER RESULTS
         "N_SUBDOMINANCE_GROUPS": 100,
-        "EPSILON": 0.005,
-        "IGNORE_RESULTS_EPSILON": np.inf,
-        "MAX_ITER": 40,
-        "ALLOW_NEG_WEIGHTS": True,
         "DOT_WEIGHTS_FEAT_EXP": True,
-        "EARLY_STOP_NO_NEW_BEST_ITERS": 15,
         "N_DATASET_SAMPLES": None,
         "RANDOM_SEED": random_seed,
     }
@@ -130,7 +111,8 @@ def main():
     base_exp_info = {
         "EXPERIMENT_NAME": "COMPAS",
         "MIN_FREQ_FILL_PCT": 0.08,  # MIN_FREQ_FILL_PCT values have been chosen
-        # so that the runtime per irl loop is roughly equal for all datasets
+        # so that the runtime per learned policy is roughly equal for all
+        # datasets
         # "N_SUBDOMINANCE_GROUPS": 20,  # N_SUBDOMINANCE_GROUPS values have been
         # chosen so that none of the feature expectations before or after weight
         # adjustment have zero values.
