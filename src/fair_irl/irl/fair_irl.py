@@ -214,7 +214,7 @@ def generate_demo(clf, X_test, y_test, can_observe_y=False):
     return demo
 
 
-def add_demo_bias(demo, bias_types=(), dataset=None):
+def add_demo_bias(demo, bias_type=(), dataset=None):
     # Z = 0 is discriminated against, Y = 0 is "bad" outcome (except for COMPAS where Y=1 is "bad" outcome)
     # rz - redlined Z value
     # ry - redline Y outcome
@@ -241,63 +241,65 @@ def add_demo_bias(demo, bias_types=(), dataset=None):
         nrz = 1
         nry = 0
 
-    for bias_type in bias_types:
-        percent = 0.2
+    percent = 0.2
+    if len(bias_type) > 0:
         bias_type_name = bias_type[0]
-        if len(bias_type) > 1:
-            percent = bias_type[1]
-        demo.reset_index(inplace=True)
-        match bias_type_name:
-            case "unbalanced_redlining":
-                # wherever Z==rz, set yhat = ry with 20% probability. Otherwise, keep yhat the same
-                # Count how many rows have z == rz
-                rz_count = (demo["z"] == rz).sum()
-                # Multiply that by 20% to get the number of rows to redline
-                n = int(rz_count * percent)
-                # Step 3: Get n indices where z == rz
-                rz_indices = demo[demo["z"] == rz].sample(n=n).index
-                # Step 4: Set yhat to ry for sampled rows
-                demo.loc[rz_indices, "yhat"] = ry
-            case "balanced_redlining":
-                # wherever Z==rz, set yhat = ry with 20% probability. Otherwise, keep yhat the same. Also, whereever Z==nrz, randomly set an equal number of yhat = nry
-                # Count how many rows have z == rz
-                rz_count = (demo["z"] == rz).sum()
-                # Multiply that by 20% to get the number of rows to redline
-                n = int(rz_count * percent)
-                # Edge case check: If there are fewer z == nrz than n, set n = nrz_count instead
-                nrz_count = (demo["z"] == nrz).sum()
-                n = min(nrz_count, n)
-                # Get the n indices where z == rz
-                rz_indices = demo[demo["z"] == rz].sample(n=n).index
-                # Set yhat to ry for sampled rows
-                demo.loc[rz_indices, "yhat"] = ry
-                # Get the n indices where z == nrz
-                nrz_indices = demo[demo["z"] == nrz].sample(n=n).index
-                # Set yhat to nry for sampled rows
-                demo.loc[nrz_indices, "yhat"] = nry
-            case "perfectly_balanced_redlining":
-                # wherever Z==rz and yhat==nry, set yhat = ry with 20% probability. Also, whereever Z==nrz and yhat==ry, randomly set an equal number of yhat = nry
-                # Count how many rows have z == rz AND yhat == nry
-                rz_count = ((demo["z"] == rz) & (demo["yhat"] == nry)).sum()
-                # Multiply that by 20% to get the number of rows to flip
-                n = int(rz_count * percent)
-                # Edge case check: If there are fewer z == nrz and yhat == ry than n, set n = nrz_count instead
-                nrz_count = ((demo["z"] == nrz) & (demo["yhat"] == ry)).sum()
-                n = min(nrz_count, n)
-                # Get the n indices where z == rz AND yhat == nry
-                rz_indices = (
-                    demo[(demo["z"] == rz) & (demo["yhat"] == nry)].sample(n=n).index
-                )
-                # Get the n indices where z == nrz AND yhat == ry
-                nrz_indices = (
-                    demo[(demo["z"] == nrz) & (demo["yhat"] == ry)].sample(n=n).index
-                )
-                # Set yhat to ry for sampled rows
-                demo.loc[rz_indices, "yhat"] = ry
-                # Set yhat to nry for sampled rows
-                demo.loc[nrz_indices, "yhat"] = nry
-        demo.set_index("index", inplace=True)
-        demo.index.name = None
+    else:
+        bias_type_name = None
+    if len(bias_type) > 1:
+        percent = bias_type[1]
+    demo.reset_index(inplace=True)
+    match bias_type_name:
+        case "unbalanced_redlining":
+            # wherever Z==rz, set yhat = ry with 20% probability. Otherwise, keep yhat the same
+            # Count how many rows have z == rz
+            rz_count = (demo["z"] == rz).sum()
+            # Multiply that by 20% to get the number of rows to redline
+            n = int(rz_count * percent)
+            # Step 3: Get n indices where z == rz
+            rz_indices = demo[demo["z"] == rz].sample(n=n).index
+            # Step 4: Set yhat to ry for sampled rows
+            demo.loc[rz_indices, "yhat"] = ry
+        case "balanced_redlining":
+            # wherever Z==rz, set yhat = ry with 20% probability. Otherwise, keep yhat the same. Also, whereever Z==nrz, randomly set an equal number of yhat = nry
+            # Count how many rows have z == rz
+            rz_count = (demo["z"] == rz).sum()
+            # Multiply that by 20% to get the number of rows to redline
+            n = int(rz_count * percent)
+            # Edge case check: If there are fewer z == nrz than n, set n = nrz_count instead
+            nrz_count = (demo["z"] == nrz).sum()
+            n = min(nrz_count, n)
+            # Get the n indices where z == rz
+            rz_indices = demo[demo["z"] == rz].sample(n=n).index
+            # Set yhat to ry for sampled rows
+            demo.loc[rz_indices, "yhat"] = ry
+            # Get the n indices where z == nrz
+            nrz_indices = demo[demo["z"] == nrz].sample(n=n).index
+            # Set yhat to nry for sampled rows
+            demo.loc[nrz_indices, "yhat"] = nry
+        case "perfectly_balanced_redlining":
+            # wherever Z==rz and yhat==nry, set yhat = ry with 20% probability. Also, whereever Z==nrz and yhat==ry, randomly set an equal number of yhat = nry
+            # Count how many rows have z == rz AND yhat == nry
+            rz_count = ((demo["z"] == rz) & (demo["yhat"] == nry)).sum()
+            # Multiply that by 20% to get the number of rows to flip
+            n = int(rz_count * percent)
+            # Edge case check: If there are fewer z == nrz and yhat == ry than n, set n = nrz_count instead
+            nrz_count = ((demo["z"] == nrz) & (demo["yhat"] == ry)).sum()
+            n = min(nrz_count, n)
+            # Get the n indices where z == rz AND yhat == nry
+            rz_indices = (
+                demo[(demo["z"] == rz) & (demo["yhat"] == nry)].sample(n=n).index
+            )
+            # Get the n indices where z == nrz AND yhat == ry
+            nrz_indices = (
+                demo[(demo["z"] == nrz) & (demo["yhat"] == ry)].sample(n=n).index
+            )
+            # Set yhat to ry for sampled rows
+            demo.loc[rz_indices, "yhat"] = ry
+            # Set yhat to nry for sampled rows
+            demo.loc[nrz_indices, "yhat"] = nry
+    demo.set_index("index", inplace=True)
+    demo.index.name = None
     return demo
 
 
@@ -455,29 +457,31 @@ def _apply_corruption(params, percent, noise_type, magnitude):
     raise ValueError(f"Unknown noise_type: {noise_type}")
 
 
-def add_corruption_bias(X, y, feature_types, bias_types=()):
+def add_corruption_bias(X, y, feature_types, bias_type=()):
     yhat = None
-    for bias_type in bias_types:
+    if len(bias_type) > 0:
         bias_type_name = bias_type[0]
-        if len(bias_type) > 1:
-            parameters = bias_type[1:]
-        match bias_type_name:
-            case "corruption_bias":
-                clf_type, percent, noise_type, magnitude = parameters
-                clf = _make_corruption_clf(clf_type, feature_types)
-                clf.fit(X, y)
-                flat_params = _get_flat_clf_params(clf, clf_type)
-                biased_params = _apply_corruption(
-                    flat_params, percent, noise_type, magnitude
-                )
-                biased_clf = _set_flat_clf_params(clf, clf_type, biased_params)
-                demo = generate_demo(
-                    biased_clf,
-                    X,
-                    y,
-                    can_observe_y=False,
-                )
-                yhat = demo["yhat"]
+    else:
+        bias_type_name = None
+    if len(bias_type) > 1:
+        parameters = bias_type[1:]
+    match bias_type_name:
+        case "corruption_bias":
+            clf_type, percent, noise_type, magnitude = parameters
+            clf = _make_corruption_clf(clf_type, feature_types)
+            clf.fit(X, y)
+            flat_params = _get_flat_clf_params(clf, clf_type)
+            biased_params = _apply_corruption(
+                flat_params, percent, noise_type, magnitude
+            )
+            biased_clf = _set_flat_clf_params(clf, clf_type, biased_params)
+            demo = generate_demo(
+                biased_clf,
+                X,
+                y,
+                can_observe_y=False,
+            )
+            yhat = demo["yhat"]
     return yhat
 
 
@@ -546,7 +550,7 @@ def generate_mu_and_demos(
     clf,
     obj_set,
     n_demos=2,
-    bias_types=(),
+    bias_type=(),
 ):
     """
     Improved implementation of `generate_demos_k_folds` that uses k-folds to generate
@@ -586,7 +590,7 @@ def generate_mu_and_demos(
     if n_demos < 2:
         n_demos = 2  # KFold requires at least 2 splits
 
-    yhat_biased = add_corruption_bias(X, y, feature_types, bias_types=bias_types)
+    yhat_biased = add_corruption_bias(X, y, feature_types, bias_type=bias_type)
     unbiased_demos, biased_demos = generate_non_overfit_demos(
         exp_info,
         X,
@@ -600,10 +604,10 @@ def generate_mu_and_demos(
     if biased_demos is None:
         biased_demos = unbiased_demos.copy()
     biased_demos = add_demo_bias(
-        biased_demos, bias_types=bias_types, dataset=exp_info["DATASET"]
+        biased_demos, bias_type=bias_type, dataset=exp_info["DATASET"]
     )
 
-    logging.info(f"Bias types added: {bias_types}")
+    logging.info(f"Bias type added: {bias_type}")
     logging.info(
         f"Percent of yhat unchanged with added bias: {((unbiased_demos["yhat"] == biased_demos["yhat"]).mean() * 100.0).item()}%"
     )

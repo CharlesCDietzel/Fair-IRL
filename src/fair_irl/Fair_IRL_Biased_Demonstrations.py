@@ -314,38 +314,33 @@ def main():
         "NegPredPar",
     ]
 
-    #  all available bias types = ((), ("threshold_swapping",), ("unbalanced_redlining",), ("balanced_redlining",), ("perfectly_balanced_redlining",), ("broken_redlining"))
-    bias_types_list = (
+    #  all available bias types = ((), "unbalanced_redlining", "balanced_redlining", "perfectly_balanced_redlining", "corruption_bias")
+    bias_type_list = (
         (),
-        # ("threshold_swapping",), # This doesn't work for non postprocessing classifiers,
-        # and also generates different kinds of bias for each type of Postprocessing classifier,
-        # so don't use it for the final paper results.
-        # (("unbalanced_redlining", 0.2),),
-        (("balanced_redlining", 0.2),),
-        # (("perfectly_balanced_redlining", 0.2),),
-        (("corruption_bias", "CatBoost", 0.001, "gaussian", 1.0),)
+        # ("unbalanced_redlining", 0.2),
+        ("balanced_redlining", 0.2),
+        # ("perfectly_balanced_redlining", 0.2),
+        ("corruption_bias", "CatBoost", 0.001, "gaussian", 1.0)
     )
     # bias_types_list = (("perfectly_balanced_redlining"))
 
-    weight_adjusts_list = (
-        # (("mul_negative_weights", 0.0),),
-        # (("mul_negative_weights", 0.1),),
-        # (("mul_negative_weights", 0.2),),
-        # (("mul_negative_weights", 0.3),),
-        # (("mul_negative_weights", 0.4),),
-        # (("mul_negative_weights", 0.5),),
-        # (("mul_negative_weights", 0.6),),
-        # (("mul_negative_weights", 0.7),),
-        # (("mul_negative_weights", 0.8),),
-        # (("mul_negative_weights", 0.9),),
-        # ("sqrt_negative_weights"),
-        # ("ln_negative_weights"),
+    weight_adjust_list = (
+        # ("mul_negative_weights", 0.0),
+        # ("mul_negative_weights", 0.1),
+        # ("mul_negative_weights", 0.2),
+        # ("mul_negative_weights", 0.3),
+        # ("mul_negative_weights", 0.4),
+        # ("mul_negative_weights", 0.5),
+        # ("mul_negative_weights", 0.6),
+        # ("mul_negative_weights", 0.7),
+        # ("mul_negative_weights", 0.8),
+        # ("mul_negative_weights", 0.9),
         # Optimization-based weight debiasing (see _ml_apply_weight_adjustment_debias in experiment_utils.py)
-        # (("opt_debias", "optuna", "CMA-ES", 500),),
-        # (("opt_debias", "pybobyqa", "Multi-Start BOBYQA", 500),),
-        (("opt_debias", "nevergrad", "BayesOpt", 2),),
-        # (("opt_debias", "nevergrad", "Nelder-Mead", 500),),
-        # (("opt_debias", "nevergrad", "Powell", 500),),
+        # ("opt_debias", "optuna", "CMA-ES", 500),
+        # ("opt_debias", "pybobyqa", "Multi-Start BOBYQA", 500),
+        ("opt_debias", "nevergrad", "BayesOpt", 2),
+        # ("opt_debias", "nevergrad", "Nelder-Mead", 500),
+        # ("opt_debias", "nevergrad", "Powell", 500),
     )
 
     subdominance_perf_metrics_list = ("Acc",)
@@ -370,15 +365,15 @@ def main():
         exp_info = dict(base_exp_info)
         experiments = []
         for expert_algo in expert_algos:
-            for bias_types in bias_types_list:
+            for bias_type in bias_type_list:
                 for source_dataset in source_states:
                     experiments.append(
                         {
                             "EXPERT_ALGO": expert_algo,
-                            "BIAS_TYPES": bias_types,
+                            "BIAS_TYPE": bias_type,
                             "IRL_METHOD": "FairIRL",
                             "DATASET": source_dataset,
-                            "WEIGHT_ADJUSTS_LIST": weight_adjusts_list,
+                            "WEIGHT_ADJUST_LIST": weight_adjust_list,
                             "SUBDOMINANCE_PERF_METRICS_LIST": subdominance_perf_metrics_list,
                             "SUBDOMINANCE_FAIR_METRICS_LIST": subdominance_fair_metrics_list,
                         }

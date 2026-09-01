@@ -805,7 +805,7 @@ def _json_safe(value):
     return value
 
 
-def weight_adjusts_name(weight_adjusts):
+def weight_adjusts_name(weight_adjust):
     """
     Build a short, human readable label for a weight adjustment configuration.
 
@@ -816,7 +816,7 @@ def weight_adjusts_name(weight_adjusts):
     Parameters
     ----------
     weight_adjusts : tuple
-        One entry of `exp_info["WEIGHT_ADJUSTS_LIST"]`, or `()` for the
+        One entry of `exp_info["WEIGHT_ADJUST_LIST"]`, or `()` for the
         unadjusted weights.
 
     Returns
@@ -824,17 +824,17 @@ def weight_adjusts_name(weight_adjusts):
     name : str
         E.g. `"unadjusted"` or `"opt_debias_optuna_CMA-ES"`.
     """
-    if not weight_adjusts:
+    if not weight_adjust:
         return "unadjusted"
 
     names = []
-    for weight_adjust in weight_adjusts:
-        if isinstance(weight_adjust, str):
-            names.append(weight_adjust)
+    for weight_adjust_component in weight_adjust:
+        if isinstance(weight_adjust_component, str):
+            names.append(weight_adjust_component)
         else:
-            names.append("_".join(str(part) for part in weight_adjust))
+            names.append(str(weight_adjust_component))
 
-    return "__".join(names)
+    return "_".join(names)
 
 
 def new_session_id():
@@ -856,7 +856,7 @@ def new_session_id():
     return f"{datetime.datetime.now():%Y%m%d-%H%M%S}-{uuid.uuid4().hex[:6]}"
 
 
-def start_wandb_run(exp_info, weight_adjusts, trial_i, group, session_id):
+def start_wandb_run(exp_info, weight_adjust, trial_i, group, session_id):
     """
     Start the W&B run that records one trial of one weight adjustment.
 
@@ -883,11 +883,11 @@ def start_wandb_run(exp_info, weight_adjusts, trial_i, group, session_id):
     run : wandb.sdk.wandb_run.Run
         The started run. The caller is responsible for calling `finish()`.
     """
-    adjust_name = weight_adjusts_name(weight_adjusts)
+    adjust_name = weight_adjusts_name(weight_adjust)
 
     config = {key: _json_safe(value) for key, value in exp_info.items()}
-    config["WEIGHT_ADJUSTS"] = _json_safe(weight_adjusts)
-    config["WEIGHT_ADJUSTS_NAME"] = adjust_name
+    config["WEIGHT_ADJUST"] = _json_safe(weight_adjust)
+    config["WEIGHT_ADJUST_NAME"] = adjust_name
     config["TRIAL"] = trial_i
     config["SESSION_ID"] = session_id
 
@@ -1477,7 +1477,7 @@ def _generate_expert_demonstrations(
     expert_algo_lookup,
     feat_obj_set,
     perf_obj_set,
-    bias_types,
+    bias_type,
 ):
     """Generate the expert demonstrations for one data split.
 
@@ -1496,7 +1496,7 @@ def _generate_expert_demonstrations(
         clf=clf,
         obj_set=feat_obj_set,
         n_demos=exp_info["N_EXPERT_DEMOS"],
-        bias_types=bias_types,
+        bias_type=bias_type,
     )
     muE_perf = np.array([perf_obj_set.compute_demo_feature_exp(demoE)])
     muE_perf_unbiased = np.array(
@@ -1529,7 +1529,7 @@ def _split_dataset_and_generate_expert_demos(
     X,
     y,
     feature_types,
-    bias_types,
+    bias_type,
 ):
     """Split the dataset and generate expert demonstrations for each split.
 
@@ -1568,7 +1568,7 @@ def _split_dataset_and_generate_expert_demos(
             expert_algo_lookup,
             feat_obj_set,
             perf_obj_set,
-            bias_types,
+            bias_type,
         )
 
         logging.info(
@@ -1582,7 +1582,7 @@ def _split_dataset_and_generate_expert_demos(
             expert_algo_lookup,
             feat_obj_set,
             perf_obj_set,
-            bias_types,
+            bias_type,
         )
 
         logging.info(
@@ -1596,7 +1596,7 @@ def _split_dataset_and_generate_expert_demos(
             expert_algo_lookup,
             feat_obj_set,
             perf_obj_set,
-            bias_types,
+            bias_type,
         )
 
         if _is_split_acceptable(
@@ -1711,7 +1711,7 @@ def _fit_clf_and_demo_df(feature_types, X_train, y_train):
 
 def _apply_weight_adjustments(
     wi,
-    weight_adjusts,
+    weight_adjust,
     feat_obj_set,
     demo_df,
     clf,
@@ -1729,31 +1729,32 @@ def _apply_weight_adjustments(
     `None` to disable W&B logging. Only the adjustments that iterate (i.e.
     `"opt_debias"`) report anything to it.
     """
-    for weight_adjust in weight_adjusts:
-        if weight_adjust[0] == "mul_negative_weights":
-            mul_factor = weight_adjust[1]
-            wi[wi < 0] = wi[wi < 0] * mul_factor
-        elif weight_adjust[0] == "opt_debias":
-            library = weight_adjust[1]
-            optimizer = weight_adjust[2]
-            n_steps = weight_adjust[3] if 3 < len(weight_adjust) else 400
-            wi = iteratively_optimize_weights(
-                wi,
-                feat_obj_set,
-                demo_df,
-                clf,
-                x_cols,
-                exp_info,
-                X,
-                y,
-                can_observe_y,
-                subdom_groups,
-                library,
-                optimizer,
-                n_steps,
-                run=run,
-            )
-        wi = normalize(wi.reshape(1, -1), norm="l1").flatten()
+    if len(weight_adjust) == 0:
+        pass
+    elif weight_adjust[0] == "mul_negative_weights":
+        mul_factor = weight_adjust[1]
+        wi[wi < 0] = wi[wi < 0] * mul_factor
+    elif weight_adjust[0] == "opt_debias":
+        library = weight_adjust[1]
+        optimizer = weight_adjust[2]
+        n_steps = weight_adjust[3] if 3 < len(weight_adjust) else 400
+        wi = iteratively_optimize_weights(
+            wi,
+            feat_obj_set,
+            demo_df,
+            clf,
+            x_cols,
+            exp_info,
+            X,
+            y,
+            can_observe_y,
+            subdom_groups,
+            library,
+            optimizer,
+            n_steps,
+            run=run,
+        )
+    wi = normalize(wi.reshape(1, -1), norm="l1").flatten()
     return wi
 
 
@@ -2473,7 +2474,7 @@ def run_experiment_trial(
     Reports
     -------
     One W&B run per weight adjustment: first the unadjusted weights, then one
-    per entry in exp_info["WEIGHT_ADJUSTS_LIST"] (which is not expected to
+    per entry in exp_info["WEIGHT_ADJUST_LIST"] (which is not expected to
     contain "()" itself), each derived from the unadjusted weights via
     `_apply_weight_adjustments()`. Every run holds this trial's config, the
     metrics of the policy it learned, and a summary of that policy.
@@ -2483,12 +2484,12 @@ def run_experiment_trial(
     if session_id is None:
         session_id = new_session_id()
 
-    weight_adjusts_list = exp_info["WEIGHT_ADJUSTS_LIST"]
+    weight_adjust_list = exp_info["WEIGHT_ADJUST_LIST"]
 
     feat_obj_set, perf_obj_set = _build_objective_sets(exp_info)
     can_observe_y = "FO" in exp_info["IRL_METHOD"]
     X, y, feature_types = _load_or_generate_dataset(exp_info, X, y, feature_types)
-    bias_types = exp_info["BIAS_TYPES"]
+    bias_type = exp_info["BIAS_TYPE"]
 
     expert_algo_lookup = generate_expert_algo_lookup(feature_types)
 
@@ -2513,7 +2514,7 @@ def run_experiment_trial(
         X,
         y,
         feature_types,
-        bias_types,
+        bias_type,
     )
 
     logging.info(f"muE_train:\n{expert_train.mu}")
@@ -2546,9 +2547,9 @@ def run_experiment_trial(
     # weight_adjusts_list is not expected to contain "()" itself; the
     # unadjusted weights always get their own W&B run regardless of its
     # contents.
-    for weight_adjusts in ((),) + tuple(weight_adjusts_list):
+    for weight_adjust in ((),) + tuple(weight_adjust_list):
         with start_wandb_run(
-            exp_info, weight_adjusts, trial_i, group, session_id
+            exp_info, weight_adjust, trial_i, group, session_id
         ) as run:
             policy_start = datetime.datetime.now()
 
@@ -2556,7 +2557,7 @@ def run_experiment_trial(
 
             wi = _apply_weight_adjustments(
                 unadjusted_weight.copy(),
-                weight_adjusts,
+                weight_adjust,
                 feat_obj_set,
                 demo_df,
                 clf,
