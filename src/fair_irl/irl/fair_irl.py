@@ -492,11 +492,33 @@ def generate_non_overfit_demos(
     feature_types,
     clf,
     n_demos=2,
-    yhat=None,
+    yhats=(),
     obj_set=None,
 ):
+    """
+    Generate the demonstrations of every fold, unbiased and once per corrupted
+    label column.
+
+    Parameters
+    ----------
+    yhats : sequence<pandas.Series or None>
+        One entry per bias type: the labels its corruption bias produced, or
+        `None` for a bias type that doesn't corrupt the labels the expert is
+        fit on. The unbiased demos are generated once and shared by all of
+        them, so the expensive per-fold expert fit only happens again for the
+        entries that actually corrupt the labels.
+
+    Returns
+    -------
+    demos : pandas.DataFrame
+        The unbiased demonstrations of all the folds combined.
+    demos_biased : list<pandas.DataFrame or None>
+        The combined demonstrations of each entry of `yhats`, in the same
+        order. `None` wherever that entry was `None`.
+    """
     demos_folds = []  # list of demo dataframes with no bias
-    demos_folds_biased = []  # list of demo dataframes with bias
+    # Per entry of `yhats`, the list of that entry's biased demo dataframes.
+    demos_folds_biased = [[] for _ in yhats]
 
     k_fold = KFold(n_demos)
     for train, test in k_fold.split(X, y):
@@ -508,10 +530,8 @@ def generate_non_overfit_demos(
             X.iloc[test],
             y.iloc[test],
         )
-        if yhat is not None:
-            yhat_train = yhat.iloc[train]
 
-        # Generate demo with bias
+        # Generate demo with no bias
         if isinstance(clf, OptClfMDPPolicyExpert):
             # A ClassificationMDPPolicy can't be fit like a regular
             # classifier: it must be rebuilt (via compute_optimal_policy())
@@ -520,8 +540,14 @@ def generate_non_overfit_demos(
         else:
             clf_fold = copy.deepcopy(clf)
             clf_fold.fit(X_train, y_train)
-        demos_fold = generate_demo(clf_fold, X_test, y_test)
-        if yhat is not None:
+        demos_folds.append(generate_demo(clf_fold, X_test, y_test))
+
+        # Generate a demo with bias for every bias type that corrupts the
+        # labels the expert is fit on.
+        for yhat_i, yhat in enumerate(yhats):
+            if yhat is None:
+                continue
+            yhat_train = yhat.iloc[train]
             if isinstance(clf, OptClfMDPPolicyExpert):
                 clf_fold_biased = clf.build_policy(
                     X_train, yhat_train, obj_set, exp_info
@@ -529,17 +555,17 @@ def generate_non_overfit_demos(
             else:
                 clf_fold_biased = copy.deepcopy(clf)
                 clf_fold_biased.fit(X_train, yhat_train)
-            demos_fold_biased = generate_demo(clf_fold_biased, X_test, y_test)
-            demos_folds_biased.append(demos_fold_biased)
+            demos_folds_biased[yhat_i].append(
+                generate_demo(clf_fold_biased, X_test, y_test)
+            )
 
-        demos_folds.append(demos_fold)
-
-    # Combine all the biased demos into one dataframe and all the unbiased demos into another dataframe
+    # Combine all the biased demos into one dataframe per bias type and all the
+    # unbiased demos into another dataframe.
     # Preserves the original data sample order from the dataset.
-    if yhat is None:
-        return pd.concat(demos_folds), None
-    else:
-        return pd.concat(demos_folds), pd.concat(demos_folds_biased)
+    return (
+        pd.concat(demos_folds),
+        [pd.concat(folds) if folds else None for folds in demos_folds_biased],
+    )
 
 
 def generate_mu_and_demos(
@@ -550,14 +576,16 @@ def generate_mu_and_demos(
     clf,
     obj_set,
     n_demos=2,
-    bias_type=(),
+    bias_type_list=((),),
 ):
     """
     Improved implementation of `generate_demos_k_folds` that uses k-folds to generate
     demonstrations for all data samples without overlap and also without overfitting.
     Returns demos as the combined demonstrations from all folds, and mu as the feature
-    expectations of all demos. Additionally, this implementation returns versions of mu and demos
-    with no bias added, which can be used to sanity-check that the bias is behaving as expected.
+    expectations of all demos. Every bias type of `bias_type_list` is applied to the
+    same k-folds of the same data, on top of one shared set of unbiased demonstrations,
+    which is also returned so it can be used to sanity-check that each bias is behaving
+    as expected.
 
     Parameters
     ----------
@@ -571,55 +599,68 @@ def generate_mu_and_demos(
         The objective set.
     n_demos : int, default 2
         The number of demonstrations to generate (also the k in k folds).
+    bias_type_list : sequence<tuple>, default ((),)
+        Every bias type to apply, `()` being no bias at all. They all share the
+        unbiased demonstrations the biased ones are derived from, so that the
+        biases only differ from each other by the bias itself.
 
     Returns
     -------
-    mu : numpy.ndarray, shape(1, len(obj_set.objectives))
-        The feature expectations across all demonstrations with bias added.
-    demos : pandas.DataFrame
-        A dataframe of all the demonstrations across the K-folds with bias added.
     mu_unbiased : numpy.ndarray, shape(1, len(obj_set.objectives))
         The feature expectations across all demonstrations with no bias added.
     demos_unbiased : pandas.DataFrame
         A dataframe of all the demonstrations across the K-folds with no bias added.
+    biased : list<tuple(numpy.ndarray, pandas.DataFrame)>
+        One `(mu, demos)` pair per entry of `bias_type_list`, in the same order.
+        `mu` has shape (1, len(obj_set.objectives)) and holds the feature
+        expectations across all demonstrations with that bias added; `demos`
+        is a dataframe of those demonstrations across the K-folds.
     """
-    mu_biased = np.zeros((1, len(obj_set.objectives)))  # demo feat exp with bias
-
     mu_unbiased = np.zeros((1, len(obj_set.objectives)))  # demo feat exp no bias
 
     if n_demos < 2:
         n_demos = 2  # KFold requires at least 2 splits
 
-    yhat_biased = add_corruption_bias(X, y, feature_types, bias_type=bias_type)
-    unbiased_demos, biased_demos = generate_non_overfit_demos(
+    yhats_biased = [
+        add_corruption_bias(X, y, feature_types, bias_type=bias_type)
+        for bias_type in bias_type_list
+    ]
+    unbiased_demos, biased_demos_list = generate_non_overfit_demos(
         exp_info,
         X,
         y,
         feature_types,
         clf,
         n_demos=n_demos,
-        yhat=yhat_biased,
+        yhats=yhats_biased,
         obj_set=obj_set,
     )
-    if biased_demos is None:
-        biased_demos = unbiased_demos.copy()
-    biased_demos = add_demo_bias(
-        biased_demos, bias_type=bias_type, dataset=exp_info["DATASET"]
-    )
 
-    logging.info(f"Bias type added: {bias_type}")
-    logging.info(
-        f"Percent of yhat unchanged with added bias: {((unbiased_demos["yhat"] == biased_demos["yhat"]).mean() * 100.0).item()}%"
-    )
-
-    # Compute mu for the combined demos and combinded unbiased demos
+    # Compute mu for the combined unbiased demos
     mu_unbiased[0] = obj_set.compute_demo_feature_exp(unbiased_demos)
-    mu_biased[0] = obj_set.compute_demo_feature_exp(biased_demos)
-
     logging.info(f"mu_unbiased[0] = {mu_unbiased[0]}")
-    logging.info(f"mu_biased[0] = {mu_biased[0]}")
 
-    return mu_biased, biased_demos, mu_unbiased, unbiased_demos
+    biased = []
+    for bias_type, biased_demos in zip(bias_type_list, biased_demos_list):
+        if biased_demos is None:
+            biased_demos = unbiased_demos.copy()
+        biased_demos = add_demo_bias(
+            biased_demos, bias_type=bias_type, dataset=exp_info["DATASET"]
+        )
+
+        logging.info(f"Bias type added: {bias_type}")
+        logging.info(
+            f"Percent of yhat unchanged with added bias: {((unbiased_demos["yhat"] == biased_demos["yhat"]).mean() * 100.0).item()}%"
+        )
+
+        # Compute mu for the combined demos of this bias type
+        mu_biased = np.zeros((1, len(obj_set.objectives)))  # demo feat exp with bias
+        mu_biased[0] = obj_set.compute_demo_feature_exp(biased_demos)
+        logging.info(f"mu_biased[0] = {mu_biased[0]}")
+
+        biased.append((mu_biased, biased_demos))
+
+    return mu_unbiased, unbiased_demos, biased
 
 
 def policy_error(

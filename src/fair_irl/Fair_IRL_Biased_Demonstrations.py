@@ -314,9 +314,10 @@ def main():
         "NegPredPar",
     ]
 
-    #  all available bias types = ((), "unbalanced_redlining", "balanced_redlining", "perfectly_balanced_redlining", "corruption_bias")
+    #  all available bias types = ("unbalanced_redlining", "balanced_redlining", "perfectly_balanced_redlining", "corruption_bias")
+    # The unbiased run is always performed first, ahead of every bias type
+    # listed here.
     bias_type_list = (
-        (),
         # ("unbalanced_redlining", 0.2),
         ("balanced_redlining", 0.2),
         # ("perfectly_balanced_redlining", 0.2),
@@ -365,19 +366,18 @@ def main():
         exp_info = dict(base_exp_info)
         experiments = []
         for expert_algo in expert_algos:
-            for bias_type in bias_type_list:
-                for source_dataset in source_states:
-                    experiments.append(
-                        {
-                            "EXPERT_ALGO": expert_algo,
-                            "BIAS_TYPE": bias_type,
-                            "IRL_METHOD": "FairIRL",
-                            "DATASET": source_dataset,
-                            "WEIGHT_ADJUST_LIST": weight_adjust_list,
-                            "SUBDOMINANCE_PERF_METRICS_LIST": subdominance_perf_metrics_list,
-                            "SUBDOMINANCE_FAIR_METRICS_LIST": subdominance_fair_metrics_list,
-                        }
-                    )
+            for source_dataset in source_states:
+                experiments.append(
+                    {
+                        "EXPERT_ALGO": expert_algo,
+                        "BIAS_TYPE_LIST": bias_type_list,
+                        "IRL_METHOD": "FairIRL",
+                        "DATASET": source_dataset,
+                        "WEIGHT_ADJUST_LIST": weight_adjust_list,
+                        "SUBDOMINANCE_PERF_METRICS_LIST": subdominance_perf_metrics_list,
+                        "SUBDOMINANCE_FAIR_METRICS_LIST": subdominance_fair_metrics_list,
+                    }
+                )
         for exp_i, experiment in enumerate(experiments):
             logging.info(f"EXPERIMENT {exp_i+1}/{len(experiments)}")
 

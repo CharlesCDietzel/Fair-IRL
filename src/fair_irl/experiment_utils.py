@@ -837,6 +837,30 @@ def weight_adjusts_name(weight_adjust):
     return "_".join(names)
 
 
+def bias_type_name(bias_type):
+    """
+    Build a short, human readable label for a bias type configuration.
+
+    Used as part of the W&B run name and as a run tag, so that the runs of the
+    bias types one trial covers can be told apart from each other.
+
+    Parameters
+    ----------
+    bias_type : tuple
+        One entry of `exp_info["BIAS_TYPE_LIST"]`, or `()` for the unbiased
+        demonstrations.
+
+    Returns
+    -------
+    name : str
+        E.g. `"unbiased"` or `"balanced_redlining_0.2"`.
+    """
+    if not bias_type:
+        return "unbiased"
+
+    return "_".join(str(component) for component in bias_type)
+
+
 def new_session_id():
     """
     Build the identifier shared by every W&B run of one execution of the
@@ -856,23 +880,30 @@ def new_session_id():
     return f"{datetime.datetime.now():%Y%m%d-%H%M%S}-{uuid.uuid4().hex[:6]}"
 
 
-def start_wandb_run(exp_info, weight_adjust, trial_i, group, session_id):
+def start_wandb_run(exp_info, bias_type, weight_adjust, trial_i, group, session_id):
     """
-    Start the W&B run that records one trial of one weight adjustment.
+    Start the W&B run that records one trial of one bias type and one weight
+    adjustment.
 
     Parameters
     ----------
     exp_info : dict
         Experiment parameters. Logged in full as the run's config, replacing
-        the exp_info JSON files this pipeline used to write.
+        the exp_info JSON files this pipeline used to write. It holds the
+        listed bias types of the trial as `BIAS_TYPE_LIST`; the single one this
+        run covers -- which may be the unbiased `()` that is always run and so
+        is not listed there -- is recorded separately as `BIAS_TYPE`.
+    bias_type : tuple
+        The bias type this run covers; `()` for no bias.
     weight_adjusts : tuple
         The weight adjustment this run covers; `()` for the unadjusted
         weights.
     trial_i : int
         Index of the trial within the experiment.
     group : str
-        W&B group shared by every run of the same experiment, so that trials
-        and weight adjustments of one experiment stay together in the UI.
+        W&B group shared by every run of the same experiment, so that trials,
+        bias types and weight adjustments of one experiment stay together in
+        the UI.
     session_id : str
         Identifies the execution of the experiment script this run belongs to.
         Recorded in the config so that the plotting notebook can select one
@@ -883,9 +914,12 @@ def start_wandb_run(exp_info, weight_adjust, trial_i, group, session_id):
     run : wandb.sdk.wandb_run.Run
         The started run. The caller is responsible for calling `finish()`.
     """
+    bias_name = bias_type_name(bias_type)
     adjust_name = weight_adjusts_name(weight_adjust)
 
     config = {key: _json_safe(value) for key, value in exp_info.items()}
+    config["BIAS_TYPE"] = _json_safe(bias_type)
+    config["BIAS_TYPE_NAME"] = bias_name
     config["WEIGHT_ADJUST"] = _json_safe(weight_adjust)
     config["WEIGHT_ADJUST_NAME"] = adjust_name
     config["TRIAL"] = trial_i
@@ -896,12 +930,13 @@ def start_wandb_run(exp_info, weight_adjust, trial_i, group, session_id):
         entity=WANDB_ENTITY,
         group=group,
         job_type=adjust_name,
-        name=f"{group}__{adjust_name}__trial{trial_i}",
+        name=f"{group}__{bias_name}__{adjust_name}__trial{trial_i}",
         config=config,
         tags=[
             str(exp_info["DATASET"]),
             str(exp_info["EXPERT_ALGO"]),
             str(exp_info["IRL_METHOD"]),
+            bias_name,
             adjust_name,
         ],
     )
@@ -947,6 +982,51 @@ class ExpertDemos:
         self.demo_unbiased = demo_unbiased
         self.mu_perf = mu_perf
         self.mu_perf_unbiased = mu_perf_unbiased
+
+
+class BiasedExpertDemos:
+    """
+    The expert demonstrations of one bias type, across all three data splits.
+
+    `run_experiment_trial()` runs the unbiased demonstrations and every bias
+    type of `exp_info["BIAS_TYPE_LIST"]` against one shared
+    train/validation/test split. This groups everything that is specific to a
+    single one of those bias types, so that the trial can iterate over one list
+    instead of threading six parallel lists through its loop.
+
+    Attributes
+    ----------
+    bias_type : tuple
+        The bias type these demonstrations were generated with; `()` for the
+        unbiased demonstrations.
+    expert_train, expert_val, expert_test : ExpertDemos
+        The expert demonstrations of each data split.
+    subdom_groups_train, subdom_groups_val, subdom_groups_test : tuple
+        The subdominance groups of each split's expert demos, as
+        `(group_idxs, raw_demos, raw_demos_feat_loss)` triples produced by
+        `generate_subdominance_groups()`. They are sampled once and passed to
+        every subsequent `compute_iteration_subdominance()` call, so that all
+        subdominance computations of this bias type share the same groups and
+        the same expert feature losses.
+    """
+
+    def __init__(
+        self,
+        bias_type,
+        expert_train,
+        expert_val,
+        expert_test,
+        subdom_groups_train,
+        subdom_groups_val,
+        subdom_groups_test,
+    ):
+        self.bias_type = bias_type
+        self.expert_train = expert_train
+        self.expert_val = expert_val
+        self.expert_test = expert_test
+        self.subdom_groups_train = subdom_groups_train
+        self.subdom_groups_val = subdom_groups_val
+        self.subdom_groups_test = subdom_groups_test
 
 
 class PolicyResults:
@@ -1477,18 +1557,22 @@ def _generate_expert_demonstrations(
     expert_algo_lookup,
     feat_obj_set,
     perf_obj_set,
-    bias_type,
+    bias_type_list,
 ):
-    """Generate the expert demonstrations for one data split.
+    """Generate the expert demonstrations of every bias type for one data split.
+
+    All the bias types share one set of unbiased demonstrations, so they only
+    differ from each other by the bias that was applied.
 
     Returns
     -------
-    expert : ExpertDemos
+    experts : list<ExpertDemos>
         The biased and unbiased demonstrations, feature expectations and
-        performance measures for this split.
+        performance measures for this split, one entry per entry of
+        `bias_type_list` and in the same order.
     """
     clf = copy.deepcopy(expert_algo_lookup[exp_info["EXPERT_ALGO"]])
-    muE, demoE, muE_unbiased, demoE_unbiased = generate_mu_and_demos(
+    muE_unbiased, demoE_unbiased, biased = generate_mu_and_demos(
         exp_info,
         X=X,
         y=y,
@@ -1496,20 +1580,22 @@ def _generate_expert_demonstrations(
         clf=clf,
         obj_set=feat_obj_set,
         n_demos=exp_info["N_EXPERT_DEMOS"],
-        bias_type=bias_type,
+        bias_type_list=bias_type_list,
     )
-    muE_perf = np.array([perf_obj_set.compute_demo_feature_exp(demoE)])
     muE_perf_unbiased = np.array(
         [perf_obj_set.compute_demo_feature_exp(demoE_unbiased)]
     )
-    return ExpertDemos(
-        mu=muE,
-        demo=demoE,
-        mu_unbiased=muE_unbiased,
-        demo_unbiased=demoE_unbiased,
-        mu_perf=muE_perf,
-        mu_perf_unbiased=muE_perf_unbiased,
-    )
+    return [
+        ExpertDemos(
+            mu=muE,
+            demo=demoE,
+            mu_unbiased=muE_unbiased,
+            demo_unbiased=demoE_unbiased,
+            mu_perf=np.array([perf_obj_set.compute_demo_feature_exp(demoE)]),
+            mu_perf_unbiased=muE_perf_unbiased,
+        )
+        for muE, demoE in biased
+    ]
 
 
 def _is_split_acceptable(muE_train, muE_val, muE_test, max_muE_cosine_dist_split):
@@ -1529,23 +1615,26 @@ def _split_dataset_and_generate_expert_demos(
     X,
     y,
     feature_types,
-    bias_type,
+    bias_type_list,
 ):
-    """Split the dataset and generate expert demonstrations for each split.
+    """Split the dataset once, then generate expert demonstrations for each
+    split and each bias type.
+
+    Every bias type is applied to the same train/validation/test split, so the
+    policies learned from them differ only by the bias of the demonstrations
+    they were learned from. A split is only accepted once it passes
+    `_is_split_acceptable()`, which is checked against the unbiased expert
+    demonstrations the bias types share rather than against each bias type's
+    own demonstrations, so that how often a split is retried does not depend
+    on how many bias types are being run.
 
     Returns
     -------
     (X_train, X_val, X_test, y_train, y_val, y_test) : pandas objects
-        The three data splits.
-    (expert_train, expert_val, expert_test) : ExpertDemos
-        The expert demonstrations for each of those splits.
-    (subdom_groups_train, subdom_groups_val, subdom_groups_test) : tuple
-        The subdominance groups of each split's expert demos, as
-        `(group_idxs, raw_demos, raw_demos_feat_loss)` triples produced by
-        `generate_subdominance_groups()`. They are sampled once here and passed
-        to every subsequent `compute_iteration_subdominance()` call, so that all
-        subdominance computations of this trial share the same groups and the
-        same expert feature losses.
+        The three data splits, shared by every bias type.
+    demos_by_bias_type : list<BiasedExpertDemos>
+        The expert demonstrations of each bias type, in the order of
+        `bias_type_list`.
     """
     max_muE_cosine_dist_split = 0.002
 
@@ -1560,7 +1649,7 @@ def _split_dataset_and_generate_expert_demos(
         logging.info(
             "Generating expert demonstrations and feature expectations for training set..."
         )
-        expert_train = _generate_expert_demonstrations(
+        experts_train = _generate_expert_demonstrations(
             exp_info,
             X_train,
             y_train,
@@ -1568,13 +1657,13 @@ def _split_dataset_and_generate_expert_demos(
             expert_algo_lookup,
             feat_obj_set,
             perf_obj_set,
-            bias_type,
+            bias_type_list,
         )
 
         logging.info(
             "Generating expert demonstrations and feature expectations for validation set..."
         )
-        expert_val = _generate_expert_demonstrations(
+        experts_val = _generate_expert_demonstrations(
             exp_info,
             X_val,
             y_val,
@@ -1582,13 +1671,13 @@ def _split_dataset_and_generate_expert_demos(
             expert_algo_lookup,
             feat_obj_set,
             perf_obj_set,
-            bias_type,
+            bias_type_list,
         )
 
         logging.info(
             "Generating expert demonstrations and feature expectations for test set..."
         )
-        expert_test = _generate_expert_demonstrations(
+        experts_test = _generate_expert_demonstrations(
             exp_info,
             X_test,
             y_test,
@@ -1596,13 +1685,16 @@ def _split_dataset_and_generate_expert_demos(
             expert_algo_lookup,
             feat_obj_set,
             perf_obj_set,
-            bias_type,
+            bias_type_list,
         )
 
+        # Every bias type of this split shares one set of unbiased expert
+        # demonstrations, so checking the split against those checks it once
+        # for all of them.
         if _is_split_acceptable(
-            expert_train.mu,
-            expert_val.mu,
-            expert_test.mu,
+            experts_train[0].mu_unbiased,
+            experts_val[0].mu_unbiased,
+            experts_test[0].mu_unbiased,
             max_muE_cosine_dist_split,
         ):
             break
@@ -1612,12 +1704,26 @@ def _split_dataset_and_generate_expert_demos(
         )
 
     # Sample the subdominance groups (and compute the expert feature losses on
-    # them) once per split, so that every compute_iteration_subdominance() call
-    # of this trial reuses the same groups.
+    # them) once per split and bias type, so that every
+    # compute_iteration_subdominance() call of that bias type reuses the same
+    # groups.
     logging.info("Generating subdominance groups for the expert demonstrations...")
-    subdom_groups_train = generate_subdominance_groups(exp_info, expert_train.demo)
-    subdom_groups_val = generate_subdominance_groups(exp_info, expert_val.demo)
-    subdom_groups_test = generate_subdominance_groups(exp_info, expert_test.demo)
+    demos_by_bias_type = [
+        BiasedExpertDemos(
+            bias_type=bias_type,
+            expert_train=expert_train,
+            expert_val=expert_val,
+            expert_test=expert_test,
+            subdom_groups_train=generate_subdominance_groups(
+                exp_info, expert_train.demo
+            ),
+            subdom_groups_val=generate_subdominance_groups(exp_info, expert_val.demo),
+            subdom_groups_test=generate_subdominance_groups(exp_info, expert_test.demo),
+        )
+        for bias_type, expert_train, expert_val, expert_test in zip(
+            bias_type_list, experts_train, experts_val, experts_test
+        )
+    ]
 
     return (
         X_train,
@@ -1626,13 +1732,7 @@ def _split_dataset_and_generate_expert_demos(
         y_train,
         y_val,
         y_test,
-        expert_train,
-        expert_val,
-        expert_test,
-        subdom_groups_train,
-        subdom_groups_val,
-        subdom_groups_test,
-    )
+    ), demos_by_bias_type
 
 
 def _compute_errors_and_metrics(
@@ -2407,8 +2507,9 @@ def _finalize_trial(
     clf_pol,
     trial_runtime,
 ):
-    """Book-keeping for one weight_adjusts entry's trial: report the learned
-    policy's results to W&B, where they are stored in the run summary.
+    """Book-keeping for one (bias type, weight adjustment) pair of a trial:
+    report the learned policy's results to W&B, where they are stored in the
+    run summary.
     """
     # Compare the learned policy with the expert demonstrations
     logging.info(
@@ -2473,39 +2574,47 @@ def run_experiment_trial(
 
     Reports
     -------
-    One W&B run per weight adjustment: first the unadjusted weights, then one
-    per entry in exp_info["WEIGHT_ADJUST_LIST"] (which is not expected to
-    contain "()" itself), each derived from the unadjusted weights via
-    `_apply_weight_adjustments()`. Every run holds this trial's config, the
-    metrics of the policy it learned, and a summary of that policy.
+    One W&B run per (bias type, weight adjustment) pair: first the unbiased
+    demonstrations, then one per entry in exp_info["BIAS_TYPE_LIST"] (which is
+    not expected to contain "()" itself), and within each of those first the
+    unadjusted weights, then one per entry in exp_info["WEIGHT_ADJUST_LIST"]
+    (which is not expected to contain "()" itself either), each derived from
+    the unadjusted weights via `_apply_weight_adjustments()`. Every run holds
+    this trial's config, the metrics of the policy it learned, and a summary of
+    that policy.
+
+    Every bias type is applied to the same train/validation/test split, and
+    learns its policies from the same `y|x` predictor, so that the only
+    difference between them is the bias of the expert demonstrations.
     """
     trial_start = datetime.datetime.now()
 
     if session_id is None:
         session_id = new_session_id()
 
-    weight_adjust_list = exp_info["WEIGHT_ADJUST_LIST"]
+    # The unbiased demonstrations every bias type is derived from always get
+    # their own set of runs, so `()` is prepended here and BIAS_TYPE_LIST is
+    # not expected to contain it itself. Prepending it also puts the unbiased
+    # runs first, ahead of every listed bias type.
+    bias_type_list = ((),) + tuple(exp_info["BIAS_TYPE_LIST"])
+    weight_adjust_list = ((),) + tuple(exp_info["WEIGHT_ADJUST_LIST"])
 
     feat_obj_set, perf_obj_set = _build_objective_sets(exp_info)
     can_observe_y = "FO" in exp_info["IRL_METHOD"]
     X, y, feature_types = _load_or_generate_dataset(exp_info, X, y, feature_types)
-    bias_type = exp_info["BIAS_TYPE"]
 
     expert_algo_lookup = generate_expert_algo_lookup(feature_types)
 
     (
-        X_train,
-        X_val,
-        X_test,
-        y_train,
-        y_val,
-        y_test,
-        expert_train,
-        expert_val,
-        expert_test,
-        subdom_groups_train,
-        subdom_groups_val,
-        subdom_groups_test,
+        (
+            X_train,
+            X_val,
+            X_test,
+            y_train,
+            y_val,
+            y_test,
+        ),
+        demos_by_bias_type,
     ) = _split_dataset_and_generate_expert_demos(
         exp_info,
         expert_algo_lookup,
@@ -2514,15 +2623,8 @@ def run_experiment_trial(
         X,
         y,
         feature_types,
-        bias_type,
+        bias_type_list,
     )
-
-    logging.info(f"muE_train:\n{expert_train.mu}")
-    logging.info(f"muE_val:\n{expert_val.mu}")
-    logging.info(f"muE_test:\n{expert_test.mu}")
-    logging.info(f"muE_perf_train:\n{expert_train.mu_perf}")
-    logging.info(f"muE_perf_val:\n{expert_val.mu_perf}")
-    logging.info(f"muE_perf_test:\n{expert_test.mu_perf}")
 
     x_cols = (
         feature_types["boolean"]
@@ -2543,91 +2645,113 @@ def run_experiment_trial(
     n_objs = len(feat_obj_set.objectives)
     unadjusted_weight = np.full(n_objs, 1.0 / n_objs)
 
-    # One run for the unadjusted weights, then one per weight adjustment.
-    # weight_adjusts_list is not expected to contain "()" itself; the
-    # unadjusted weights always get their own W&B run regardless of its
-    # contents.
-    for weight_adjust in ((),) + tuple(weight_adjust_list):
-        with start_wandb_run(
-            exp_info, weight_adjust, trial_i, group, session_id
-        ) as run:
-            policy_start = datetime.datetime.now()
+    # The unbiased demonstrations, then every bias type of this trial, each
+    # against the same data split and the same `y|x` predictor. Within a bias
+    # type, one run for the unadjusted weights, then one per weight adjustment.
+    # weight_adjust_list is not expected to contain "()" itself; the unadjusted
+    # weights always get their own W&B run regardless of its contents.
+    for bias_demos in demos_by_bias_type:
+        expert_train = bias_demos.expert_train
+        expert_val = bias_demos.expert_val
+        expert_test = bias_demos.expert_test
 
-            results = PolicyResults(feat_obj_set_cols, perf_obj_set_cols)
+        logging.info(f"BIAS TYPE: {bias_demos.bias_type}")
+        logging.info(f"muE_train:\n{expert_train.mu}")
+        logging.info(f"muE_val:\n{expert_val.mu}")
+        logging.info(f"muE_test:\n{expert_test.mu}")
+        logging.info(f"muE_perf_train:\n{expert_train.mu_perf}")
+        logging.info(f"muE_perf_val:\n{expert_val.mu_perf}")
+        logging.info(f"muE_perf_test:\n{expert_test.mu_perf}")
 
-            wi = _apply_weight_adjustments(
-                unadjusted_weight.copy(),
+        for weight_adjust in weight_adjust_list:
+            with start_wandb_run(
+                exp_info,
+                bias_demos.bias_type,
                 weight_adjust,
-                feat_obj_set,
-                demo_df,
-                clf,
-                x_cols,
-                exp_info,
-                X_train,  # could switch to X_val
-                y_train,  # could switch to y_val
-                can_observe_y,
-                subdom_groups_train,  # could switch to subdom_groups_val
-                run=run,
-            )
+                trial_i,
+                group,
+                session_id,
+            ) as run:
+                policy_start = datetime.datetime.now()
 
-            # Learn a policy that maximizes the reward function.
-            results.weights = wi
+                results = PolicyResults(feat_obj_set_cols, perf_obj_set_cols)
 
-            reward_weights = {
-                obj.name: wi[j] for j, obj in enumerate(feat_obj_set.objectives)
-            }
-            clf_pol = compute_optimal_policy(
-                clf_df=demo_df,
-                clf=clf,
-                x_cols=x_cols,
-                obj_set=feat_obj_set,
-                reward_weights=reward_weights,
-                skip_error_terms=True,
-                method=exp_info["METHOD"],
-                min_freq_fill_pct=exp_info["MIN_FREQ_FILL_PCT"],
-                restrict_y=exp_info["RESTRICT_Y_ACTION"],
-            )
+                wi = _apply_weight_adjustments(
+                    unadjusted_weight.copy(),
+                    weight_adjust,
+                    feat_obj_set,
+                    demo_df,
+                    clf,
+                    x_cols,
+                    exp_info,
+                    X_train,  # could switch to X_val
+                    y_train,  # could switch to y_val
+                    can_observe_y,
+                    # could switch to bias_demos.subdom_groups_val
+                    bias_demos.subdom_groups_train,
+                    run=run,
+                )
 
-            ##
-            # Measure and record the error of the learned policy.
-            ##
+                # Learn a policy that maximizes the reward function.
+                results.weights = wi
 
-            evaluate_policy_result = _evaluate_policy(
-                clf_pol,
-                wi,
-                feat_obj_set,
-                perf_obj_set,
-                X_train,
-                X_val,
-                X_test,
-                y_train,
-                y_val,
-                y_test,
-                subdom_groups_train,
-                subdom_groups_val,
-                subdom_groups_test,
-                expert_train.mu,
-                expert_val.mu,
-                expert_test.mu,
-                exp_info,
-                can_observe_y,
-            )
+                reward_weights = {
+                    obj.name: wi[j] for j, obj in enumerate(feat_obj_set.objectives)
+                }
+                clf_pol = compute_optimal_policy(
+                    clf_df=demo_df,
+                    clf=clf,
+                    x_cols=x_cols,
+                    obj_set=feat_obj_set,
+                    reward_weights=reward_weights,
+                    skip_error_terms=True,
+                    method=exp_info["METHOD"],
+                    min_freq_fill_pct=exp_info["MIN_FREQ_FILL_PCT"],
+                    restrict_y=exp_info["RESTRICT_Y_ACTION"],
+                )
 
-            results.record(evaluate_policy_result, policy_start, run)
+                ##
+                # Measure and record the error of the learned policy.
+                ##
 
-            trial_runtime = (datetime.datetime.now() - trial_start).total_seconds()
+                evaluate_policy_result = _evaluate_policy(
+                    clf_pol,
+                    wi,
+                    feat_obj_set,
+                    perf_obj_set,
+                    X_train,
+                    X_val,
+                    X_test,
+                    y_train,
+                    y_val,
+                    y_test,
+                    bias_demos.subdom_groups_train,
+                    bias_demos.subdom_groups_val,
+                    bias_demos.subdom_groups_test,
+                    expert_train.mu,
+                    expert_val.mu,
+                    expert_test.mu,
+                    exp_info,
+                    can_observe_y,
+                )
 
-            _finalize_trial(
-                run,
-                results,
-                feat_obj_set,
-                perf_obj_set,
-                expert_train,
-                expert_val,
-                expert_test,
-                clf_pol,
-                trial_runtime,
-            )
+                results.record(evaluate_policy_result, policy_start, run)
+
+                trial_runtime = (
+                    datetime.datetime.now() - trial_start
+                ).total_seconds()
+
+                _finalize_trial(
+                    run,
+                    results,
+                    feat_obj_set,
+                    perf_obj_set,
+                    expert_train,
+                    expert_val,
+                    expert_test,
+                    clf_pol,
+                    trial_runtime,
+                )
 
 
 def compute_relevant_feat_loss(exp_info, demo):
@@ -2690,19 +2814,19 @@ def run_bias_experiment(
 
     Reports
     -------
-    Every trial is reported to W&B as one run per weight adjustment, all
-    sharing a `group` unique to this experiment and a `SESSION_ID` shared with
-    every other experiment of the same execution. Each run's config holds
-    `exp_info`, its history holds the metrics of the policy it learned, and its
-    summary holds that policy's results.
+    Every trial is reported to W&B as one run per (bias type, weight
+    adjustment) pair, all sharing a `group` unique to this experiment and a
+    `SESSION_ID` shared with every other experiment of the same execution. Each
+    run's config holds `exp_info`, its history holds the metrics of the policy
+    it learned, and its summary holds that policy's results.
     """
     logging.info(f"exp_info: {exp_info}")
 
     if session_id is None:
         session_id = new_session_id()
 
-    # Shared by every run of this experiment so that its trials and weight
-    # adjustments stay grouped together in the W&B UI. Ending the group with
+    # Shared by every run of this experiment so that its trials, bias types and
+    # weight adjustments stay grouped together in the W&B UI. Ending the group with
     # the session id means every group of one execution carries the same
     # visible suffix.
     group = "__".join(
