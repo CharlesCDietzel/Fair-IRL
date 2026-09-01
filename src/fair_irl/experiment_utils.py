@@ -1736,8 +1736,7 @@ def _apply_weight_adjustments(
         elif weight_adjust[0] == "opt_debias":
             library = weight_adjust[1]
             optimizer = weight_adjust[2]
-            # TODO: Make n_steps configurable via exp_info
-            n_steps = weight_adjust[3] if 3 < len(weight_adjust) else 5
+            n_steps = weight_adjust[3] if 3 < len(weight_adjust) else 400
             wi = iteratively_optimize_weights(
                 wi,
                 feat_obj_set,

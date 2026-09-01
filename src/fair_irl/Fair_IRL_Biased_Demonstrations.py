@@ -321,9 +321,9 @@ def main():
         # and also generates different kinds of bias for each type of Postprocessing classifier,
         # so don't use it for the final paper results.
         # (("unbalanced_redlining", 0.2),),
-        # (("balanced_redlining", 0.2),),
+        (("balanced_redlining", 0.2),),
         # (("perfectly_balanced_redlining", 0.2),),
-        # (("corruption_bias", "CatBoost", 0.001, "gaussian", 1.0),),
+        (("corruption_bias", "CatBoost", 0.001, "gaussian", 1.0),)
     )
     # bias_types_list = (("perfectly_balanced_redlining"))
 
@@ -343,102 +343,13 @@ def main():
         # Optimization-based weight debiasing (see _ml_apply_weight_adjustment_debias in experiment_utils.py)
         # (("opt_debias", "optuna", "CMA-ES", 500),),
         # (("opt_debias", "pybobyqa", "Multi-Start BOBYQA", 500),),
-        (("opt_debias", "nevergrad", "BayesOpt", 200),),
+        (("opt_debias", "nevergrad", "BayesOpt", 2),),
         # (("opt_debias", "nevergrad", "Nelder-Mead", 500),),
         # (("opt_debias", "nevergrad", "Powell", 500),),
     )
 
     subdominance_perf_metrics_list = ("Acc",)
     subdominance_fair_metrics_list = ("AccPar", "DemPar", "EqOpp", "TNRPar")
-
-    # Experiment to test how experts with different fairness/accuracy tradeoffs affect the learned fairness weights and feature expectations.
-    extra_bias_types_list = ((),)
-    extra_weight_adjusts_list = (
-        # (),
-        # (("ml_debias",),),
-    )
-    expert_algos_extra = [
-        "DemParRed_0.01",
-        "DemParRed_0.02",
-        "DemParRed_0.03",
-        "DemParRed_0.04",
-        "DemParRed_0.05",
-        "DemParRed_0.06",
-        "DemParRed_0.07",
-        "DemParRed_0.08",
-        "DemParRed_0.09",
-        "DemParRed_0.1",
-    ]
-    datasets_extra = ["Adult"]
-
-    # Experiment to test how different experts affect the learned weights and feature expectations on one dataset. Prove that experts which optimize for one thing increase the weight on that thing, and decrease other weights.
-    extra2_bias_types_list = ((),)
-    extra2_weight_adjusts_list = ()
-    expert_algos_extra2 = [
-        "OptAcc",
-        "HardtDemPar",
-        "HardtEqOpp",
-        "HardtTNRPar",
-        "HardtEqOdds",
-        "DemParRed",
-        "EqOppRed",
-        "EqOddsRed",
-    ]
-    datasets_extra2 = ["Adult"]
-
-    # ONLY USED FOR TESTING, NOT INCLUDED IN PAPER RESULTS
-    extra3_bias_types_list = (
-        (),
-        # ("threshold_swapping",), # This doesn't work for non postprocessing classifiers,
-        # and also generates different kinds of bias for each type of Postprocessing classifier,
-        # so don't use it for the final paper results.
-        # (("unbalanced_redlining", 0.2),),
-        # (("balanced_redlining", 0.2),),
-        # (("perfectly_balanced_redlining", 0.1),),
-        # (("perfectly_balanced_redlining", 0.2),),
-        # (("perfectly_balanced_redlining", 0.3),),
-        # (("perfectly_balanced_redlining", 0.4),),
-        # (("perfectly_balanced_redlining", 0.5),),
-        # (("perfectly_balanced_redlining", 0.6),),
-        # (("perfectly_balanced_redlining", 0.7),),
-        # (("perfectly_balanced_redlining", 0.8),),
-        # (("perfectly_balanced_redlining", 0.9),),
-        # (("corruption_bias", "CatBoost", 0.001, "gaussian", 1.0),),
-    )
-    extra3_weight_adjusts_list = (
-        # (),
-        # (("mul_negative_weights", 0.0),),
-        # (("mul_negative_weights", 0.1),),
-        # (("mul_negative_weights", 0.2),),
-        # (("mul_negative_weights", 0.3),),
-        # (("mul_negative_weights", 0.4),),
-        # (("mul_negative_weights", 0.5),),
-        # (("mul_negative_weights", 0.6),),
-        # (("mul_negative_weights", 0.7),),
-        # (("mul_negative_weights", 0.8),),
-        # (("mul_negative_weights", 0.9),),
-        # ("sqrt_negative_weights"),
-        # ("ln_negative_weights"),
-        (("opt_debias", "optuna", "CMA-ES", 5),),
-        # (("opt_debias", "pybobyqa", "Multi-Start BOBYQA", 5),),
-        # (("opt_debias", "nevergrad", "BayesOpt", 5),),
-        # (("opt_debias", "nevergrad", "Nelder-Mead", 5),),
-        # (("opt_debias", "nevergrad", "Powell", 5),),
-    )
-    # expert_algos_extra3 = ["OptAcc", "OptClfMDPPol"]
-    expert_algos_extra3 = ["OptClfMDPPol"]
-    # datasets_extra3 = [
-    #     "COMPAS",
-    #     # "Boston",
-    #     "Adult",
-    #     "ACSIncome__MA",
-    #     "ACSIncome__MS",
-    #     "ACSIncome__CA",
-    #     "ACSIncome__IL",
-    #     "ACSIncome__AL",
-    #     "ACSIncome__HI",
-    # ]
-    datasets_extra3 = ["Adult"]
 
     # Run experiments. Results are reported to Weights & Biases (project
     # `WANDB_PROJECT`, default "fair-irl"); the server address and credentials
@@ -458,51 +369,6 @@ def main():
         source_states = exp_dict["source_states"]
         exp_info = dict(base_exp_info)
         experiments = []
-        # for expert_algo in expert_algos_extra:
-        #     for bias_types in extra_bias_types_list:
-        #         for source_dataset in source_states:
-        #             if source_dataset in datasets_extra:
-        #                 experiments.append(
-        #                     {
-        #                         "EXPERT_ALGO": expert_algo,
-        #                         "BIAS_TYPES": bias_types,
-        #                         "IRL_METHOD": "FairIRL",
-        #                         "DATASET": source_dataset,
-        #                         "WEIGHT_ADJUSTS_LIST": extra_weight_adjusts_list,
-        #                         "SUBDOMINANCE_PERF_METRICS_LIST": subdominance_perf_metrics_list,
-        #                         "SUBDOMINANCE_FAIR_METRICS_LIST": subdominance_fair_metrics_list,
-        #                     }
-        #                 )
-        # for expert_algo in expert_algos_extra2:
-        #     for bias_types in extra2_bias_types_list:
-        #         for source_dataset in source_states:
-        #             if source_dataset in datasets_extra2:
-        #                 experiments.append(
-        #                     {
-        #                         "EXPERT_ALGO": expert_algo,
-        #                         "BIAS_TYPES": bias_types,
-        #                         "IRL_METHOD": "FairIRL",
-        #                         "DATASET": source_dataset,
-        #                         "WEIGHT_ADJUSTS_LIST": extra2_weight_adjusts_list,
-        #                         "SUBDOMINANCE_PERF_METRICS_LIST": subdominance_perf_metrics_list,
-        #                         "SUBDOMINANCE_FAIR_METRICS_LIST": subdominance_fair_metrics_list,
-        #                     }
-        #                 )
-        # for expert_algo in expert_algos_extra3:
-        #     for bias_types in extra3_bias_types_list:
-        #         for source_dataset in source_states:
-        #             if source_dataset in datasets_extra3:
-        #                 experiments.append(
-        #                     {
-        #                         "EXPERT_ALGO": expert_algo,
-        #                         "BIAS_TYPES": bias_types,
-        #                         "IRL_METHOD": "FairIRL",
-        #                         "DATASET": source_dataset,
-        #                         "WEIGHT_ADJUSTS_LIST": extra3_weight_adjusts_list,
-        #                         "SUBDOMINANCE_PERF_METRICS_LIST": subdominance_perf_metrics_list,
-        #                         "SUBDOMINANCE_FAIR_METRICS_LIST": subdominance_fair_metrics_list,
-        #                     }
-        #                 )
         for expert_algo in expert_algos:
             for bias_types in bias_types_list:
                 for source_dataset in source_states:
