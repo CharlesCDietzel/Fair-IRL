@@ -214,7 +214,34 @@ def generate_demo(clf, X_test, y_test, can_observe_y=False):
     return demo
 
 
-def add_demo_bias(demo, bias_type=(), dataset=None):
+def add_redlining_bias(X, y, bias_type=(), dataset=None):
+    """
+    Apply a redlining bias to a dataset's labels.
+
+    The bias is applied to the dataset itself, before it is split and before
+    any expert is fit on it, so that every downstream use of the labels -- the
+    expert's training targets, the `y` column of its demonstrations, and every
+    metric computed against them -- sees the same biased labels.
+
+    Parameters
+    ----------
+    X : pandas.DataFrame
+        The dataset's input columns. Only the protected attribute `z` is used.
+    y : pandas.Series
+        The dataset's labels.
+    bias_type : tuple, default ()
+        The bias to apply, `()` (or any non-redlining bias type) leaving the
+        labels untouched. The first element names the bias; the second, if
+        given, is the percent of the redlined group whose label is flipped.
+    dataset : str
+        Name of the dataset, which decides which `z` group is redlined and
+        which `y` outcome counts as the "bad" one.
+
+    Returns
+    -------
+    y_biased : pandas.Series
+        A copy of `y` with the bias applied, indexed and named like `y`.
+    """
     # Z = 0 is discriminated against, Y = 0 is "bad" outcome (except for COMPAS where Y=1 is "bad" outcome)
     # rz - redlined Z value
     # ry - redline Y outcome
@@ -248,59 +275,59 @@ def add_demo_bias(demo, bias_type=(), dataset=None):
         bias_type_name = None
     if len(bias_type) > 1:
         percent = bias_type[1]
-    demo.reset_index(inplace=True)
+
+    # Work on a positionally indexed frame of just the columns the bias needs,
+    # so that the dataset's own index (which needn't be unique or ordered)
+    # can't interfere with the sampling below.
+    df = pd.DataFrame({"z": np.asarray(X["z"]), "y": np.asarray(y)})
+
     match bias_type_name:
         case "unbalanced_redlining":
-            # wherever Z==rz, set yhat = ry with 20% probability. Otherwise, keep yhat the same
+            # wherever Z==rz, set y = ry with 20% probability. Otherwise, keep y the same
             # Count how many rows have z == rz
-            rz_count = (demo["z"] == rz).sum()
+            rz_count = (df["z"] == rz).sum()
             # Multiply that by 20% to get the number of rows to redline
             n = int(rz_count * percent)
             # Step 3: Get n indices where z == rz
-            rz_indices = demo[demo["z"] == rz].sample(n=n).index
-            # Step 4: Set yhat to ry for sampled rows
-            demo.loc[rz_indices, "yhat"] = ry
+            rz_indices = df[df["z"] == rz].sample(n=n).index
+            # Step 4: Set y to ry for sampled rows
+            df.loc[rz_indices, "y"] = ry
         case "balanced_redlining":
-            # wherever Z==rz, set yhat = ry with 20% probability. Otherwise, keep yhat the same. Also, whereever Z==nrz, randomly set an equal number of yhat = nry
+            # wherever Z==rz, set y = ry with 20% probability. Otherwise, keep y the same. Also, whereever Z==nrz, randomly set an equal number of y = nry
             # Count how many rows have z == rz
-            rz_count = (demo["z"] == rz).sum()
+            rz_count = (df["z"] == rz).sum()
             # Multiply that by 20% to get the number of rows to redline
             n = int(rz_count * percent)
             # Edge case check: If there are fewer z == nrz than n, set n = nrz_count instead
-            nrz_count = (demo["z"] == nrz).sum()
+            nrz_count = (df["z"] == nrz).sum()
             n = min(nrz_count, n)
             # Get the n indices where z == rz
-            rz_indices = demo[demo["z"] == rz].sample(n=n).index
-            # Set yhat to ry for sampled rows
-            demo.loc[rz_indices, "yhat"] = ry
+            rz_indices = df[df["z"] == rz].sample(n=n).index
+            # Set y to ry for sampled rows
+            df.loc[rz_indices, "y"] = ry
             # Get the n indices where z == nrz
-            nrz_indices = demo[demo["z"] == nrz].sample(n=n).index
-            # Set yhat to nry for sampled rows
-            demo.loc[nrz_indices, "yhat"] = nry
+            nrz_indices = df[df["z"] == nrz].sample(n=n).index
+            # Set y to nry for sampled rows
+            df.loc[nrz_indices, "y"] = nry
         case "perfectly_balanced_redlining":
-            # wherever Z==rz and yhat==nry, set yhat = ry with 20% probability. Also, whereever Z==nrz and yhat==ry, randomly set an equal number of yhat = nry
-            # Count how many rows have z == rz AND yhat == nry
-            rz_count = ((demo["z"] == rz) & (demo["yhat"] == nry)).sum()
+            # wherever Z==rz and y==nry, set y = ry with 20% probability. Also, whereever Z==nrz and y==ry, randomly set an equal number of y = nry
+            # Count how many rows have z == rz AND y == nry
+            rz_count = ((df["z"] == rz) & (df["y"] == nry)).sum()
             # Multiply that by 20% to get the number of rows to flip
             n = int(rz_count * percent)
-            # Edge case check: If there are fewer z == nrz and yhat == ry than n, set n = nrz_count instead
-            nrz_count = ((demo["z"] == nrz) & (demo["yhat"] == ry)).sum()
+            # Edge case check: If there are fewer z == nrz and y == ry than n, set n = nrz_count instead
+            nrz_count = ((df["z"] == nrz) & (df["y"] == ry)).sum()
             n = min(nrz_count, n)
-            # Get the n indices where z == rz AND yhat == nry
-            rz_indices = (
-                demo[(demo["z"] == rz) & (demo["yhat"] == nry)].sample(n=n).index
-            )
-            # Get the n indices where z == nrz AND yhat == ry
-            nrz_indices = (
-                demo[(demo["z"] == nrz) & (demo["yhat"] == ry)].sample(n=n).index
-            )
-            # Set yhat to ry for sampled rows
-            demo.loc[rz_indices, "yhat"] = ry
-            # Set yhat to nry for sampled rows
-            demo.loc[nrz_indices, "yhat"] = nry
-    demo.set_index("index", inplace=True)
-    demo.index.name = None
-    return demo
+            # Get the n indices where z == rz AND y == nry
+            rz_indices = df[(df["z"] == rz) & (df["y"] == nry)].sample(n=n).index
+            # Get the n indices where z == nrz AND y == ry
+            nrz_indices = df[(df["z"] == nrz) & (df["y"] == ry)].sample(n=n).index
+            # Set y to ry for sampled rows
+            df.loc[rz_indices, "y"] = ry
+            # Set y to nry for sampled rows
+            df.loc[nrz_indices, "y"] = nry
+
+    return pd.Series(df["y"].to_numpy(), index=y.index, name=y.name)
 
 
 def _make_corruption_clf(clf_type, feature_types):
@@ -458,7 +485,22 @@ def _apply_corruption(params, percent, noise_type, magnitude):
 
 
 def add_corruption_bias(X, y, feature_types, bias_type=()):
-    yhat = None
+    """
+    Apply a corruption bias to a dataset's labels.
+
+    A classifier is fit on the dataset, its learned parameters are corrupted,
+    and its predictions on the dataset become the biased labels. As with
+    `add_redlining_bias()`, the bias lands on the dataset itself rather than
+    on an expert's predictions, so everything downstream is fit on and scored
+    against the biased labels.
+
+    Returns
+    -------
+    y_biased : pandas.Series or None
+        A copy of `y` with the bias applied, indexed and named like `y`, or
+        `None` if `bias_type` is not a corruption bias.
+    """
+    y_biased = None
     if len(bias_type) > 0:
         bias_type_name = bias_type[0]
     else:
@@ -481,44 +523,27 @@ def add_corruption_bias(X, y, feature_types, bias_type=()):
                 y,
                 can_observe_y=False,
             )
-            yhat = demo["yhat"]
-    return yhat
+            y_biased = pd.Series(demo["yhat"].to_numpy(), index=y.index, name=y.name)
+    return y_biased
 
 
 def generate_non_overfit_demos(
     exp_info,
     X,
     y,
-    feature_types,
     clf,
     n_demos=2,
-    yhats=(),
     obj_set=None,
 ):
     """
-    Generate the demonstrations of every fold, unbiased and once per corrupted
-    label column.
-
-    Parameters
-    ----------
-    yhats : sequence<pandas.Series or None>
-        One entry per bias type: the labels its corruption bias produced, or
-        `None` for a bias type that doesn't corrupt the labels the expert is
-        fit on. The unbiased demos are generated once and shared by all of
-        them, so the expensive per-fold expert fit only happens again for the
-        entries that actually corrupt the labels.
+    Generate the demonstrations of every fold.
 
     Returns
     -------
     demos : pandas.DataFrame
-        The unbiased demonstrations of all the folds combined.
-    demos_biased : list<pandas.DataFrame or None>
-        The combined demonstrations of each entry of `yhats`, in the same
-        order. `None` wherever that entry was `None`.
+        The demonstrations of all the folds combined.
     """
-    demos_folds = []  # list of demo dataframes with no bias
-    # Per entry of `yhats`, the list of that entry's biased demo dataframes.
-    demos_folds_biased = [[] for _ in yhats]
+    demos_folds = []
 
     k_fold = KFold(n_demos)
     for train, test in k_fold.split(X, y):
@@ -531,7 +556,6 @@ def generate_non_overfit_demos(
             y.iloc[test],
         )
 
-        # Generate demo with no bias
         if isinstance(clf, OptClfMDPPolicyExpert):
             # A ClassificationMDPPolicy can't be fit like a regular
             # classifier: it must be rebuilt (via compute_optimal_policy())
@@ -542,50 +566,29 @@ def generate_non_overfit_demos(
             clf_fold.fit(X_train, y_train)
         demos_folds.append(generate_demo(clf_fold, X_test, y_test))
 
-        # Generate a demo with bias for every bias type that corrupts the
-        # labels the expert is fit on.
-        for yhat_i, yhat in enumerate(yhats):
-            if yhat is None:
-                continue
-            yhat_train = yhat.iloc[train]
-            if isinstance(clf, OptClfMDPPolicyExpert):
-                clf_fold_biased = clf.build_policy(
-                    X_train, yhat_train, obj_set, exp_info
-                )
-            else:
-                clf_fold_biased = copy.deepcopy(clf)
-                clf_fold_biased.fit(X_train, yhat_train)
-            demos_folds_biased[yhat_i].append(
-                generate_demo(clf_fold_biased, X_test, y_test)
-            )
-
-    # Combine all the biased demos into one dataframe per bias type and all the
-    # unbiased demos into another dataframe.
+    # Combine all the demos into one dataframe.
     # Preserves the original data sample order from the dataset.
-    return (
-        pd.concat(demos_folds),
-        [pd.concat(folds) if folds else None for folds in demos_folds_biased],
-    )
+    return pd.concat(demos_folds)
 
 
 def generate_mu_and_demos(
     exp_info,
     X,
     y,
-    feature_types,
     clf,
     obj_set,
     n_demos=2,
-    bias_type_list=((),),
 ):
     """
     Improved implementation of `generate_demos_k_folds` that uses k-folds to generate
     demonstrations for all data samples without overlap and also without overfitting.
     Returns demos as the combined demonstrations from all folds, and mu as the feature
-    expectations of all demos. Every bias type of `bias_type_list` is applied to the
-    same k-folds of the same data, on top of one shared set of unbiased demonstrations,
-    which is also returned so it can be used to sanity-check that each bias is behaving
-    as expected.
+    expectations of all demos.
+
+    Any bias has already been applied to `y` by the caller (see
+    `add_corruption_bias()` and `add_redlining_bias()`), so the demonstrations
+    generated here carry the bias of the dataset they were generated from and
+    no bias is added to them afterwards.
 
     Parameters
     ----------
@@ -599,68 +602,33 @@ def generate_mu_and_demos(
         The objective set.
     n_demos : int, default 2
         The number of demonstrations to generate (also the k in k folds).
-    bias_type_list : sequence<tuple>, default ((),)
-        Every bias type to apply, `()` being no bias at all. They all share the
-        unbiased demonstrations the biased ones are derived from, so that the
-        biases only differ from each other by the bias itself.
 
     Returns
     -------
-    mu_unbiased : numpy.ndarray, shape(1, len(obj_set.objectives))
-        The feature expectations across all demonstrations with no bias added.
-    demos_unbiased : pandas.DataFrame
-        A dataframe of all the demonstrations across the K-folds with no bias added.
-    biased : list<tuple(numpy.ndarray, pandas.DataFrame)>
-        One `(mu, demos)` pair per entry of `bias_type_list`, in the same order.
-        `mu` has shape (1, len(obj_set.objectives)) and holds the feature
-        expectations across all demonstrations with that bias added; `demos`
-        is a dataframe of those demonstrations across the K-folds.
+    mu : numpy.ndarray, shape(1, len(obj_set.objectives))
+        The feature expectations across all demonstrations.
+    demos : pandas.DataFrame
+        A dataframe of all the demonstrations across the K-folds.
     """
-    mu_unbiased = np.zeros((1, len(obj_set.objectives)))  # demo feat exp no bias
+    mu = np.zeros((1, len(obj_set.objectives)))  # demo feat exp
 
     if n_demos < 2:
         n_demos = 2  # KFold requires at least 2 splits
 
-    yhats_biased = [
-        add_corruption_bias(X, y, feature_types, bias_type=bias_type)
-        for bias_type in bias_type_list
-    ]
-    unbiased_demos, biased_demos_list = generate_non_overfit_demos(
+    demos = generate_non_overfit_demos(
         exp_info,
         X,
         y,
-        feature_types,
         clf,
         n_demos=n_demos,
-        yhats=yhats_biased,
         obj_set=obj_set,
     )
 
-    # Compute mu for the combined unbiased demos
-    mu_unbiased[0] = obj_set.compute_demo_feature_exp(unbiased_demos)
-    logging.info(f"mu_unbiased[0] = {mu_unbiased[0]}")
+    # Compute mu for the combined demos
+    mu[0] = obj_set.compute_demo_feature_exp(demos)
+    logging.info(f"mu[0] = {mu[0]}")
 
-    biased = []
-    for bias_type, biased_demos in zip(bias_type_list, biased_demos_list):
-        if biased_demos is None:
-            biased_demos = unbiased_demos.copy()
-        biased_demos = add_demo_bias(
-            biased_demos, bias_type=bias_type, dataset=exp_info["DATASET"]
-        )
-
-        logging.info(f"Bias type added: {bias_type}")
-        logging.info(
-            f"Percent of yhat unchanged with added bias: {((unbiased_demos["yhat"] == biased_demos["yhat"]).mean() * 100.0).item()}%"
-        )
-
-        # Compute mu for the combined demos of this bias type
-        mu_biased = np.zeros((1, len(obj_set.objectives)))  # demo feat exp with bias
-        mu_biased[0] = obj_set.compute_demo_feature_exp(biased_demos)
-        logging.info(f"mu_biased[0] = {mu_biased[0]}")
-
-        biased.append((mu_biased, biased_demos))
-
-    return mu_unbiased, unbiased_demos, biased
+    return mu, demos
 
 
 def policy_error(

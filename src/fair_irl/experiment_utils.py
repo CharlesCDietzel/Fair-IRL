@@ -948,51 +948,50 @@ class ExpertDemos:
     """
     The expert demonstrations and feature expectations for one data split.
 
-    Groups the biased and unbiased demonstrations that
-    `_generate_expert_demonstrations()` produces for a split so that the
-    train/validation/test expert data can be passed around as three objects
-    instead of eighteen separate arrays.
+    Groups everything `_generate_expert_demonstrations()` produces for a split
+    so that the train/validation/test expert data can be passed around as three
+    objects instead of nine separate arrays. Any bias of the bias type these
+    demonstrations belong to is already carried by the labels of the dataset
+    they were generated from, so there are no separate "unbiased" counterparts
+    here.
 
     Attributes
     ----------
     mu : array-like<float>, shape(n_expert_demos, n_objectives)
-        Feature expectations of the (possibly biased) expert demonstrations.
+        Feature expectations of the expert demonstrations.
     demo : pandas.DataFrame
         The expert demonstrations themselves.
-    mu_unbiased : array-like<float>, shape(n_expert_demos, n_objectives)
-        Feature expectations of the same expert before bias was applied.
-    demo_unbiased : pandas.DataFrame
-        The unbiased expert demonstrations.
     mu_perf : array-like<float>, shape(1, n_perf_objectives)
         Performance measures of the expert demonstrations.
-    mu_perf_unbiased : array-like<float>, shape(1, n_perf_objectives)
-        Performance measures of the unbiased expert demonstrations.
     """
 
     mu: np.ndarray
     demo: pd.DataFrame
-    mu_unbiased: np.ndarray
-    demo_unbiased: pd.DataFrame
     mu_perf: np.ndarray
-    mu_perf_unbiased: np.ndarray
 
 
 @dataclass
-class BiasedExpertDemos:
+class BiasedDatasetDemos:
     """
-    The expert demonstrations of one bias type, across all three data splits.
+    The biased dataset, data split and expert demonstrations of one bias type.
 
-    `run_experiment_trial()` runs the unbiased demonstrations and every bias
-    type of `exp_info["BIAS_TYPE_LIST"]` against one shared
-    train/validation/test split. This groups everything that is specific to a
-    single one of those bias types, so that the trial can iterate over one list
-    instead of threading six parallel lists through its loop.
+    `run_experiment_trial()` runs the unbiased dataset and every bias type of
+    `exp_info["BIAS_TYPE_LIST"]`, each of which is one biased copy of the same
+    dataset's labels, split along the same randomized indices. This groups
+    everything that is specific to a single one of those bias types, so that
+    the trial can iterate over one list instead of threading a dozen parallel
+    lists through its loop.
 
     Attributes
     ----------
     bias_type : tuple
-        The bias type these demonstrations were generated with; `()` for the
-        unbiased demonstrations.
+        The bias type this dataset's labels were biased with; `()` for the
+        unbiased dataset.
+    X_train, X_val, X_test : pandas.DataFrame
+        The input columns of each data split. Identical across bias types,
+        since only the labels are biased.
+    y_train, y_val, y_test : pandas.Series
+        The biased labels of each data split.
     expert_train, expert_val, expert_test : ExpertDemos
         The expert demonstrations of each data split.
     subdom_groups_train, subdom_groups_val, subdom_groups_test : tuple
@@ -1005,6 +1004,12 @@ class BiasedExpertDemos:
     """
 
     bias_type: tuple
+    X_train: pd.DataFrame
+    X_val: pd.DataFrame
+    X_test: pd.DataFrame
+    y_train: pd.Series
+    y_val: pd.Series
+    y_test: pd.Series
     expert_train: ExpertDemos
     expert_val: ExpertDemos
     expert_test: ExpertDemos
@@ -1167,9 +1172,8 @@ class PolicyResults:
 def _build_trial_summary(
     feat_obj_set,
     perf_obj_set,
-    expert_train,
-    expert_val,
-    expert_test,
+    bias_demos,
+    unbiased_demos,
     results,
     trial_runtime,
     trial_inputsize,
@@ -1187,8 +1191,13 @@ def _build_trial_summary(
         The set of objectives for the feature expectations.
     perf_obj_set : fair_irl.irl.fair_irl.ObjectiveSet
         The set of objectives for the performance measures.
-    expert_train, expert_val, expert_test : ExpertDemos
-        The expert demonstrations for each data split.
+    bias_demos : BiasedDatasetDemos
+        The dataset, expert demonstrations and bias type this trial's policy
+        was learned from.
+    unbiased_demos : BiasedDatasetDemos
+        The unbiased dataset and its expert demonstrations, reported alongside
+        `bias_demos` so that a biased run's expert can be compared against the
+        unbiased expert of the same data split.
     results : PolicyResults
         The evaluation of this trial's learned policy.
     trial_runtime : float
@@ -1203,13 +1212,17 @@ def _build_trial_summary(
     """
     summary = {}
 
+    expert_train = bias_demos.expert_train
+    expert_val = bias_demos.expert_val
+    expert_test = bias_demos.expert_test
+
     expert_mus = (
         ("muE_train", expert_train.mu),
         ("muE_val", expert_val.mu),
         ("muE_test", expert_test.mu),
-        ("muE_train_unbiased", expert_train.mu_unbiased),
-        ("muE_val_unbiased", expert_val.mu_unbiased),
-        ("muE_test_unbiased", expert_test.mu_unbiased),
+        ("muE_train_unbiased", unbiased_demos.expert_train.mu),
+        ("muE_val_unbiased", unbiased_demos.expert_val.mu),
+        ("muE_test_unbiased", unbiased_demos.expert_test.mu),
     )
     for prefix, muE in expert_mus:
         for i, obj in enumerate(feat_obj_set.objectives):
@@ -1247,11 +1260,11 @@ def _build_trial_summary(
     # Performance measures of the expert demos and of the learned policy
     expert_perf_mus = (
         ("muE_perf_train", expert_train.mu_perf),
-        ("muE_perf_train_unbiased", expert_train.mu_perf_unbiased),
+        ("muE_perf_train_unbiased", unbiased_demos.expert_train.mu_perf),
         ("muE_perf_val", expert_val.mu_perf),
-        ("muE_perf_val_unbiased", expert_val.mu_perf_unbiased),
+        ("muE_perf_val_unbiased", unbiased_demos.expert_val.mu_perf),
         ("muE_perf_test", expert_test.mu_perf),
-        ("muE_perf_test_unbiased", expert_test.mu_perf_unbiased),
+        ("muE_perf_test_unbiased", unbiased_demos.expert_test.mu_perf),
     )
     split_perf_mus = (
         ("train", results.muL_perf_train),
@@ -1537,49 +1550,37 @@ def _generate_expert_demonstrations(
     exp_info,
     X,
     y,
-    feature_types,
     expert_algo_lookup,
     feat_obj_set,
     perf_obj_set,
-    bias_type_list,
 ):
-    """Generate the expert demonstrations of every bias type for one data split.
+    """Generate the expert demonstrations for one data split.
 
-    All the bias types share one set of unbiased demonstrations, so they only
-    differ from each other by the bias that was applied.
+    Whatever bias the bias type being run applies is already carried by `y`
+    (see `_split_dataset_and_generate_expert_demos()`), so the expert is fit on
+    biased labels and its demonstrations are scored against them; no bias is
+    added to the demonstrations themselves.
 
     Returns
     -------
-    experts : list<ExpertDemos>
-        The biased and unbiased demonstrations, feature expectations and
-        performance measures for this split, one entry per entry of
-        `bias_type_list` and in the same order.
+    expert : ExpertDemos
+        The demonstrations, feature expectations and performance measures of
+        this split.
     """
     clf = copy.deepcopy(expert_algo_lookup[exp_info["EXPERT_ALGO"]])
-    muE_unbiased, demoE_unbiased, biased = generate_mu_and_demos(
+    muE, demoE = generate_mu_and_demos(
         exp_info,
         X=X,
         y=y,
-        feature_types=feature_types,
         clf=clf,
         obj_set=feat_obj_set,
         n_demos=exp_info["N_EXPERT_DEMOS"],
-        bias_type_list=bias_type_list,
     )
-    muE_perf_unbiased = np.array(
-        [perf_obj_set.compute_demo_feature_exp(demoE_unbiased)]
+    return ExpertDemos(
+        mu=muE,
+        demo=demoE,
+        mu_perf=np.array([perf_obj_set.compute_demo_feature_exp(demoE)]),
     )
-    return [
-        ExpertDemos(
-            mu=muE,
-            demo=demoE,
-            mu_unbiased=muE_unbiased,
-            demo_unbiased=demoE_unbiased,
-            mu_perf=np.array([perf_obj_set.compute_demo_feature_exp(demoE)]),
-            mu_perf_unbiased=muE_perf_unbiased,
-        )
-        for muE, demoE in biased
-    ]
 
 
 def _is_split_acceptable(muE_train, muE_val, muE_test, max_muE_cosine_dist_split):
@@ -1589,6 +1590,28 @@ def _is_split_acceptable(muE_train, muE_val, muE_test, max_muE_cosine_dist_split
         if cosine(muE_train[demo_i], muE_test[0]) > max_muE_cosine_dist_split:
             return False
     return True
+
+
+def _bias_dataset_labels(exp_info, X, y, feature_types, bias_type):
+    """Apply one bias type to a dataset's labels.
+
+    Returns
+    -------
+    y_biased : pandas.Series
+        A copy of `y` with `bias_type` applied, indexed and named like `y`.
+        `()` (the unbiased "bias type") returns the labels unchanged.
+    """
+    y_biased = add_corruption_bias(X, y, feature_types, bias_type=bias_type)
+    if y_biased is None:
+        y_biased = add_redlining_bias(
+            X, y, bias_type=bias_type, dataset=exp_info["DATASET"]
+        )
+
+    pct_unchanged = (np.asarray(y) == np.asarray(y_biased)).mean() * 100.0
+    logging.info(f"Bias type added: {bias_type}")
+    logging.info(f"Percent of y unchanged with added bias: {pct_unchanged}%")
+
+    return y_biased
 
 
 def _split_dataset_and_generate_expert_demos(
@@ -1601,122 +1624,136 @@ def _split_dataset_and_generate_expert_demos(
     feature_types,
     bias_type_list,
 ):
-    """Split the dataset once, then generate expert demonstrations for each
-    split and each bias type.
+    """Bias the dataset's labels once per bias type, then split each biased
+    dataset and generate expert demonstrations from its splits.
 
-    Every bias type is applied to the same train/validation/test split, so the
-    policies learned from them differ only by the bias of the demonstrations
-    they were learned from. A split is only accepted once it passes
-    `_is_split_acceptable()`, which is checked against the unbiased expert
-    demonstrations the bias types share rather than against each bias type's
-    own demonstrations, so that how often a split is retried does not depend
-    on how many bias types are being run.
+    The bias of a bias type is applied to the dataset's `y` values before the
+    data is split, so the expert of that bias type is fit on biased labels and
+    every metric of that bias type -- the expert's own feature expectations,
+    its subdominance groups, and the learned policies scored against them -- is
+    computed against the same biased labels.
+
+    Every biased dataset is split along the same randomized indices, so the
+    bias types differ from each other only by their labels and their results
+    stay comparable.
 
     Returns
     -------
-    (X_train, X_val, X_test, y_train, y_val, y_test) : pandas objects
-        The three data splits, shared by every bias type.
-    demos_by_bias_type : list<BiasedExpertDemos>
-        The expert demonstrations of each bias type, in the order of
-        `bias_type_list`.
+    demos_by_bias_type : list<BiasedDatasetDemos>
+        The biased data split, expert demonstrations and subdominance groups of
+        each bias type, in the order of `bias_type_list`. Since
+        `bias_type_list` starts with `()`, the first entry always holds the
+        unbiased dataset and its demonstrations.
     """
-    max_muE_cosine_dist_split = 0.002
+    # One biased copy of the dataset's labels per bias type. `()` leaves the
+    # labels untouched, so its entry is the unbiased dataset.
+    logging.info("Applying each bias type to the dataset's labels...")
+    biased_ys = [
+        _bias_dataset_labels(exp_info, X, y, feature_types, bias_type)
+        for bias_type in bias_type_list
+    ]
 
-    while True:
-        X_train, X_val_test, y_train, y_val_test = train_test_split(
-            X, y, train_size=0.60
-        )
-        X_val, X_test, y_val, y_test = train_test_split(
-            X_val_test, y_val_test, test_size=0.50
-        )
+    # One randomized split, shared by every bias type: the biased datasets
+    # differ from each other only by their labels, so splitting them all along
+    # the same indices keeps their results comparable.
+    idxs = np.arange(len(X))
+    train_idxs, val_test_idxs = train_test_split(idxs, train_size=0.60)
+    val_idxs, test_idxs = train_test_split(val_test_idxs, test_size=0.50)
+
+    X_train = X.iloc[train_idxs]
+    X_val = X.iloc[val_idxs]
+    X_test = X.iloc[test_idxs]
+
+    demos_by_bias_type = []
+    for bias_type, y_biased in zip(bias_type_list, biased_ys):
+        logging.info(f"Generating expert demonstrations for bias type: {bias_type}")
+
+        y_train = y_biased.iloc[train_idxs]
+        y_val = y_biased.iloc[val_idxs]
+        y_test = y_biased.iloc[test_idxs]
 
         logging.info(
             "Generating expert demonstrations and feature expectations for training set..."
         )
-        experts_train = _generate_expert_demonstrations(
+        expert_train = _generate_expert_demonstrations(
             exp_info,
             X_train,
             y_train,
-            feature_types,
             expert_algo_lookup,
             feat_obj_set,
             perf_obj_set,
-            bias_type_list,
         )
 
         logging.info(
             "Generating expert demonstrations and feature expectations for validation set..."
         )
-        experts_val = _generate_expert_demonstrations(
+        expert_val = _generate_expert_demonstrations(
             exp_info,
             X_val,
             y_val,
-            feature_types,
             expert_algo_lookup,
             feat_obj_set,
             perf_obj_set,
-            bias_type_list,
         )
 
         logging.info(
             "Generating expert demonstrations and feature expectations for test set..."
         )
-        experts_test = _generate_expert_demonstrations(
+        expert_test = _generate_expert_demonstrations(
             exp_info,
             X_test,
             y_test,
-            feature_types,
             expert_algo_lookup,
             feat_obj_set,
             perf_obj_set,
-            bias_type_list,
         )
 
-        # Every bias type of this split shares one set of unbiased expert
-        # demonstrations, so checking the split against those checks it once
-        # for all of them.
-        if _is_split_acceptable(
-            experts_train[0].mu_unbiased,
-            experts_val[0].mu_unbiased,
-            experts_test[0].mu_unbiased,
-            max_muE_cosine_dist_split,
-        ):
-            break
+        # TODO: Reimplement the split check. It used to retry the split until
+        # the feature expectations of the three splits were close enough to
+        # each other, which no longer works as-is now that the split is shared
+        # by every bias type (and is what the biased datasets are compared
+        # along).
+        # max_muE_cosine_dist_split = 0.002
+        # if not _is_split_acceptable(
+        #     expert_train.mu,
+        #     expert_val.mu,
+        #     expert_test.mu,
+        #     max_muE_cosine_dist_split,
+        # ):
+        #     logging.info(
+        #         "INFO: Split check failed; retrying train/validation/test split..."
+        #     )
 
-        logging.info(
-            "INFO: Split check failed; retrying train/validation/test split..."
+        # Sample the subdominance groups (and compute the expert feature losses
+        # on them) once per split and bias type, so that every
+        # compute_iteration_subdominance() call of that bias type reuses the
+        # same groups.
+        logging.info("Generating subdominance groups for the expert demonstrations...")
+        demos_by_bias_type.append(
+            BiasedDatasetDemos(
+                bias_type=bias_type,
+                X_train=X_train,
+                X_val=X_val,
+                X_test=X_test,
+                y_train=y_train,
+                y_val=y_val,
+                y_test=y_test,
+                expert_train=expert_train,
+                expert_val=expert_val,
+                expert_test=expert_test,
+                subdom_groups_train=generate_subdominance_groups(
+                    exp_info, expert_train.demo
+                ),
+                subdom_groups_val=generate_subdominance_groups(
+                    exp_info, expert_val.demo
+                ),
+                subdom_groups_test=generate_subdominance_groups(
+                    exp_info, expert_test.demo
+                ),
+            )
         )
 
-    # Sample the subdominance groups (and compute the expert feature losses on
-    # them) once per split and bias type, so that every
-    # compute_iteration_subdominance() call of that bias type reuses the same
-    # groups.
-    logging.info("Generating subdominance groups for the expert demonstrations...")
-    demos_by_bias_type = [
-        BiasedExpertDemos(
-            bias_type=bias_type,
-            expert_train=expert_train,
-            expert_val=expert_val,
-            expert_test=expert_test,
-            subdom_groups_train=generate_subdominance_groups(
-                exp_info, expert_train.demo
-            ),
-            subdom_groups_val=generate_subdominance_groups(exp_info, expert_val.demo),
-            subdom_groups_test=generate_subdominance_groups(exp_info, expert_test.demo),
-        )
-        for bias_type, expert_train, expert_val, expert_test in zip(
-            bias_type_list, experts_train, experts_val, experts_test
-        )
-    ]
-
-    return (
-        X_train,
-        X_val,
-        X_test,
-        y_train,
-        y_val,
-        y_test,
-    ), demos_by_bias_type
+    return demos_by_bias_type
 
 
 def _compute_errors_and_metrics(
@@ -2485,9 +2522,8 @@ def _finalize_trial(
     results,
     feat_obj_set,
     perf_obj_set,
-    expert_train,
-    expert_val,
-    expert_test,
+    bias_demos,
+    unbiased_demos,
     clf_pol,
     trial_runtime,
 ):
@@ -2510,9 +2546,8 @@ def _finalize_trial(
     summary = _build_trial_summary(
         feat_obj_set,
         perf_obj_set,
-        expert_train,
-        expert_val,
-        expert_test,
+        bias_demos,
+        unbiased_demos,
         results,
         trial_runtime,
         trial_inputsize,
@@ -2559,7 +2594,7 @@ def run_experiment_trial(
     Reports
     -------
     One W&B run per (bias type, weight adjustment) pair: first the unbiased
-    demonstrations, then one per entry in exp_info["BIAS_TYPE_LIST"] (which is
+    dataset, then one per entry in exp_info["BIAS_TYPE_LIST"] (which is
     not expected to contain "()" itself), and within each of those first the
     unadjusted weights, then one per entry in exp_info["WEIGHT_ADJUST_LIST"]
     (which is not expected to contain "()" itself either), each derived from
@@ -2567,19 +2602,23 @@ def run_experiment_trial(
     this trial's config, the metrics of the policy it learned, and a summary of
     that policy.
 
-    Every bias type is applied to the same train/validation/test split, and
-    learns its policies from the same `y|x` predictor, so that the only
-    difference between them is the bias of the expert demonstrations.
+    Every bias type is applied to the dataset's labels before the data is
+    split, and the biased datasets are then all split along the same indices,
+    so that the only difference between them is the bias of their labels. Each
+    bias type fits its own `y|x` predictor on those labels and learns its
+    policies in the MDP built from it, so a policy is computed in, demonstrated
+    against, and scored against the same biased labels its expert was.
     """
     trial_start = datetime.datetime.now()
 
     if session_id is None:
         session_id = new_session_id()
 
-    # The unbiased demonstrations every bias type is derived from always get
-    # their own set of runs, so `()` is prepended here and BIAS_TYPE_LIST is
-    # not expected to contain it itself. Prepending it also puts the unbiased
-    # runs first, ahead of every listed bias type.
+    # The unbiased dataset every bias type is derived from always gets its own
+    # set of runs, so `()` is prepended here and BIAS_TYPE_LIST is not expected
+    # to contain it itself. Prepending it also puts the unbiased runs first,
+    # ahead of every listed bias type, and makes the first entry of
+    # `demos_by_bias_type` the unbiased one.
     bias_type_list = ((),) + tuple(exp_info["BIAS_TYPE_LIST"])
     weight_adjust_list = ((),) + tuple(exp_info["WEIGHT_ADJUST_LIST"])
 
@@ -2589,17 +2628,7 @@ def run_experiment_trial(
 
     expert_algo_lookup = generate_expert_algo_lookup(feature_types)
 
-    (
-        (
-            X_train,
-            X_val,
-            X_test,
-            y_train,
-            y_val,
-            y_test,
-        ),
-        demos_by_bias_type,
-    ) = _split_dataset_and_generate_expert_demos(
+    demos_by_bias_type = _split_dataset_and_generate_expert_demos(
         exp_info,
         expert_algo_lookup,
         feat_obj_set,
@@ -2610,6 +2639,13 @@ def run_experiment_trial(
         bias_type_list,
     )
 
+    # `bias_type_list` starts with `()`, so the first entry is the unbiased
+    # dataset and its demonstrations. It is what everything that needs
+    # unbiased data uses -- currently just the `*_unbiased` trial summary
+    # metrics, which report every bias type's expert alongside the unbiased
+    # one.
+    unbiased_demos = demos_by_bias_type[0]
+
     x_cols = (
         feature_types["boolean"]
         + feature_types["categoric"]
@@ -2619,19 +2655,15 @@ def run_experiment_trial(
     feat_obj_set_cols = [obj.name for obj in feat_obj_set.objectives]
     perf_obj_set_cols = [obj.name for obj in perf_obj_set.objectives]
 
-    # The `y|x` predictor every learned policy of this trial is computed from.
-    logging.debug("Fitting `y|x` predictor for clf policy...")
-    clf, demo_df = _fit_clf_and_demo_df(feature_types, X_train, y_train)
-
     # The expert is an optimal classifier policy whose reward weights are
     # equal and positive across every objective, so those same weights are the
     # unadjusted ones every weight adjustment is derived from.
     n_objs = len(feat_obj_set.objectives)
     unadjusted_weight = np.full(n_objs, 1.0 / n_objs)
 
-    # The unbiased demonstrations, then every bias type of this trial, each
-    # against the same data split and the same `y|x` predictor. Within a bias
-    # type, one run for the unadjusted weights, then one per weight adjustment.
+    # The unbiased dataset, then every bias type of this trial, each against
+    # the same data split, differing only by its labels. Within a bias type,
+    # one run for the unadjusted weights, then one per weight adjustment.
     # weight_adjust_list is not expected to contain "()" itself; the unadjusted
     # weights always get their own W&B run regardless of its contents.
     for bias_demos in demos_by_bias_type:
@@ -2640,6 +2672,15 @@ def run_experiment_trial(
         expert_test = bias_demos.expert_test
 
         logging.info(f"BIAS TYPE: {bias_demos.bias_type}")
+
+        # The `y|x` predictor -- and the MDP built from it -- of every policy
+        # this bias type learns. It is fit on this bias type's own biased
+        # labels, so the MDP its policies are computed in is the world its
+        # expert demonstrated in.
+        logging.debug("Fitting `y|x` predictor for clf policy...")
+        clf, demo_df = _fit_clf_and_demo_df(
+            feature_types, bias_demos.X_train, bias_demos.y_train
+        )
         logging.info(f"muE_train:\n{expert_train.mu}")
         logging.info(f"muE_val:\n{expert_val.mu}")
         logging.info(f"muE_test:\n{expert_test.mu}")
@@ -2668,8 +2709,8 @@ def run_experiment_trial(
                     clf,
                     x_cols,
                     exp_info,
-                    X_train,  # could switch to X_val
-                    y_train,  # could switch to y_val
+                    bias_demos.X_train,  # could switch to bias_demos.X_val
+                    bias_demos.y_train,  # could switch to bias_demos.y_val
                     can_observe_y,
                     # could switch to bias_demos.subdom_groups_val
                     bias_demos.subdom_groups_train,
@@ -2703,12 +2744,12 @@ def run_experiment_trial(
                     wi,
                     feat_obj_set,
                     perf_obj_set,
-                    X_train,
-                    X_val,
-                    X_test,
-                    y_train,
-                    y_val,
-                    y_test,
+                    bias_demos.X_train,
+                    bias_demos.X_val,
+                    bias_demos.X_test,
+                    bias_demos.y_train,
+                    bias_demos.y_val,
+                    bias_demos.y_test,
                     bias_demos.subdom_groups_train,
                     bias_demos.subdom_groups_val,
                     bias_demos.subdom_groups_test,
@@ -2728,9 +2769,8 @@ def run_experiment_trial(
                     results,
                     feat_obj_set,
                     perf_obj_set,
-                    expert_train,
-                    expert_val,
-                    expert_test,
+                    bias_demos,
+                    unbiased_demos,
                     clf_pol,
                     trial_runtime,
                 )
