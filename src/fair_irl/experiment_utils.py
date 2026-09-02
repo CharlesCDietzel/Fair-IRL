@@ -3,6 +3,7 @@ import datetime
 import logging
 import os
 import uuid
+from dataclasses import dataclass
 from functools import partial
 
 import numpy as np
@@ -942,6 +943,7 @@ def start_wandb_run(exp_info, bias_type, weight_adjust, trial_i, group, session_
     )
 
 
+@dataclass
 class ExpertDemos:
     """
     The expert demonstrations and feature expectations for one data split.
@@ -967,23 +969,15 @@ class ExpertDemos:
         Performance measures of the unbiased expert demonstrations.
     """
 
-    def __init__(
-        self,
-        mu,
-        demo,
-        mu_unbiased,
-        demo_unbiased,
-        mu_perf,
-        mu_perf_unbiased,
-    ):
-        self.mu = mu
-        self.demo = demo
-        self.mu_unbiased = mu_unbiased
-        self.demo_unbiased = demo_unbiased
-        self.mu_perf = mu_perf
-        self.mu_perf_unbiased = mu_perf_unbiased
+    mu: np.ndarray
+    demo: pd.DataFrame
+    mu_unbiased: np.ndarray
+    demo_unbiased: pd.DataFrame
+    mu_perf: np.ndarray
+    mu_perf_unbiased: np.ndarray
 
 
+@dataclass
 class BiasedExpertDemos:
     """
     The expert demonstrations of one bias type, across all three data splits.
@@ -1010,23 +1004,13 @@ class BiasedExpertDemos:
         the same expert feature losses.
     """
 
-    def __init__(
-        self,
-        bias_type,
-        expert_train,
-        expert_val,
-        expert_test,
-        subdom_groups_train,
-        subdom_groups_val,
-        subdom_groups_test,
-    ):
-        self.bias_type = bias_type
-        self.expert_train = expert_train
-        self.expert_val = expert_val
-        self.expert_test = expert_test
-        self.subdom_groups_train = subdom_groups_train
-        self.subdom_groups_val = subdom_groups_val
-        self.subdom_groups_test = subdom_groups_test
+    bias_type: tuple
+    expert_train: ExpertDemos
+    expert_val: ExpertDemos
+    expert_test: ExpertDemos
+    subdom_groups_train: tuple
+    subdom_groups_val: tuple
+    subdom_groups_test: tuple
 
 
 class PolicyResults:
@@ -2737,9 +2721,7 @@ def run_experiment_trial(
 
                 results.record(evaluate_policy_result, policy_start, run)
 
-                trial_runtime = (
-                    datetime.datetime.now() - trial_start
-                ).total_seconds()
+                trial_runtime = (datetime.datetime.now() - trial_start).total_seconds()
 
                 _finalize_trial(
                     run,

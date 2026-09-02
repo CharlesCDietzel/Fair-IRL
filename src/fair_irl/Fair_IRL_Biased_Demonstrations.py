@@ -321,7 +321,7 @@ def main():
         # ("unbalanced_redlining", 0.2),
         ("balanced_redlining", 0.2),
         # ("perfectly_balanced_redlining", 0.2),
-        ("corruption_bias", "CatBoost", 0.001, "gaussian", 1.0)
+        ("corruption_bias", "CatBoost", 0.001, "gaussian", 1.0),
     )
     # bias_types_list = (("perfectly_balanced_redlining"))
 
