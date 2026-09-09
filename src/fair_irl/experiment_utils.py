@@ -838,7 +838,7 @@ def weight_adjusts_name(weight_adjust):
     return "_".join(names)
 
 
-def bias_type_name(bias_type):
+def dataset_bias_type_name(dataset_bias_type):
     """
     Build a short, human readable label for a bias type configuration.
 
@@ -847,8 +847,8 @@ def bias_type_name(bias_type):
 
     Parameters
     ----------
-    bias_type : tuple
-        One entry of `exp_info["BIAS_TYPE_LIST"]`, or `()` for the unbiased
+    dataset_bias_type : tuple
+        One entry of `exp_info["DATASET_BIAS_TYPE_LIST"]`, or `()` for the unbiased
         demonstrations.
 
     Returns
@@ -856,10 +856,10 @@ def bias_type_name(bias_type):
     name : str
         E.g. `"unbiased"` or `"balanced_redlining_0.2"`.
     """
-    if not bias_type:
+    if not dataset_bias_type:
         return "unbiased"
 
-    return "_".join(str(component) for component in bias_type)
+    return "_".join(str(component) for component in dataset_bias_type)
 
 
 def new_session_id():
@@ -881,7 +881,9 @@ def new_session_id():
     return f"{datetime.datetime.now():%Y%m%d-%H%M%S}-{uuid.uuid4().hex[:6]}"
 
 
-def start_wandb_run(exp_info, bias_type, weight_adjust, trial_i, group, session_id):
+def start_wandb_run(
+    exp_info, dataset_bias_type, weight_adjust, trial_i, group, session_id
+):
     """
     Start the W&B run that records one trial of one bias type and one weight
     adjustment.
@@ -891,10 +893,10 @@ def start_wandb_run(exp_info, bias_type, weight_adjust, trial_i, group, session_
     exp_info : dict
         Experiment parameters. Logged in full as the run's config, replacing
         the exp_info JSON files this pipeline used to write. It holds the
-        listed bias types of the trial as `BIAS_TYPE_LIST`; the single one this
+        listed bias types of the trial as `DATASET_BIAS_TYPE_LIST`; the single one this
         run covers -- which may be the unbiased `()` that is always run and so
-        is not listed there -- is recorded separately as `BIAS_TYPE`.
-    bias_type : tuple
+        is not listed there -- is recorded separately as `DATASET_BIAS_TYPE`.
+    dataset_bias_type : tuple
         The bias type this run covers; `()` for no bias.
     weight_adjusts : tuple
         The weight adjustment this run covers; `()` for the unadjusted
@@ -915,12 +917,12 @@ def start_wandb_run(exp_info, bias_type, weight_adjust, trial_i, group, session_
     run : wandb.sdk.wandb_run.Run
         The started run. The caller is responsible for calling `finish()`.
     """
-    bias_name = bias_type_name(bias_type)
+    bias_name = dataset_bias_type_name(dataset_bias_type)
     adjust_name = weight_adjusts_name(weight_adjust)
 
     config = {key: _json_safe(value) for key, value in exp_info.items()}
-    config["BIAS_TYPE"] = _json_safe(bias_type)
-    config["BIAS_TYPE_NAME"] = bias_name
+    config["DATASET_BIAS_TYPE"] = _json_safe(dataset_bias_type)
+    config["DATASET_BIAS_TYPE_NAME"] = bias_name
     config["WEIGHT_ADJUST"] = _json_safe(weight_adjust)
     config["WEIGHT_ADJUST_NAME"] = adjust_name
     config["TRIAL"] = trial_i
@@ -976,7 +978,7 @@ class BiasedDatasetDemos:
     The biased dataset, data split and expert demonstrations of one bias type.
 
     `run_experiment_trial()` runs the unbiased dataset and every bias type of
-    `exp_info["BIAS_TYPE_LIST"]`, each of which is one biased copy of the same
+    `exp_info["DATASET_BIAS_TYPE_LIST"]`, each of which is one biased copy of the same
     dataset's labels, split along the same randomized indices. This groups
     everything that is specific to a single one of those bias types, so that
     the trial can iterate over one list instead of threading a dozen parallel
@@ -984,7 +986,7 @@ class BiasedDatasetDemos:
 
     Attributes
     ----------
-    bias_type : tuple
+    dataset_bias_type : tuple
         The bias type this dataset's labels were biased with; `()` for the
         unbiased dataset.
     X_train, X_val, X_test : pandas.DataFrame
@@ -1003,7 +1005,7 @@ class BiasedDatasetDemos:
         the same expert feature losses.
     """
 
-    bias_type: tuple
+    dataset_bias_type: tuple
     X_train: pd.DataFrame
     X_val: pd.DataFrame
     X_test: pd.DataFrame
@@ -1592,23 +1594,24 @@ def _is_split_acceptable(muE_train, muE_val, muE_test, max_muE_cosine_dist_split
     return True
 
 
-def _bias_dataset_labels(exp_info, X, y, feature_types, bias_type):
+def _bias_dataset_labels(exp_info, X, y, feature_types, dataset_bias_type):
     """Apply one bias type to a dataset's labels.
 
     Returns
     -------
     y_biased : pandas.Series
-        A copy of `y` with `bias_type` applied, indexed and named like `y`.
+        A copy of `y` with `dataset_bias_type` applied, indexed and named like `y`.
         `()` (the unbiased "bias type") returns the labels unchanged.
     """
-    y_biased = add_corruption_bias(X, y, feature_types, bias_type=bias_type)
-    if y_biased is None:
-        y_biased = add_redlining_bias(
-            X, y, bias_type=bias_type, dataset=exp_info["DATASET"]
-        )
+    y_biased = add_corruption_bias(
+        X, y, feature_types, dataset_bias_type=dataset_bias_type
+    )
+    y_biased = add_redlining_bias(
+        X, y_biased, dataset_bias_type=dataset_bias_type, dataset=exp_info["DATASET"]
+    )
 
     pct_unchanged = (np.asarray(y) == np.asarray(y_biased)).mean() * 100.0
-    logging.info(f"Bias type added: {bias_type}")
+    logging.info(f"Bias type added: {dataset_bias_type}")
     logging.info(f"Percent of y unchanged with added bias: {pct_unchanged}%")
 
     return y_biased
@@ -1622,7 +1625,7 @@ def _split_dataset_and_generate_expert_demos(
     X,
     y,
     feature_types,
-    bias_type_list,
+    dataset_bias_type_list,
 ):
     """Bias the dataset's labels once per bias type, then split each biased
     dataset and generate expert demonstrations from its splits.
@@ -1639,18 +1642,18 @@ def _split_dataset_and_generate_expert_demos(
 
     Returns
     -------
-    demos_by_bias_type : list<BiasedDatasetDemos>
+    demos_by_dataset_bias_type : list<BiasedDatasetDemos>
         The biased data split, expert demonstrations and subdominance groups of
-        each bias type, in the order of `bias_type_list`. Since
-        `bias_type_list` starts with `()`, the first entry always holds the
+        each bias type, in the order of `dataset_bias_type_list`. Since
+        `dataset_bias_type_list` starts with `()`, the first entry always holds the
         unbiased dataset and its demonstrations.
     """
     # One biased copy of the dataset's labels per bias type. `()` leaves the
     # labels untouched, so its entry is the unbiased dataset.
     logging.info("Applying each bias type to the dataset's labels...")
     biased_ys = [
-        _bias_dataset_labels(exp_info, X, y, feature_types, bias_type)
-        for bias_type in bias_type_list
+        _bias_dataset_labels(exp_info, X, y, feature_types, dataset_bias_type)
+        for dataset_bias_type in dataset_bias_type_list
     ]
 
     # One randomized split, shared by every bias type: the biased datasets
@@ -1664,9 +1667,11 @@ def _split_dataset_and_generate_expert_demos(
     X_val = X.iloc[val_idxs]
     X_test = X.iloc[test_idxs]
 
-    demos_by_bias_type = []
-    for bias_type, y_biased in zip(bias_type_list, biased_ys):
-        logging.info(f"Generating expert demonstrations for bias type: {bias_type}")
+    demos_by_dataset_bias_type = []
+    for dataset_bias_type, y_biased in zip(dataset_bias_type_list, biased_ys):
+        logging.info(
+            f"Generating expert demonstrations for bias type: {dataset_bias_type}"
+        )
 
         y_train = y_biased.iloc[train_idxs]
         y_val = y_biased.iloc[val_idxs]
@@ -1729,9 +1734,9 @@ def _split_dataset_and_generate_expert_demos(
         # compute_iteration_subdominance() call of that bias type reuses the
         # same groups.
         logging.info("Generating subdominance groups for the expert demonstrations...")
-        demos_by_bias_type.append(
+        demos_by_dataset_bias_type.append(
             BiasedDatasetDemos(
-                bias_type=bias_type,
+                dataset_bias_type=dataset_bias_type,
                 X_train=X_train,
                 X_val=X_val,
                 X_test=X_test,
@@ -1753,7 +1758,7 @@ def _split_dataset_and_generate_expert_demos(
             )
         )
 
-    return demos_by_bias_type
+    return demos_by_dataset_bias_type
 
 
 def _compute_errors_and_metrics(
@@ -2594,7 +2599,7 @@ def run_experiment_trial(
     Reports
     -------
     One W&B run per (bias type, weight adjustment) pair: first the unbiased
-    dataset, then one per entry in exp_info["BIAS_TYPE_LIST"] (which is
+    dataset, then one per entry in exp_info["DATASET_BIAS_TYPE_LIST"] (which is
     not expected to contain "()" itself), and within each of those first the
     unadjusted weights, then one per entry in exp_info["WEIGHT_ADJUST_LIST"]
     (which is not expected to contain "()" itself either), each derived from
@@ -2615,11 +2620,11 @@ def run_experiment_trial(
         session_id = new_session_id()
 
     # The unbiased dataset every bias type is derived from always gets its own
-    # set of runs, so `()` is prepended here and BIAS_TYPE_LIST is not expected
+    # set of runs, so `()` is prepended here and DATASET_BIAS_TYPE_LIST is not expected
     # to contain it itself. Prepending it also puts the unbiased runs first,
     # ahead of every listed bias type, and makes the first entry of
-    # `demos_by_bias_type` the unbiased one.
-    bias_type_list = ((),) + tuple(exp_info["BIAS_TYPE_LIST"])
+    # `demos_by_dataset_bias_type` the unbiased one.
+    dataset_bias_type_list = ((),) + tuple(exp_info["DATASET_BIAS_TYPE_LIST"])
     weight_adjust_list = ((),) + tuple(exp_info["WEIGHT_ADJUST_LIST"])
 
     feat_obj_set, perf_obj_set = _build_objective_sets(exp_info)
@@ -2628,7 +2633,7 @@ def run_experiment_trial(
 
     expert_algo_lookup = generate_expert_algo_lookup(feature_types)
 
-    demos_by_bias_type = _split_dataset_and_generate_expert_demos(
+    demos_by_dataset_bias_type = _split_dataset_and_generate_expert_demos(
         exp_info,
         expert_algo_lookup,
         feat_obj_set,
@@ -2636,15 +2641,15 @@ def run_experiment_trial(
         X,
         y,
         feature_types,
-        bias_type_list,
+        dataset_bias_type_list,
     )
 
-    # `bias_type_list` starts with `()`, so the first entry is the unbiased
+    # `dataset_bias_type_list` starts with `()`, so the first entry is the unbiased
     # dataset and its demonstrations. It is what everything that needs
     # unbiased data uses -- currently just the `*_unbiased` trial summary
     # metrics, which report every bias type's expert alongside the unbiased
     # one.
-    unbiased_demos = demos_by_bias_type[0]
+    unbiased_demos = demos_by_dataset_bias_type[0]
 
     x_cols = (
         feature_types["boolean"]
@@ -2666,12 +2671,12 @@ def run_experiment_trial(
     # one run for the unadjusted weights, then one per weight adjustment.
     # weight_adjust_list is not expected to contain "()" itself; the unadjusted
     # weights always get their own W&B run regardless of its contents.
-    for bias_demos in demos_by_bias_type:
+    for bias_demos in demos_by_dataset_bias_type:
         expert_train = bias_demos.expert_train
         expert_val = bias_demos.expert_val
         expert_test = bias_demos.expert_test
 
-        logging.info(f"BIAS TYPE: {bias_demos.bias_type}")
+        logging.info(f"BIAS TYPE: {bias_demos.dataset_bias_type}")
 
         # The `y|x` predictor -- and the MDP built from it -- of every policy
         # this bias type learns. It is fit on this bias type's own biased
@@ -2691,7 +2696,7 @@ def run_experiment_trial(
         for weight_adjust in weight_adjust_list:
             with start_wandb_run(
                 exp_info,
-                bias_demos.bias_type,
+                bias_demos.dataset_bias_type,
                 weight_adjust,
                 trial_i,
                 group,

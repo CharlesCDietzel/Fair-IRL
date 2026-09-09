@@ -214,7 +214,7 @@ def generate_demo(clf, X_test, y_test, can_observe_y=False):
     return demo
 
 
-def add_redlining_bias(X, y, bias_type=(), dataset=None):
+def add_redlining_bias(X, y, dataset_bias_type=(), dataset=None):
     """
     Apply a redlining bias to a dataset's labels.
 
@@ -229,7 +229,7 @@ def add_redlining_bias(X, y, bias_type=(), dataset=None):
         The dataset's input columns. Only the protected attribute `z` is used.
     y : pandas.Series
         The dataset's labels.
-    bias_type : tuple, default ()
+    dataset_bias_type : tuple, default ()
         The bias to apply, `()` (or any non-redlining bias type) leaving the
         labels untouched. The first element names the bias; the second, if
         given, is the percent of the redlined group whose label is flipped.
@@ -269,19 +269,19 @@ def add_redlining_bias(X, y, bias_type=(), dataset=None):
         nry = 0
 
     percent = 0.2
-    if len(bias_type) > 0:
-        bias_type_name = bias_type[0]
+    if len(dataset_bias_type) > 0:
+        dataset_bias_type_name = dataset_bias_type[0]
     else:
-        bias_type_name = None
-    if len(bias_type) > 1:
-        percent = bias_type[1]
+        dataset_bias_type_name = None
+    if len(dataset_bias_type) > 1:
+        percent = dataset_bias_type[1]
 
     # Work on a positionally indexed frame of just the columns the bias needs,
     # so that the dataset's own index (which needn't be unique or ordered)
     # can't interfere with the sampling below.
     df = pd.DataFrame({"z": np.asarray(X["z"]), "y": np.asarray(y)})
 
-    match bias_type_name:
+    match dataset_bias_type_name:
         case "unbalanced_redlining":
             # wherever Z==rz, set y = ry with 20% probability. Otherwise, keep y the same
             # Count how many rows have z == rz
@@ -484,7 +484,7 @@ def _apply_corruption(params, percent, noise_type, magnitude):
     raise ValueError(f"Unknown noise_type: {noise_type}")
 
 
-def add_corruption_bias(X, y, feature_types, bias_type=()):
+def add_corruption_bias(X, y, feature_types, dataset_bias_type=()):
     """
     Apply a corruption bias to a dataset's labels.
 
@@ -498,20 +498,28 @@ def add_corruption_bias(X, y, feature_types, bias_type=()):
     -------
     y_biased : pandas.Series or None
         A copy of `y` with the bias applied, indexed and named like `y`, or
-        `None` if `bias_type` is not a corruption bias.
+        `None` if `dataset_bias_type` is not a corruption bias.
     """
-    y_biased = None
-    if len(bias_type) > 0:
-        bias_type_name = bias_type[0]
+    if len(dataset_bias_type) > 0:
+        dataset_bias_type_name = dataset_bias_type[0]
     else:
-        bias_type_name = None
-    if len(bias_type) > 1:
-        parameters = bias_type[1:]
-    match bias_type_name:
+        dataset_bias_type_name = None
+    if len(dataset_bias_type) > 1:
+        parameters = dataset_bias_type[1:]
+    match dataset_bias_type_name:
         case "corruption_bias":
             clf_type, percent, noise_type, magnitude = parameters
             clf = _make_corruption_clf(clf_type, feature_types)
             clf.fit(X, y)
+            unbiased_demo = generate_demo(
+                clf,
+                X,
+                y,
+                can_observe_y=False,
+            )
+            yhat_unbiased = pd.Series(
+                unbiased_demo["yhat"].to_numpy(), index=y.index, name=y.name
+            )
             flat_params = _get_flat_clf_params(clf, clf_type)
             biased_params = _apply_corruption(
                 flat_params, percent, noise_type, magnitude
@@ -523,7 +531,14 @@ def add_corruption_bias(X, y, feature_types, bias_type=()):
                 y,
                 can_observe_y=False,
             )
-            y_biased = pd.Series(demo["yhat"].to_numpy(), index=y.index, name=y.name)
+            yhat_biased = pd.Series(demo["yhat"].to_numpy(), index=y.index, name=y.name)
+            # We want to preserve any bias that was already present in the original labels.
+            # Whenever the original label could not be predicted correctly by the unbiased classifier,
+            # that indicates that the original label was likely already biased. In that case, we want
+            # to keep the original label as is, and not apply the corruption bias.
+            y_biased = yhat_biased.where(yhat_unbiased == y, y)
+        case _:
+            y_biased = y.copy()
     return y_biased
 
 

@@ -317,13 +317,15 @@ def main():
     #  all available bias types = ("unbalanced_redlining", "balanced_redlining", "perfectly_balanced_redlining", "corruption_bias")
     # The unbiased run is always performed first, ahead of every bias type
     # listed here.
-    bias_type_list = (
+    dataset_bias_type_list = (
         # ("unbalanced_redlining", 0.2),
-        ("balanced_redlining", 0.2),
+        # ("balanced_redlining", 0.2),
         # ("perfectly_balanced_redlining", 0.2),
+        ("corruption_bias", "CatBoost", 0.0001, "gaussian", 1.0),
         ("corruption_bias", "CatBoost", 0.001, "gaussian", 1.0),
+        ("corruption_bias", "CatBoost", 0.01, "gaussian", 1.0),
     )
-    # bias_types_list = (("perfectly_balanced_redlining"))
+    # dataset_bias_types_list = (("perfectly_balanced_redlining"))
 
     weight_adjust_list = (
         # ("mul_negative_weights", 0.0),
@@ -339,7 +341,7 @@ def main():
         # Optimization-based weight debiasing (see _ml_apply_weight_adjustment_debias in experiment_utils.py)
         # ("opt_debias", "optuna", "CMA-ES", 500),
         # ("opt_debias", "pybobyqa", "Multi-Start BOBYQA", 500),
-        ("opt_debias", "nevergrad", "BayesOpt", 2),
+        ("opt_debias", "nevergrad", "BayesOpt", 200),
         # ("opt_debias", "nevergrad", "Nelder-Mead", 500),
         # ("opt_debias", "nevergrad", "Powell", 500),
     )
@@ -370,7 +372,7 @@ def main():
                 experiments.append(
                     {
                         "EXPERT_ALGO": expert_algo,
-                        "BIAS_TYPE_LIST": bias_type_list,
+                        "DATASET_BIAS_TYPE_LIST": dataset_bias_type_list,
                         "IRL_METHOD": "FairIRL",
                         "DATASET": source_dataset,
                         "WEIGHT_ADJUST_LIST": weight_adjust_list,
