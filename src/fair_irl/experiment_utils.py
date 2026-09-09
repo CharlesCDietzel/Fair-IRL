@@ -50,6 +50,11 @@ from fair_irl.rl.objectives import *
 from fair_irl.utils import *
 
 from .datasets import *
+from .sh.baselines import (
+    FAIR_LOGLOSS_C,
+    FairLogLossBaseline,
+    PostProcessingBaseline,
+)
 from .sh.superhuman_fairness import (
     SH_DEFAULT_ITERS,
     SH_DEFAULT_LAMDA,
@@ -786,9 +791,61 @@ SUBDOMINANCE_KEYS = tuple(
 # The techniques `run_experiment_trial()` can train and evaluate. Which of them
 # a run of the experiment script actually covers is set per experiment, as
 # `exp_info["ALGORITHMS"]`.
+#
+# The four names after Superhuman Fairness are the fair-classification
+# baselines that paper compares itself against, ported in
+# `fair_irl.sh.baselines`. Its fifth, MFOpt (Hsu et al., 2022), is absent
+# because its reference repository ships no implementation of it -- only CSVs
+# of predictions produced elsewhere -- and its authors published no code; see
+# the module docstring of `fair_irl.sh.baselines`.
 ALGORITHM_FAIRIRL = "FairIRL Bias Reduction"
 ALGORITHM_SUPERHUMAN = "Superhuman Fairness"
-ALGORITHMS = (ALGORITHM_FAIRIRL, ALGORITHM_SUPERHUMAN)
+ALGORITHM_POST_PROC_DP = "Post Proc DP"
+ALGORITHM_POST_PROC_EQODDS = "Post Proc EqOdds"
+ALGORITHM_FAIR_LOGLOSS_DP = "Fair LogLoss DP"
+ALGORITHM_FAIR_LOGLOSS_EQODDS = "Fair LogLoss EqOdds"
+ALGORITHMS = (
+    ALGORITHM_FAIRIRL,
+    ALGORITHM_SUPERHUMAN,
+    ALGORITHM_POST_PROC_DP,
+    ALGORITHM_POST_PROC_EQODDS,
+    ALGORITHM_FAIR_LOGLOSS_DP,
+    ALGORITHM_FAIR_LOGLOSS_EQODDS,
+)
+
+# How to build each of the fair-classification baselines. Every one of them is
+# an ordinary classifier: fit on the training split, then scored by
+# `_evaluate_and_finalize()` like everything else here, so one runner
+# (`_run_baseline_trial()`) covers them all.
+#
+# `constraints`/`mode` are the `mode` argument the original's
+# `eval_model_baseline()` is called with for that baseline.
+BASELINE_SPECS = {
+    ALGORITHM_POST_PROC_DP: {
+        "builder": PostProcessingBaseline,
+        "kwargs": {"constraints": "demographic_parity"},
+    },
+    ALGORITHM_POST_PROC_EQODDS: {
+        "builder": PostProcessingBaseline,
+        "kwargs": {"constraints": "equalized_odds"},
+    },
+    ALGORITHM_FAIR_LOGLOSS_DP: {
+        "builder": FairLogLossBaseline,
+        "kwargs": {"mode": "demographic_parity"},
+    },
+    ALGORITHM_FAIR_LOGLOSS_EQODDS: {
+        "builder": FairLogLossBaseline,
+        "kwargs": {"mode": "equalized_odds"},
+    },
+}
+
+# Defaults for the fair log-loss baselines, overridable through the
+# correspondingly named `exp_info` keys. Both are what the original's
+# `eval_model_baseline()` passes.
+FAIR_LOGLOSS_DEFAULTS = {
+    "FAIR_LOGLOSS_C": FAIR_LOGLOSS_C,
+    "FAIR_LOGLOSS_RANDOM_INIT": True,
+}
 
 # Defaults for the Superhuman Fairness baseline's own configuration. Each is
 # overridable through the correspondingly named `exp_info` key; see
@@ -862,16 +919,15 @@ def _superhuman_config(exp_info):
     }
 
 
-def _superhuman_rng(exp_info, dataset_bias_type, trial_i):
+def _baseline_seed(exp_info, algorithm, dataset_bias_type, trial_i):
     """
-    Build the random generator the Superhuman Fairness baseline draws from.
+    Derive a baseline's random seed from what makes its run unique.
 
-    The baseline gets a dedicated generator, seeded deterministically from the
-    experiment's own seed and from what makes this run unique, rather than
-    drawing from the global numpy random state. That way enabling the baseline
-    cannot shift a single random draw the FairIRL technique makes, so a session
-    that runs both produces exactly the FairIRL results a session that runs
-    only FairIRL would.
+    Every baseline gets its own deterministic seed rather than drawing from the
+    global numpy random state. That way enabling a baseline cannot shift a
+    single random draw the FairIRL technique makes, so a session that runs
+    several techniques produces exactly the FairIRL results a session that runs
+    only FairIRL would -- and each baseline is itself reproducible.
     """
     key = "|".join(
         [
@@ -879,12 +935,19 @@ def _superhuman_rng(exp_info, dataset_bias_type, trial_i):
             str(exp_info.get("EXPERIMENT_NAME")),
             str(exp_info.get("DATASET")),
             str(exp_info.get("EXPERT_ALGO")),
+            str(algorithm),
             dataset_bias_type_name(dataset_bias_type),
             str(trial_i),
         ]
     )
-    seed = int.from_bytes(hashlib.blake2b(key.encode(), digest_size=8).digest(), "big")
-    return np.random.default_rng(seed)
+    return int.from_bytes(hashlib.blake2b(key.encode(), digest_size=8).digest(), "big")
+
+
+def _baseline_rng(exp_info, algorithm, dataset_bias_type, trial_i):
+    """The random generator one baseline draws from. See `_baseline_seed()`."""
+    return np.random.default_rng(
+        _baseline_seed(exp_info, algorithm, dataset_bias_type, trial_i)
+    )
 
 
 def _json_safe(value):
@@ -2742,6 +2805,114 @@ def _log_superhuman_training(run, sh_model):
         run.log(metrics)
 
 
+def _report_run_failure(run, algorithm, error):
+    """
+    Record that one technique's run failed, so the trial can carry on.
+
+    A technique that raises would otherwise take down the whole execution, and
+    with it every result of every dataset still to be run. The fair log-loss
+    classifiers in particular can fail to converge on a split whose groups are
+    small or degenerate, which is the original implementation's behavior too --
+    it just has nothing else running alongside it to protect.
+
+    The failed run is left marked `converged = False`, which is exactly what
+    the plotting notebook filters on, so a failure can never quietly pass for a
+    result.
+    """
+    logging.exception(
+        f"{algorithm} failed on this bias type."
+        " Its W&B run is marked as not converged; the trial continues with the"
+        " remaining techniques."
+    )
+    if run is not None:
+        run.summary["converged"] = False
+        run.summary["error"] = f"{type(error).__name__}: {error}"
+
+
+def _evaluate_and_finalize(
+    exp_info,
+    run,
+    model,
+    weights,
+    bias_demos,
+    unbiased_demos,
+    feat_obj_set,
+    perf_obj_set,
+    policy_start,
+    trial_start,
+):
+    """
+    Score a trained model and write its results into its W&B run.
+
+    Every technique that is not the FairIRL weight-adjustment loop -- the
+    Superhuman Fairness baseline and the four fair-classification baselines it
+    is compared against -- finishes its run through this one function, which is
+    the same `_evaluate_policy()`/`PolicyResults`/`_finalize_trial()` sequence
+    the FairIRL technique goes through. That is what makes every model's
+    metrics directly comparable: they are produced by the same code, from the
+    same splits of the same biased dataset.
+
+    Parameters
+    ----------
+    model : object
+        Anything with a `predict(X)`, which is all `generate_demo()` needs.
+    weights : numpy.ndarray
+        The reward weights the weighted metrics are computed with. None of
+        these techniques learns reward weights, so they are all scored with the
+        same equal, positive weights the FairIRL technique starts from; that
+        keeps `t_train`/`t_val`/`t_test` and `wL_*` comparable across all of
+        them.
+
+    Returns
+    -------
+    results : PolicyResults
+    """
+    results = PolicyResults(
+        [obj.name for obj in feat_obj_set.objectives],
+        [obj.name for obj in perf_obj_set.objectives],
+    )
+    results.weights = weights
+
+    evaluate_policy_result = _evaluate_policy(
+        model,
+        weights,
+        feat_obj_set,
+        perf_obj_set,
+        bias_demos.X_train,
+        bias_demos.X_val,
+        bias_demos.X_test,
+        bias_demos.y_train,
+        bias_demos.y_val,
+        bias_demos.y_test,
+        bias_demos.subdom_groups_train,
+        bias_demos.subdom_groups_val,
+        bias_demos.subdom_groups_test,
+        bias_demos.expert_train.mu,
+        bias_demos.expert_val.mu,
+        bias_demos.expert_test.mu,
+        exp_info,
+        # These baselines always predict `y` from `X`; none of them observes it.
+        can_observe_y=False,
+    )
+
+    results.record(evaluate_policy_result, policy_start, run)
+
+    trial_runtime = (datetime.datetime.now() - trial_start).total_seconds()
+
+    _finalize_trial(
+        run,
+        results,
+        feat_obj_set,
+        perf_obj_set,
+        bias_demos,
+        unbiased_demos,
+        model,
+        trial_runtime,
+    )
+
+    return results
+
+
 def _run_superhuman_trial(
     exp_info,
     bias_demos,
@@ -2759,22 +2930,21 @@ def _run_superhuman_trial(
     Train and evaluate the Superhuman Fairness baseline for one bias type.
 
     Reports one W&B run, built by the same `start_wandb_run()` and finished by
-    the same `_evaluate_policy()`/`PolicyResults`/`_finalize_trial()` the
-    FairIRL technique goes through, so that both techniques' runs hold the same
-    metrics, computed the same way, on the same train/validation/test splits of
-    the same biased dataset.
+    the same `_evaluate_and_finalize()` every other technique here goes
+    through, so that all of their runs hold the same metrics, computed the same
+    way, on the same train/validation/test splits of the same biased dataset.
 
     Parameters
     ----------
     weights : numpy.ndarray
-        The reward weights every metric that needs one is computed with. The
-        baseline does not learn reward weights, so it is scored with the same
-        equal, positive weights the FairIRL technique starts from; that keeps
-        `t_train`/`t_val`/`t_test` and `wL_*` comparable between the two.
+        The reward weights the weighted metrics are computed with. See
+        `_evaluate_and_finalize()`.
     """
     sh_config = _superhuman_config(exp_info)
     feature_names = sh_config["SH_FEATURES"] or subdominance_metric_names(exp_info)
-    rng = _superhuman_rng(exp_info, bias_demos.dataset_bias_type, trial_i)
+    rng = _baseline_rng(
+        exp_info, ALGORITHM_SUPERHUMAN, bias_demos.dataset_bias_type, trial_i
+    )
 
     with start_wandb_run(
         exp_info,
@@ -2787,90 +2957,213 @@ def _run_superhuman_trial(
     ) as run:
         policy_start = datetime.datetime.now()
 
-        run.config.update(
-            {f"{key}_RESOLVED": _json_safe(value) for key, value in sh_config.items()}
-            | {"SH_FEATURES_RESOLVED": _json_safe(list(feature_names))},
-            allow_val_change=True,
-        )
-
-        results = PolicyResults(
-            [obj.name for obj in feat_obj_set.objectives],
-            [obj.name for obj in perf_obj_set.objectives],
-        )
-        results.weights = weights
-
-        loss_fn = make_feature_loss_fn(feature_names)
-
-        logging.info("Building Superhuman Fairness demonstrations...")
-        pool_X, pool_y, demo_list = _build_superhuman_demo_list(
-            exp_info, sh_config, bias_demos, feature_types, loss_fn, rng
-        )
-        logging.info(
-            f"\t {len(demo_list)} demonstrations over {len(pool_X)} training rows,"
-            f" features {list(feature_names)}"
-        )
-
-        logging.info("Training Superhuman Fairness...")
-        sh_model = SuperhumanFairness(
-            feature_types=feature_types,
-            feature_names=feature_names,
-            loss_fn=loss_fn,
-            lr_theta=sh_config["SH_LR_THETA"],
-            iters=sh_config["SH_ITERS"],
-            lamda=sh_config["SH_LAMDA"],
-            rng=rng,
-        )
-        sh_model.fit(pool_X, pool_y, demo_list)
-
-        _log_superhuman_training(run, sh_model)
-
-        ##
-        # Measure and record the error of the learned classifier. This is the
-        # exact same evaluation the FairIRL policies go through.
-        ##
-
-        evaluate_policy_result = _evaluate_policy(
-            sh_model,
-            weights,
-            feat_obj_set,
-            perf_obj_set,
-            bias_demos.X_train,
-            bias_demos.X_val,
-            bias_demos.X_test,
-            bias_demos.y_train,
-            bias_demos.y_val,
-            bias_demos.y_test,
-            bias_demos.subdom_groups_train,
-            bias_demos.subdom_groups_val,
-            bias_demos.subdom_groups_test,
-            bias_demos.expert_train.mu,
-            bias_demos.expert_val.mu,
-            bias_demos.expert_test.mu,
-            exp_info,
-            # The baseline always predicts `y` from `X`; it never observes it.
-            can_observe_y=False,
-        )
-
-        results.record(evaluate_policy_result, policy_start, run)
-
-        run.summary["superhuman_iterations"] = sh_model.history_.n_iterations
-        run.summary["superhuman_num_demos"] = len(demo_list)
-        for j, name in enumerate(feature_names):
-            run.summary[f"superhuman_gamma_{name}"] = (
-                sh_model.history_.gamma_superhuman[-1][j]
+        try:
+            run.config.update(
+                {
+                    f"{key}_RESOLVED": _json_safe(value)
+                    for key, value in sh_config.items()
+                }
+                | {"SH_FEATURES_RESOLVED": _json_safe(list(feature_names))},
+                allow_val_change=True,
             )
 
-        trial_runtime = (datetime.datetime.now() - trial_start).total_seconds()
+            loss_fn = make_feature_loss_fn(feature_names)
 
-        _finalize_trial(
-            run,
-            results,
-            feat_obj_set,
-            perf_obj_set,
-            bias_demos,
-            unbiased_demos,
-            sh_model,
-            trial_runtime,
+            logging.info("Building Superhuman Fairness demonstrations...")
+            pool_X, pool_y, demo_list = _build_superhuman_demo_list(
+                exp_info, sh_config, bias_demos, feature_types, loss_fn, rng
+            )
+            logging.info(
+                f"\t {len(demo_list)} demonstrations over {len(pool_X)} training rows,"
+                f" features {list(feature_names)}"
+            )
+
+            logging.info("Training Superhuman Fairness...")
+            sh_model = SuperhumanFairness(
+                feature_types=feature_types,
+                feature_names=feature_names,
+                loss_fn=loss_fn,
+                lr_theta=sh_config["SH_LR_THETA"],
+                iters=sh_config["SH_ITERS"],
+                lamda=sh_config["SH_LAMDA"],
+                rng=rng,
+            )
+            sh_model.fit(pool_X, pool_y, demo_list)
+
+            _log_superhuman_training(run, sh_model)
+
+            # Measure and record the error of the learned classifier. This is the
+            # exact same evaluation the FairIRL policies go through.
+            _evaluate_and_finalize(
+                exp_info,
+                run,
+                sh_model,
+                weights,
+                bias_demos,
+                unbiased_demos,
+                feat_obj_set,
+                perf_obj_set,
+                policy_start,
+                trial_start,
+            )
+
+            run.summary["superhuman_iterations"] = sh_model.history_.n_iterations
+            run.summary["superhuman_num_demos"] = len(demo_list)
+            for j, name in enumerate(feature_names):
+                run.summary[f"superhuman_gamma_{name}"] = (
+                    sh_model.history_.gamma_superhuman[-1][j]
+                )
+        except Exception as error:
+            _report_run_failure(run, ALGORITHM_SUPERHUMAN, error)
+
+
+def _fair_logloss_config(exp_info):
+    """`FAIR_LOGLOSS_DEFAULTS`, overridden by whatever `exp_info` sets."""
+    return {
+        key: exp_info.get(key, default) if exp_info.get(key) is not None else default
+        for key, default in FAIR_LOGLOSS_DEFAULTS.items()
+    }
+
+
+def _build_baseline_model(exp_info, algorithm, feature_types, seed):
+    """
+    Build one of the fair-classification baselines, unfitted.
+
+    Parameters
+    ----------
+    algorithm : str
+        A key of `BASELINE_SPECS`.
+    feature_types : dict<str, list>
+        Mapping of column names to their type of feature.
+    seed : int
+        This run's seed, from `_baseline_seed()`.
+
+    Returns
+    -------
+    model : object
+        Ready for `fit(X, y)`, and then `predict(X)`.
+    config : dict<str, object>
+        The resolved parameters the model was built with, for the run config.
+    """
+    spec = BASELINE_SPECS[algorithm]
+    kwargs = dict(spec["kwargs"])
+
+    if spec["builder"] is PostProcessingBaseline:
+        # Only the ThresholdOptimizer's prediction-time randomization needs a
+        # generator; everything else about this baseline is deterministic.
+        model = PostProcessingBaseline(
+            feature_types=feature_types,
+            rng=np.random.default_rng(seed),
+            **kwargs,
+        )
+        return model, kwargs
+
+    fll_config = _fair_logloss_config(exp_info)
+    kwargs["C"] = fll_config["FAIR_LOGLOSS_C"]
+    kwargs["random_initialization"] = fll_config["FAIR_LOGLOSS_RANDOM_INIT"]
+    model = FairLogLossBaseline(feature_types=feature_types, seed=seed, **kwargs)
+    return model, kwargs
+
+
+def _run_baseline_trial(
+    exp_info,
+    algorithm,
+    bias_demos,
+    unbiased_demos,
+    feat_obj_set,
+    perf_obj_set,
+    feature_types,
+    weights,
+    trial_i,
+    group,
+    session_id,
+    trial_start,
+):
+    """
+    Train and evaluate one fair-classification baseline for one bias type.
+
+    Covers every entry of `BASELINE_SPECS`: the post-processing model of Hardt
+    et al. (2016) and the robust fair-log-loss model of Rezaei et al. (2020),
+    each with demographic parity or equalized odds as its constraint. All four
+    are ordinary classifiers, so this fits one on the bias type's training
+    split and hands it to `_evaluate_and_finalize()`, which scores it exactly
+    the way every other technique here is scored.
+
+    Reports one W&B run.
+    """
+    seed = _baseline_seed(exp_info, algorithm, bias_demos.dataset_bias_type, trial_i)
+
+    with start_wandb_run(
+        exp_info,
+        algorithm,
+        bias_demos.dataset_bias_type,
+        (),
+        trial_i,
+        group,
+        session_id,
+    ) as run:
+        policy_start = datetime.datetime.now()
+
+        try:
+            model, model_config = _build_baseline_model(
+                exp_info, algorithm, feature_types, seed
+            )
+            run.config.update(
+                {
+                    f"BASELINE_{key.upper()}": _json_safe(value)
+                    for key, value in model_config.items()
+                },
+                allow_val_change=True,
+            )
+
+            logging.info(f"Training {algorithm} on the training split...")
+            model.fit(bias_demos.X_train, bias_demos.y_train)
+
+            _evaluate_and_finalize(
+                exp_info,
+                run,
+                model,
+                weights,
+                bias_demos,
+                unbiased_demos,
+                feat_obj_set,
+                perf_obj_set,
+                policy_start,
+                trial_start,
+            )
+
+            _log_baseline_extras(run, model, bias_demos)
+        except Exception as error:
+            _report_run_failure(run, algorithm, error)
+
+
+def _log_baseline_extras(run, model, bias_demos):
+    """
+    Report a baseline's own self-assessment, where it has one.
+
+    The original replaces the measured zero-one loss of the fair log-loss
+    baselines with the model's own expected zero-one loss, and its measured
+    fairness difference with the model's own fairness violation, "since fair
+    logloss uses expected violation". Those numbers are reported here
+    alongside the shared evaluation instead of in place of any of it, so that
+    every technique's headline metrics stay measured the same way and stay
+    comparable, while the original's own view of these two baselines is still
+    recorded.
+    """
+    if run is None or not isinstance(model, FairLogLossBaseline):
+        return
+
+    splits = (
+        ("train", bias_demos.X_train, bias_demos.y_train),
+        ("val", bias_demos.X_val, bias_demos.y_val),
+        ("test", bias_demos.X_test, bias_demos.y_test),
+    )
+    for split, X_split, y_split in splits:
+        run.summary[f"fair_logloss_expected_zeroone_{split}"] = model.expected_error(
+            X_split, y_split
+        )
+        run.summary[f"fair_logloss_violation_{split}"] = model.fairness_violation(
+            X_split, y_split
         )
 
 
@@ -2921,7 +3214,8 @@ def run_experiment_trial(
     weights, then one per entry in exp_info["WEIGHT_ADJUST_LIST"] (which is not
     expected to contain "()" itself either), each derived from the unadjusted
     weights via `_apply_weight_adjustments()`. The Superhuman Fairness baseline
-    has no reward weights to adjust and so reports a single run per bias type.
+    and the four fair-classification baselines have no reward weights to adjust
+    and so each report a single run per bias type.
 
     Every run holds this trial's config, the metrics of the model it learned,
     and a summary of that model, all produced by the same evaluation code, so
@@ -3013,6 +3307,7 @@ def run_experiment_trial(
         logging.info(f"muE_perf_test:\n{expert_test.mu_perf}")
 
         if ALGORITHM_FAIRIRL in algorithms:
+            logging.info(f"ALGORITHM: {ALGORITHM_FAIRIRL}")
             _run_fairirl_trials(
                 exp_info,
                 bias_demos,
@@ -3034,6 +3329,25 @@ def run_experiment_trial(
             logging.info(f"ALGORITHM: {ALGORITHM_SUPERHUMAN}")
             _run_superhuman_trial(
                 exp_info,
+                bias_demos,
+                unbiased_demos,
+                feat_obj_set,
+                perf_obj_set,
+                feature_types,
+                unadjusted_weight.copy(),
+                trial_i,
+                group,
+                session_id,
+                trial_start,
+            )
+
+        for algorithm in algorithms:
+            if algorithm not in BASELINE_SPECS:
+                continue
+            logging.info(f"ALGORITHM: {algorithm}")
+            _run_baseline_trial(
+                exp_info,
+                algorithm,
                 bias_demos,
                 unbiased_demos,
                 feat_obj_set,

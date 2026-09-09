@@ -112,14 +112,32 @@ def main():
         "DOT_WEIGHTS_FEAT_EXP": True,
         "N_DATASET_SAMPLES": None,
         "RANDOM_SEED": random_seed,
-        # Which techniques to train and evaluate. Valid entries are
-        # "FairIRL Bias Reduction" and "Superhuman Fairness"; list either or
-        # both. Each listed technique gets its own W&B run per dataset bias
-        # type, produced by the same evaluation code on the same data split, so
-        # that their metrics are directly comparable.
+        # Which techniques to train and evaluate. List any combination of the
+        # names below. Each listed technique gets its own W&B run per dataset
+        # bias type, produced by the same evaluation code on the same data
+        # split, so that their metrics are directly comparable.
+        #
+        # The five after FairIRL are the Superhuman Fairness technique and the
+        # fair-classification baselines that paper compares itself against:
+        #   "Post Proc DP" / "Post Proc EqOdds"
+        #       The post-processing model of Hardt et al. (2016), with
+        #       demographic parity / equalized odds as the fairness constraint.
+        #   "Fair LogLoss DP" / "Fair LogLoss EqOdds"
+        #       The robust fair-log-loss model of Rezaei et al. (2020), with
+        #       demographic parity / equalized odds as the fairness constraint.
+        #
+        # The paper's remaining baseline, MFOpt (Hsu et al., 2022), is not
+        # available: its reference repository ships no implementation of it,
+        # only CSVs of predictions its authors produced elsewhere, and Hsu et
+        # al. published no code. See the module docstring of
+        # src/fair_irl/sh/baselines.py.
         "ALGORITHMS": [
             "FairIRL Bias Reduction",
             "Superhuman Fairness",
+            "Post Proc DP",
+            "Post Proc EqOdds",
+            "Fair LogLoss DP",
+            "Fair LogLoss EqOdds",
         ],
         ##
         # Superhuman Fairness baseline parameters. Ignored unless
@@ -155,6 +173,13 @@ def main():
         # The fairness constraint the "pp_baseline" demonstrator satisfies.
         # Unused by the "expert_demos" source.
         "SH_DEMO_CONSTRAINTS": "demographic_parity",
+        ##
+        # Fair log-loss baseline parameters. Ignored unless one of the
+        # "Fair LogLoss ..." techniques is listed in ALGORITHMS above. Both are
+        # what the original implementation passes.
+        ##
+        "FAIR_LOGLOSS_C": 0.005,
+        "FAIR_LOGLOSS_RANDOM_INIT": True,
     }
 
     # ### COMPAS

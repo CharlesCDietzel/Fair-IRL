@@ -30,6 +30,13 @@ dependencies = [
 [project.scripts]
 fair-irl = "fair_irl.Fair_IRL_Biased_Demonstrations:main"
 
+[tool.black]
+# `src/fair_irl/sh/fair_logloss.py` is a verbatim vendored copy of the
+# reference implementation it names, kept in that project's own formatting so
+# it can be diffed against upstream. Reformatting it would destroy that
+# property.
+extend-exclude = "src/fair_irl/sh/fair_logloss\\.py"
+
 [build-system]
 requires = ["uv_build>=0.12.1,<0.13.0"]
 build-backend = "uv_build"

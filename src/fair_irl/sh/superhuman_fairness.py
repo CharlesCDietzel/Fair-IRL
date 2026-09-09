@@ -70,12 +70,12 @@ from fairlearn.metrics import (
     false_negative_rate_difference,
     false_positive_rate_difference,
 )
-from fairlearn.postprocessing import ThresholdOptimizer
 from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import balanced_accuracy_score, zero_one_loss
 from sklearn.model_selection import train_test_split
 
 from fair_irl.rl.objectives import OBJ_LOOKUP_BY_NAME, ObjectiveSet
+from fair_irl.sh.baselines import fit_post_processing_model
 from fair_irl.utils import sklearn_clf_pipeline
 
 # The original's `logi_params` (main.py). `penalty="l2"` is spelled here as
@@ -99,9 +99,10 @@ SH_DEFAULT_NUM_OF_DEMOS = 50
 # and the fraction of a demonstration's data its baseline is fit on.
 SH_BASE_MODEL_TRAIN_FRAC = 0.5
 SH_DEMO_TRAIN_FRAC = 0.5
-# The two `random_state`s hard-coded in the original's splits and balancing.
+# The `random_state` hard-coded in the original's splits. The one it uses for
+# class balancing lives with the post-processing model, in
+# `fair_irl.sh.baselines`.
 SH_SPLIT_RANDOM_STATE = 12345
-SH_BALANCE_RANDOM_STATE = 1234
 
 
 def compute_alphas(raw_demos_feat_loss, clf_demos_feat_loss, lamda=SH_DEFAULT_LAMDA):
@@ -952,43 +953,15 @@ def build_pp_demo_list(
         y_train = y.iloc[idx_train]
         X_test = X.iloc[idx_test]
 
-        model_logi = sklearn_clf_pipeline(
+        # The demonstrator is the same post-processing model the paper also
+        # evaluates as a baseline in its own right, so both go through
+        # `fit_post_processing_model()`.
+        postprocess_est = fit_post_processing_model(
+            X_train,
+            y_train,
             feature_types=feature_types,
-            clf_inst=LogisticRegression(**logi_params),
-        )
-        model_logi.fit(X_train, y_train)
-
-        # Post-processing
-        postprocess_est = ThresholdOptimizer(
-            estimator=model_logi,
             constraints=constraints,
-            predict_method="auto",
-            prefit=True,
-        )
-
-        # Balanced data set is obtained by sampling the same number of points
-        # from the majority class (Y=0) as there are points in the minority
-        # class (Y=1). `n` is clamped to how many Y=0 rows there actually are,
-        # since this project's datasets are not all majority-negative the way
-        # the original's are.
-        balanced_idx1 = X_train[y_train == 1].index
-        n_negatives = int((y_train == 0).sum())
-        pp_train_idx = balanced_idx1.union(
-            y_train[y_train == 0]
-            .sample(
-                n=min(balanced_idx1.size, n_negatives),
-                random_state=SH_BALANCE_RANDOM_STATE,
-            )
-            .index
-        )
-        X_train_balanced = X_train.loc[pp_train_idx, :]
-        y_train_balanced = y_train.loc[pp_train_idx]
-
-        # Post-process fitting
-        postprocess_est.fit(
-            X_train_balanced,
-            y_train_balanced,
-            sensitive_features=X_train_balanced["z"],
+            logi_params=logi_params,
         )
         # Post-process preds
         baseline_preds = postprocess_est.predict(
