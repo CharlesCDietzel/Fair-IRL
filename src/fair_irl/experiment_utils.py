@@ -780,12 +780,24 @@ def generate_expert_algo_lookup(feature_types):
 WANDB_PROJECT = os.environ.get("WANDB_PROJECT", "fair-irl")
 WANDB_ENTITY = os.environ.get("WANDB_ENTITY") or None
 
+# The four aggregations of the subdominance metric, in the order
+# `compute_iteration_subdominance()` returns them.
+SUBDOMINANCE_AGGREGATIONS = (
+    ("max", "abs"),
+    ("sum", "abs"),
+    ("max", "rel"),
+    ("sum", "rel"),
+)
+
+# The data splits every subdominance measurement is computed on.
+SUBDOMINANCE_SPLITS = ("train", "val", "test")
+
 # The 12 subdominance measurements returned, in this order, by
 # `_evaluate_policy()` for every learned policy.
 SUBDOMINANCE_KEYS = tuple(
     f"{agg}_{kind}_subdominance_{split}"
-    for split in ("train", "val", "test")
-    for agg, kind in (("max", "abs"), ("sum", "abs"), ("max", "rel"), ("sum", "rel"))
+    for split in SUBDOMINANCE_SPLITS
+    for agg, kind in SUBDOMINANCE_AGGREGATIONS
 )
 
 # The techniques `run_experiment_trial()` can train and evaluate. Which of them
@@ -1182,6 +1194,12 @@ class BiasedDatasetDemos:
         every subsequent `compute_iteration_subdominance()` call, so that all
         subdominance computations of this bias type share the same groups and
         the same expert feature losses.
+    expert_subdominance : dict<str, float>
+        Each split's expert scored on its own subdominance groups, mapping each
+        name in `SUBDOMINANCE_KEYS` to its value. Produced by
+        `compute_expert_subdominance()`, which documents what these values mean.
+        Computed here, once per bias type, since every run of this bias type is
+        compared against the same experts.
     """
 
     dataset_bias_type: tuple
@@ -1197,6 +1215,7 @@ class BiasedDatasetDemos:
     subdom_groups_train: tuple
     subdom_groups_val: tuple
     subdom_groups_test: tuple
+    expert_subdominance: dict
 
 
 class PolicyResults:
@@ -1362,9 +1381,10 @@ def _build_trial_summary(
     """
     Summarise one trial's learned policy as a flat metric dict.
 
-    The keys used here are the column names the results CSV used to have, so
-    the same quantities are reported as before, addressed by name instead of
-    by position in a result row.
+    Most of the keys used here are the column names the results CSV used to
+    have, so the same quantities are reported as before, addressed by name
+    instead of by position in a result row. The `expert/` and `subdominance/`
+    keys are newer and have no CSV counterpart.
 
     Parameters
     ----------
@@ -1425,6 +1445,14 @@ def _build_trial_summary(
 
     for key, value in results.subdominance.items():
         summary[key] = value
+
+    # The expert's own subdominance, and how far the learned policy improved on
+    # it. The delta is `expert - policy`, so that a positive value means the
+    # policy is less subdominant -- better -- than the expert it imitated, in
+    # the same direction as every other "improvement" reported here.
+    for key, expert_value in bias_demos.expert_subdominance.items():
+        summary[f"expert/{key}"] = expert_value
+        summary[f"subdominance/delta_{key}"] = expert_value - results.subdominance[key]
 
     summary["muL_train_err_l2"] = results.muL_delta_l2_train
     summary["muL_val_err_l2"] = results.muL_delta_l2_val
@@ -1660,6 +1688,61 @@ def compute_iteration_subdominance(
         )
 
 
+def compute_expert_subdominance(exp_info, splits):
+    """Compute every subdominance measurement of the expert demonstrations.
+
+    Each split's expert is scored exactly the way a learned policy is: its
+    demonstrations are passed to `compute_iteration_subdominance()` as the
+    decisions being measured, against the subdominance groups
+    `generate_subdominance_groups()` sampled from those same demonstrations.
+    This is the reference point the learned policies are compared against, so
+    that a run's summary says how far its policy improved on the expert it
+    imitated.
+
+    Scoring the expert against its own groups is 1.0 in the ordinary case: the
+    groups are built from the expert's own demonstrations, so the measured
+    feature losses equal the reference feature losses in every group, and every
+    aggregation of `compute_subdominance()` reduces to its `beta` margin of
+    1.0. That makes 1.0 the "matches the expert" line -- a learned policy
+    scoring below it is superhuman on that measurement, and one scoring above
+    it is worse than the expert.
+
+    The two relative measures can come out slightly below 1.0, though, which is
+    why these values are computed here rather than hardcoded. A group whose
+    expert feature loss is exactly 0 (a fairness metric that group satisfies
+    perfectly, say) is clamped to `epsilon` in the denominator of
+    `compute_subdominance()` but not in the numerator, so that term's ratio is
+    0 instead of 1 and its subdominance is clipped to 0, pulling the group's
+    relative measures under 1.0. The same clamp makes a learned policy's
+    relative measures blow up on those groups, so `max_rel` and `sum_rel` are
+    the shakiest of the four to read a delta from.
+
+    Parameters
+    ----------
+    exp_info : dict
+        Metadata about the experiment.
+    splits : iterable<tuple>
+        One `(split, expert, subdom_groups)` triple per data split, where
+        `split` names the split ("train", "val" or "test"), `expert` is its
+        `ExpertDemos` and `subdom_groups` is the
+        `generate_subdominance_groups()` result of that expert.
+
+    Returns
+    -------
+    subdominance : dict<str, float>
+        Maps each name in `SUBDOMINANCE_KEYS` to the expert's value for it.
+    """
+    subdominance = {}
+    for split, expert, subdom_groups in splits:
+        values = compute_iteration_subdominance(
+            exp_info, *subdom_groups, clf_demo_cur=expert.demo
+        )
+        for (agg, kind), value in zip(SUBDOMINANCE_AGGREGATIONS, values):
+            subdominance[f"{agg}_{kind}_subdominance_{split}"] = value
+
+    return subdominance
+
+
 def _build_objective_sets(exp_info):
     feat_obj_set = ObjectiveSet(
         [OBJ_LOOKUP_BY_NAME[name]() for name in exp_info["FEAT_EXP_OBJECTIVE_NAMES"]]
@@ -1869,6 +1952,23 @@ def _split_dataset_and_generate_expert_demos(
         # compute_iteration_subdominance() call of that bias type reuses the
         # same groups.
         logging.info("Generating subdominance groups for the expert demonstrations...")
+        subdom_groups_train = generate_subdominance_groups(exp_info, expert_train.demo)
+        subdom_groups_val = generate_subdominance_groups(exp_info, expert_val.demo)
+        subdom_groups_test = generate_subdominance_groups(exp_info, expert_test.demo)
+
+        # Score the experts on their own groups, so that every run of this bias
+        # type can report how far its learned policy improved on the expert it
+        # imitated.
+        logging.info("Computing the subdominance of the expert demonstrations...")
+        expert_subdominance = compute_expert_subdominance(
+            exp_info,
+            (
+                ("train", expert_train, subdom_groups_train),
+                ("val", expert_val, subdom_groups_val),
+                ("test", expert_test, subdom_groups_test),
+            ),
+        )
+
         demos_by_dataset_bias_type.append(
             BiasedDatasetDemos(
                 dataset_bias_type=dataset_bias_type,
@@ -1881,15 +1981,10 @@ def _split_dataset_and_generate_expert_demos(
                 expert_train=expert_train,
                 expert_val=expert_val,
                 expert_test=expert_test,
-                subdom_groups_train=generate_subdominance_groups(
-                    exp_info, expert_train.demo
-                ),
-                subdom_groups_val=generate_subdominance_groups(
-                    exp_info, expert_val.demo
-                ),
-                subdom_groups_test=generate_subdominance_groups(
-                    exp_info, expert_test.demo
-                ),
+                subdom_groups_train=subdom_groups_train,
+                subdom_groups_val=subdom_groups_val,
+                subdom_groups_test=subdom_groups_test,
+                expert_subdominance=expert_subdominance,
             )
         )
 
