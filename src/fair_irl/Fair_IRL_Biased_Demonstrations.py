@@ -112,6 +112,49 @@ def main():
         "DOT_WEIGHTS_FEAT_EXP": True,
         "N_DATASET_SAMPLES": None,
         "RANDOM_SEED": random_seed,
+        # Which techniques to train and evaluate. Valid entries are
+        # "FairIRL Bias Reduction" and "Superhuman Fairness"; list either or
+        # both. Each listed technique gets its own W&B run per dataset bias
+        # type, produced by the same evaluation code on the same data split, so
+        # that their metrics are directly comparable.
+        "ALGORITHMS": [
+            "FairIRL Bias Reduction",
+            "Superhuman Fairness",
+        ],
+        ##
+        # Superhuman Fairness baseline parameters. Ignored unless
+        # "Superhuman Fairness" is listed in ALGORITHMS above.
+        ##
+        # Where the reference decisions ("demonstrations") the baseline
+        # imitates come from:
+        #   "expert_demos" -- this project's own expert (EXPERT_ALGO), on the
+        #       same demonstration groups the subdominance metric scores every
+        #       policy against, so that both techniques imitate the same expert
+        #       on the same rows.
+        #   "pp_baseline"  -- the original paper's own demonstrator: a logistic
+        #       regression post-processed by a fairlearn ThresholdOptimizer.
+        "SH_DEMO_SOURCE": "pp_baseline",
+        # The performance/fairness measures the baseline optimizes -- the `-f`
+        # flag of the original implementation. Entries may be this project's
+        # objective names (e.g. "Acc", "DemPar", "TNRPar") or the original
+        # paper's metric names ("inacc", "dp", "eqodds", "prp", "eqopp", "fnr",
+        # "fpr", "ppv", "npv", "error_rate_diff"). None uses this experiment's
+        # SUBDOMINANCE_PERF_METRICS_LIST + SUBDOMINANCE_FAIR_METRICS_LIST, so
+        # that the baseline optimizes exactly what both techniques are
+        # evaluated on. The paper's own configuration is
+        # ["inacc", "dp", "eqodds", "prp"].
+        "SH_FEATURES": ["inacc", "dp", "eqodds", "prp"],
+        # "SH_FEATURES": None,
+        # How many demonstrations to imitate. None uses every subdominance
+        # group ("expert_demos") or the paper's 50 ("pp_baseline").
+        "SH_NUM_DEMOS": None,
+        # The original's `iters`, `lr_theta` and `lamda`.
+        "SH_ITERS": 30,
+        "SH_LR_THETA": 0.01,
+        "SH_LAMDA": 0.001,
+        # The fairness constraint the "pp_baseline" demonstrator satisfies.
+        # Unused by the "expert_demos" source.
+        "SH_DEMO_CONSTRAINTS": "demographic_parity",
     }
 
     # ### COMPAS

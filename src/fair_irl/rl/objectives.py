@@ -1988,3 +1988,32 @@ class ObjectiveSet:
             obj.__init__(*obj._init_args, **obj._init_kwargs)
 
         self.opt_problems_ = None
+
+
+# Objective lookup. Defined here, alongside the objectives themselves, so that
+# any module can resolve an objective name without having to import
+# `fair_irl.experiment_utils` (which imports this module).
+OBJ_LOOKUP_BY_NAME = {
+    "Acc": AccuracyObjective,
+    "AccPar": AccuracyParityObjective,
+    "DemPar": DemographicParityObjective,
+    "EqOpp": EqualOpportunityObjective,
+    "FPRPar": FalsePositiveRateParityObjective,
+    "EqOdds": EqualizedOddsObjective,
+    "TNRPar": TrueNegativeRateParityObjective,
+    "FNRPar": FalseNegativeRateParityObjective,
+    "PredPar": PredictiveParityObjective,
+    "NegPredPar": NegativePredictiveParityObjective,
+    "PR_Z0": GroupPositiveRateZ0Objective,
+    "PR_Z1": GroupPositiveRateZ1Objective,
+    "NR_Z0": GroupNegativeRateZ0Objective,
+    "NR_Z1": GroupNegativeRateZ1Objective,
+    "TPR_Z0": GroupTruePositiveRateZ0Objective,
+    "TPR_Z1": GroupTruePositiveRateZ1Objective,
+    "TNR_Z0": GroupTrueNegativeRateZ0Objective,
+    "TNR_Z1": GroupTrueNegativeRateZ1Objective,
+    "FPR_Z0": GroupFalsePositiveRateZ0Objective,
+    "FPR_Z1": GroupFalsePositiveRateZ1Objective,
+    "FNR_Z0": GroupFalseNegativeRateZ0Objective,
+    "FNR_Z1": GroupFalseNegativeRateZ1Objective,
+}
