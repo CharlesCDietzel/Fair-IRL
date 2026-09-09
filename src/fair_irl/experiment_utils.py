@@ -1884,13 +1884,6 @@ def _apply_weight_adjustments(
     return wi
 
 
-# The most iterations `iteratively_optimize_weights()` runs before giving up on
-# finding a better weight set. This is only a safety net -- the loop is expected
-# to stop on its own as soon as an iteration fails to improve.
-# TODO: Make this configurable via exp_info
-OPT_DEBIAS_MAX_ITERATIONS = 10
-
-
 def _append_subdominance_groups(exp_info, subdom_groups, clf_demo):
     """Add the demos of a learned policy to a set of subdominance groups.
 
@@ -2021,6 +2014,11 @@ def iteratively_optimize_weights(
     subdom_groups : tuple
         The expert `(group_idxs, raw_demos, raw_demos_feat_loss)` of the split
         being optimized against.
+    exp_info : dict
+        Metadata about the experiment. `OPT_DEBIAS_MAX_ITERATIONS` caps how
+        many iterations run before giving up on finding a better weight set.
+        That cap is only a safety net -- the loop is expected to stop on its
+        own as soon as an iteration fails to improve.
     run : wandb.sdk.wandb_run.Run or None
         The W&B run to report each iteration to. `None` disables W&B logging.
 
@@ -2044,7 +2042,9 @@ def iteratively_optimize_weights(
     best_subdom = np.inf
     n_iterations = 0
 
-    for iteration in range(OPT_DEBIAS_MAX_ITERATIONS):
+    max_iterations = exp_info["OPT_DEBIAS_MAX_ITERATIONS"]
+
+    for iteration in range(max_iterations):
         cur_wi = optimize_weights(
             cur_wi,
             feat_obj_set,
@@ -2125,7 +2125,7 @@ def iteratively_optimize_weights(
         )
     else:
         logging.info(
-            f"\t\t opt_debias stopping: hit the {OPT_DEBIAS_MAX_ITERATIONS} "
+            f"\t\t opt_debias stopping: hit the {max_iterations} "
             "iteration cap while still improving"
         )
 

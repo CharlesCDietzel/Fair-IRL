@@ -97,6 +97,13 @@ def main():
         # Policy learning parameters
         "IRL_METHOD": None,
         "METHOD": "highs",
+        # The most iterations the `opt_debias` weight adjustment runs before
+        # giving up on finding a better weight set. This is only a safety net
+        # -- the loop is expected to stop on its own as soon as an iteration
+        # fails to improve.
+        # Setting this to 1 for now because the Iteration loop does not appear
+        # to improve performance versus the initial weight set.
+        "OPT_DEBIAS_MAX_ITERATIONS": 1,
         # Plotting parameters
         "NOISE_FACTOR": 0.01,
         "ANNOTATE": True,
@@ -321,9 +328,9 @@ def main():
         # ("unbalanced_redlining", 0.2),
         # ("balanced_redlining", 0.2),
         # ("perfectly_balanced_redlining", 0.2),
-        ("corruption_bias", "CatBoost", 0.0001, "gaussian", 1.0),
+        # ("corruption_bias", "CatBoost", 0.0001, "gaussian", 1.0),
         ("corruption_bias", "CatBoost", 0.001, "gaussian", 1.0),
-        ("corruption_bias", "CatBoost", 0.01, "gaussian", 1.0),
+        # ("corruption_bias", "CatBoost", 0.01, "gaussian", 1.0),
     )
     # dataset_bias_types_list = (("perfectly_balanced_redlining"))
 
@@ -349,6 +356,17 @@ def main():
     subdominance_perf_metrics_list = ("Acc",)
     subdominance_fair_metrics_list = ("AccPar", "DemPar", "EqOpp", "TNRPar")
 
+    selected_datasets = [
+        "COMPAS",
+        "Adult",
+        "ACSIncome__MA",
+        "ACSIncome__MS",
+        "ACSIncome__CA",
+        "ACSIncome__IL",
+        "ACSIncome__AL",
+        "ACSIncome__HI",
+    ]
+
     # Run experiments. Results are reported to Weights & Biases (project
     # `WANDB_PROJECT`, default "fair-irl"); the server address and credentials
     # come from the usual wandb configuration, i.e. the WANDB_BASE_URL
@@ -363,8 +381,13 @@ def main():
 
     # Create config for each experiment
     for exp_dict in exp_list:
-        base_exp_info = exp_dict["base_exp_info"]
         source_states = exp_dict["source_states"]
+        if source_states[0] not in selected_datasets:
+            logging.info(
+                f"Skipping experiment {exp_dict['base_exp_info']['EXPERIMENT_NAME']} since it is not in the selected datasets list."
+            )
+            continue
+        base_exp_info = exp_dict["base_exp_info"]
         exp_info = dict(base_exp_info)
         experiments = []
         for expert_algo in expert_algos:
