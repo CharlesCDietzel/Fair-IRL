@@ -108,7 +108,7 @@ def main():
         "NOISE_FACTOR": 0.01,
         "ANNOTATE": True,
         "N_TRIALS": 1,  # TODO: CHANGE THIS BACK TO 3 FOR FINAL PAPER RESULTS
-        "N_SUBDOMINANCE_GROUPS": 100,
+        "N_SUBDOMINANCE_GROUPS": 50,
         "DOT_WEIGHTS_FEAT_EXP": True,
         "N_DATASET_SAMPLES": None,
         "RANDOM_SEED": random_seed,
@@ -151,7 +151,7 @@ def main():
         #       on the same rows.
         #   "pp_baseline"  -- the original paper's own demonstrator: a logistic
         #       regression post-processed by a fairlearn ThresholdOptimizer.
-        "SH_DEMO_SOURCE": "pp_baseline",
+        "SH_DEMO_SOURCE": "expert_demos",
         # The performance/fairness measures the baseline optimizes -- the `-f`
         # flag of the original implementation. Entries may be this project's
         # objective names (e.g. "Acc", "DemPar", "TNRPar") or the original
@@ -161,8 +161,8 @@ def main():
         # that the baseline optimizes exactly what both techniques are
         # evaluated on. The paper's own configuration is
         # ["inacc", "dp", "eqodds", "prp"].
-        "SH_FEATURES": ["inacc", "dp", "eqodds", "prp"],
-        # "SH_FEATURES": None,
+        # "SH_FEATURES": ["inacc", "dp", "eqodds", "prp"],
+        "SH_FEATURES": None,
         # How many demonstrations to imitate. None uses every subdominance
         # group ("expert_demos") or the paper's 50 ("pp_baseline").
         "SH_NUM_DEMOS": None,
