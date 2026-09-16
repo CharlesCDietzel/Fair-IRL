@@ -1597,6 +1597,42 @@ def generate_subdominance_groups(exp_info, raw_demo_ref):
     return group_idxs, raw_demos, raw_demos_feat_loss
 
 
+def _subdominance_demo_groups(demo, group_idxs):
+    """Select the rows of each subdominance group from `demo`.
+
+    The feature losses only ever read the `y`, `yhat` and `z` columns, so when
+    those are plain numpy-typed columns each group is just those three columns
+    as numpy arrays. Every objective's `compute_feat_exp()` computes exactly
+    the same values from them as from the full DataFrame rows, without the
+    overhead of slicing the whole frame and running pandas operations on each
+    group. Any other column type falls back to the DataFrame rows themselves.
+    """
+    cols = ("y", "yhat", "z")
+    if all(
+        col in demo.columns and isinstance(demo[col].dtype, np.dtype) for col in cols
+    ):
+        arrays = {}
+        for col in cols:
+            arr = demo[col].to_numpy()
+            # Labels are small integers. Holding them as int8 leaves every
+            # comparison and count the objectives make unchanged, but makes
+            # gathering the rows of every group several times faster.
+            int8 = np.iinfo(np.int8)
+            if (
+                arr.dtype.kind in "iu"
+                and arr.size > 0
+                and arr.min() >= int8.min
+                and arr.max() <= int8.max
+            ):
+                arr = arr.astype(np.int8)
+            arrays[col] = arr
+        return [
+            {col: arr[group_idx] for col, arr in arrays.items()}
+            for group_idx in group_idxs
+        ]
+    return [demo.iloc[group_idx] for group_idx in group_idxs]
+
+
 # Helper to compute subdominance for a specific set
 def compute_iteration_subdominance(
     exp_info,
@@ -1621,8 +1657,7 @@ def compute_iteration_subdominance(
     """
     # Compute subdominance metric for the learned policy, using the same
     # subdominance groups that the expert feature losses were computed on.
-    clf_demo = clf_demo_cur.copy()
-    clf_demos = [clf_demo.iloc[group_idx] for group_idx in group_idxs]
+    clf_demos = _subdominance_demo_groups(clf_demo_cur, group_idxs)
 
     clf_demos_feat_loss = np.array(
         [
@@ -2385,6 +2420,11 @@ def optimize_weights(
     optimizer,
     n_steps,
 ):
+    # Everything subdominance_of_weights() computes that doesn't depend on the
+    # weights, computed once rather than on every one of its n_steps calls.
+    prepared = prepare_subdominance_of_weights(
+        feat_obj_set, demo_df, clf, x_cols, exp_info, X, can_observe_y
+    )
     if library == "optuna":
         objective = partial(
             optuna_objective,
@@ -2397,6 +2437,7 @@ def optimize_weights(
             y=y,
             can_observe_y=can_observe_y,
             subdom_groups=subdom_groups,
+            prepared=prepared,
         )
         n_weights = len(feat_obj_set.objectives)
         x0 = np.clip(np.asarray(wi, dtype=float), -1.0, 1.0)
@@ -2429,6 +2470,7 @@ def optimize_weights(
             y=y,
             can_observe_y=can_observe_y,
             subdom_groups=subdom_groups,
+            prepared=prepared,
         )
         n_weights = len(feat_obj_set.objectives)
         lower_bounds = -1.0 * np.ones(n_weights)
@@ -2458,6 +2500,7 @@ def optimize_weights(
             y=y,
             can_observe_y=can_observe_y,
             subdom_groups=subdom_groups,
+            prepared=prepared,
         )
         n_weights = len(feat_obj_set.objectives)
         # parametrization = ng.p.Array(shape=(n_weights,)).set_bounds(-1.0, 1.0)
@@ -2493,6 +2536,7 @@ def optuna_objective(
     y,
     can_observe_y,
     subdom_groups,
+    prepared=None,
 ):
     """Objective function for Optuna optimization of weights."""
     n_weights = len(feat_obj_set.objectives)
@@ -2511,6 +2555,7 @@ def optuna_objective(
         y,
         can_observe_y,
         subdom_groups,
+        prepared=prepared,
     )
     return subdominance_loss
 
@@ -2526,6 +2571,7 @@ def pybobyqa_objective(
     y,
     can_observe_y,
     subdom_groups,
+    prepared=None,
 ):
     """Objective function for Py-BOBYQA optimization of weights."""
     unnormalized_weights = np.array(unnormalized_weights)
@@ -2541,6 +2587,7 @@ def pybobyqa_objective(
         y,
         can_observe_y,
         subdom_groups,
+        prepared=prepared,
     )
     return subdominance_loss
 
@@ -2556,6 +2603,7 @@ def nevergrad_objective(
     y,
     can_observe_y,
     subdom_groups,
+    prepared=None,
 ):
     """Objective function for Nevergrad optimization of weights."""
     unnormalized_weights = np.array(unnormalized_weights)
@@ -2571,8 +2619,58 @@ def nevergrad_objective(
         y,
         can_observe_y,
         subdom_groups,
+        prepared=prepared,
     )
     return subdominance_loss
+
+
+@dataclass
+class PreparedSubdominanceOfWeights:
+    """The parts of `subdominance_of_weights()` that don't depend on the weights.
+
+    Built by `prepare_subdominance_of_weights()`.
+
+    Attributes
+    ----------
+    state_mdp : ClassificationMDP
+        The MDP every weight set's optimal policy is computed in, fit to
+        everything but the reward weights (see `fit_state_mdp()`).
+    demo_states : numpy.ndarray or None
+        The MDP state of each row of `X` the policies' demos are generated on,
+        or None if the policies can observe `y` (and so don't look them up).
+    """
+
+    state_mdp: ClassificationMDP
+    demo_states: np.ndarray | None
+
+
+def prepare_subdominance_of_weights(
+    feat_obj_set, demo_df, clf, x_cols, exp_info, X, can_observe_y
+):
+    """Computes everything `subdominance_of_weights()` needs that doesn't depend
+    on the weights, so that it can be computed once for any number of calls
+    with the same arguments. The parameters are those of
+    `subdominance_of_weights()`.
+
+    Returns
+    -------
+    prepared : PreparedSubdominanceOfWeights
+    """
+    state_mdp = fit_state_mdp(
+        clf_df=demo_df,
+        x_cols=x_cols,
+        obj_set=feat_obj_set,
+        min_freq_fill_pct=exp_info["MIN_FREQ_FILL_PCT"],
+        restrict_y=exp_info["RESTRICT_Y_ACTION"],
+    )
+    demo_states = None
+    if not can_observe_y:
+        # The state of each row depends only on the MDP and on `clf`'s
+        # predictions of `y`, not on which policy acts in it.
+        demo_states = ClassificationMDPPolicy(
+            mdp=state_mdp, pi=None, clf=clf
+        ).lookup_states(X)
+    return PreparedSubdominanceOfWeights(state_mdp=state_mdp, demo_states=demo_states)
 
 
 def subdominance_of_weights(
@@ -2586,31 +2684,40 @@ def subdominance_of_weights(
     y,
     can_observe_y,
     subdom_groups,
+    prepared=None,
 ):
     """Computes the subdominance loss for a given set of weights. Uses the weights to
     compute the optimal policy, uses that policy to generate demos, uses the demos to
     compute feature expectations, and then computes the subdominance of the generated
     demos against the expert demos. Returns the subdominance loss metric for that weight set.
+
+    `prepared` is the result of `prepare_subdominance_of_weights()` for these
+    same arguments. Passing it in avoids recomputing everything that doesn't
+    depend on the weights when calling this repeatedly (e.g. from an
+    optimizer); it is computed here when not given.
     """
+    if prepared is None:
+        prepared = prepare_subdominance_of_weights(
+            feat_obj_set, demo_df, clf, x_cols, exp_info, X, can_observe_y
+        )
     # Start by L1 normalizing the weights to ensure they sum to 1
     weights = normalize(unnormalized_weights.reshape(1, -1), norm="l1").flatten()
     # Compute the optimal policy for the given weights
     reward_weights = {
         obj.name: weights[j] for j, obj in enumerate(feat_obj_set.objectives)
     }
-    clf_pol = compute_optimal_policy(
-        clf_df=demo_df,
+    clf_pol = compute_optimal_policy_of_state_mdp(
+        state_mdp=prepared.state_mdp,
         clf=clf,
-        x_cols=x_cols,
-        obj_set=feat_obj_set,
         reward_weights=reward_weights,
         skip_error_terms=True,
         method=exp_info["METHOD"],
-        min_freq_fill_pct=exp_info["MIN_FREQ_FILL_PCT"],
-        restrict_y=exp_info["RESTRICT_Y_ACTION"],
     )
     # Generate demos from the optimal policy
-    demo = generate_demo(clf_pol, X, y, can_observe_y=can_observe_y)
+    yhat = None
+    if prepared.demo_states is not None:
+        yhat = clf_pol.actions_for_states(prepared.demo_states)
+    demo = generate_demo(clf_pol, X, y, can_observe_y=can_observe_y, yhat=yhat)
     # Compute the subdominance of the generated demos against the expert demos
     # lp = LineProfiler()
     # lp.add_function(compute_iteration_subdominance)

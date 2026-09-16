@@ -1836,6 +1836,7 @@ class ObjectiveSet:
     def __init__(self, objectives):
         self.objectives = objectives
         self.opt_problems_ = None
+        self.fitted_ldf_ = None
 
     def compute_demo_feature_exp(self, demo):
         """
@@ -1887,7 +1888,57 @@ class ObjectiveSet:
         -------
         self
         """
+        self.fit_objectives(ldf)
+        return self.build_opt_problems(reward_weights, ldf, A_eq, b_eq)
+
+    def fit_objectives(self, ldf):
+        """
+        Fits every objective to the MDP represented by `ldf`. The first half of
+        `fit()`: nothing it computes depends on the reward weights, so
+        optimization problems for any number of reward weights can then be
+        built from it with `build_opt_problems()`.
+
+        Parameters
+        ----------
+        ldf : pandas.DataFrame
+            "Lambda dataframe". One row for each state and action combination.
+
+        Sets
+        ----
+        fitted_ldf_ : pandas.DataFrame
+            `ldf`, which the objectives are now fit to.
+
+        Returns
+        -------
+        self
+        """
         self.objectives = [obj.fit(ldf) for obj in self.objectives]
+        self.fitted_ldf_ = ldf
+        return self
+
+    def build_opt_problems(self, reward_weights, ldf, A_eq, b_eq):
+        """
+        Constructs all optimization problems for the given reward weights from
+        objectives already fit to `ldf` by `fit_objectives()`. The second half
+        of `fit()`.
+
+        Parameters
+        ----------
+        See `fit()`.
+
+        Sets
+        ----
+        opt_problems_ : list<OptimizationProblem>
+            Optimization problems.
+
+        Returns
+        -------
+        self
+        """
+        assert self.fitted_ldf_ is ldf, (
+            "the objectives must be fit to this `ldf` (with fit_objectives()) "
+            "before building its optimization problems"
+        )
 
         abs_val_splits = []
         linear_splits = []
@@ -1979,6 +2030,7 @@ class ObjectiveSet:
         Unsets
         ------
         opt_problems_
+        fitted_ldf_
 
         Returns
         -------
@@ -1988,6 +2040,7 @@ class ObjectiveSet:
             obj.__init__(*obj._init_args, **obj._init_kwargs)
 
         self.opt_problems_ = None
+        self.fitted_ldf_ = None
 
 
 # Objective lookup. Defined here, alongside the objectives themselves, so that

@@ -1,9 +1,11 @@
+import copy
 import itertools
 import logging
 import numbers
 import numpy as np
 import pandas as pd
 from scipy.optimize import linprog
+from scipy.sparse import csc_array, issparse
 
 # from line_profiler import LineProfiler
 
@@ -27,6 +29,8 @@ class ClassificationMDP:
         A.k.a. "mu0". Initial state probabilities.
     A_eq_ : numpy.ndarray<float>, shape (len(df), 2*len(df))
         The state-action transition matrix.
+    A_eq_solve_ : scipy.sparse.csc_array
+        `A_eq_` as it is passed to the LP solver (see `_to_solver_matrix`).
     n_states_ : int
         Number of states.
     state_reducer_ : dict<str, dict<?, ?>>
@@ -68,12 +72,16 @@ class ClassificationMDP:
         self.reduced_state_lookup_ = None
         self.n_states = None
         self.A_eq_ = None
+        self.A_eq_solve_ = None
         self.b_eq_ = None
         self.ldf_ = None
         self.opt_problems_ = None
 
     def fit(self, reward_weights, clf_df, min_freq_fill_pct=0, restrict_y=True):
         """
+        Fits the MDP to `clf_df` (`fit_states()`), then builds its optimization
+        problems for `reward_weights` (`fit_rewards()`).
+
         Parameters
         ----------
         reward_weights : dict<str, float>
@@ -105,6 +113,36 @@ class ClassificationMDP:
         Returns
         -------
         self
+        """
+        self.fit_states(
+            clf_df, min_freq_fill_pct=min_freq_fill_pct, restrict_y=restrict_y
+        )
+        self.fit_rewards(reward_weights)
+        return None
+
+    def fit_states(self, clf_df, min_freq_fill_pct=0, restrict_y=True):
+        """
+        Fits the states, transitions and constraints of the MDP to `clf_df`:
+        everything `fit()` sets that doesn't depend on the reward weights.
+
+        Parameters
+        ----------
+        See `fit()`.
+
+        Sets Attributes
+        ---------------
+        b_eq_
+        A_eq_
+        A_eq_solve_
+        state_reducer_
+        reduced_state_lookup_
+        reduced_state_df_
+        n_states_
+        ldf_
+
+        Returns
+        -------
+        None
         """
         clf_df = clf_df.copy()
 
@@ -171,10 +209,13 @@ class ClassificationMDP:
             .rename(columns={0: "count"})
         )
 
+        # Keys are built column-wise rather than with iterrows(), which is much
+        # slower; they hash and compare equal to iterrows()' `tuple(row)` keys.
+        state_cols = self.reduced_state_df_.iloc[:, :-1]
         self.reduced_state_lookup_ = {}
         state_counter = 0
-        for idx, row in self.reduced_state_df_.iloc[:, :-1].iterrows():
-            self.reduced_state_lookup_[tuple(row)] = state_counter
+        for key in zip(*(state_cols[col].tolist() for col in state_cols.columns)):
+            self.reduced_state_lookup_[key] = state_counter
             state_counter += 1
 
         # Cache n_states since frequently used in computations
@@ -226,21 +267,38 @@ class ClassificationMDP:
         # profiler.disable()
         # profiler.print_stats()
 
+        # `A_eq_` as the LP solver is given it, converted once here since every
+        # optimization problem shares it.
+        self.A_eq_solve_ = _to_solver_matrix(self.A_eq_)
+
+        return None
+
+    def fit_rewards(self, reward_weights, refit_objectives=True):
+        """
+        Builds the optimization problems of the MDP for `reward_weights`. The
+        MDP must already be fit with `fit_states()`.
+
+        Parameters
+        ----------
+        reward_weights : dict<str, float>
+            Keys are objective identifiers. Values are their respective reward
+            weights.
+        refit_objectives : bool, default True
+            If False, `obj_set`'s objectives must already be fit to this MDP
+            (with `obj_set.fit_objectives(self.ldf_)`), and are not refit.
+
+        Sets Attributes
+        ---------------
+        opt_problems_
+
+        Returns
+        -------
+        None
+        """
         logging.debug("Fitting objectives ...")
-        n_primary_constr = len(self.reduced_state_df_["mu0"])
-        A_eq = np.concatenate(
-            [
-                self.A_eq_[0:n_primary_constr],
-                self.A_eq_[n_primary_constr + 0 : n_primary_constr + 2],
-            ]
-        )
-        b_eq = np.concatenate(
-            [
-                self.b_eq_[0:n_primary_constr],
-                self.b_eq_[n_primary_constr + 0 : n_primary_constr + 2],
-            ]
-        )
-        self.obj_set.fit(
+        if refit_objectives:
+            self.obj_set.fit_objectives(self.ldf_)
+        self.obj_set.build_opt_problems(
             reward_weights=reward_weights,
             ldf=self.ldf_,
             A_eq=self.A_eq_,
@@ -249,6 +307,34 @@ class ClassificationMDP:
         self.opt_problems_ = self.obj_set.opt_problems_
 
         return None
+
+    def with_reward_weights(self, reward_weights):
+        """
+        Returns a copy of this MDP with its optimization problems built for
+        `reward_weights`, without refitting anything that doesn't depend on
+        them.
+
+        This MDP must be fit with `fit_states()`, and its `obj_set`'s objectives
+        fit to it with `obj_set.fit_objectives(self.ldf_)`. The copy shares
+        this MDP's (read-only) states, constraints and fitted objectives, but
+        has its own `reduced_state_df_`, `obj_set` and `opt_problems_`, so that
+        solving it leaves this MDP untouched and reusable for other weights.
+
+        Parameters
+        ----------
+        reward_weights : dict<str, float>
+            Keys are objective identifiers. Values are their respective reward
+            weights.
+
+        Returns
+        -------
+        clf_mdp : ClassificationMDP
+        """
+        clf_mdp = copy.copy(self)
+        clf_mdp.reduced_state_df_ = self.reduced_state_df_.copy()
+        clf_mdp.obj_set = copy.copy(self.obj_set)
+        clf_mdp.fit_rewards(reward_weights, refit_objectives=False)
+        return clf_mdp
 
     def compute_optimal_policies(self, skip_error_terms=True, method="highs"):
         """
@@ -280,6 +366,7 @@ class ClassificationMDP:
                 b_ub=subprob.b_ub,
                 skip_error_terms=skip_error_terms,
                 method=method,
+                A_eq_solve=(self.A_eq_solve_ if subprob.A_eq is self.A_eq_ else None),
             )
             best_policies_best_rewards.append(
                 {
@@ -484,6 +571,27 @@ def _find_best_policies_from_multiple_opt_problems(best_policies_best_rewards):
     return best_of_best_pols, best_of_best_reward
 
 
+def _round_occupancy(x, n_states, n_actions=2):
+    """
+    Rounds a state-action occupancy measure `x` to a deterministic policy.
+
+    Each state takes its argmax action (the first one, on ties), and all of the
+    state's occupancy mass is moved onto that action.
+
+    Returns
+    -------
+    pi_opt : numpy.array<int>, len(n_states)
+        The action of each state.
+    x_det : numpy.array<float>, len(x)
+        The occupancy measure of the rounded policy.
+    """
+    state_slices = x[: n_states * n_actions].reshape(n_states, n_actions)
+    pi_opt = state_slices.argmax(axis=1).astype(int)
+    x_det = np.zeros_like(x)
+    x_det[np.arange(n_states) * n_actions + pi_opt] = state_slices.sum(axis=1)
+    return pi_opt, x_det
+
+
 def _round_and_verify_policy(
     res, n_states, c, A_eq, b_eq, A_ub, b_ub, feasibility_atol=1e-6
 ):
@@ -523,16 +631,7 @@ def _round_and_verify_policy(
         # Infeasible, unbounded, or otherwise failed solve.
         return None
 
-    n_actions = 2
-    pi_opt = np.zeros(n_states, dtype=int)
-    x_det = np.zeros_like(res.x)
-    for s in range(n_states):
-        start_idx = s * n_actions
-        end_idx = start_idx + n_actions
-        state_slice = res.x[start_idx:end_idx]
-        a = state_slice.argmax()
-        pi_opt[s] = a
-        x_det[start_idx + a] = state_slice.sum()
+    pi_opt, x_det = _round_occupancy(res.x, n_states)
 
     if not np.allclose(A_eq @ x_det, b_eq, atol=feasibility_atol):
         return None
@@ -545,8 +644,33 @@ def _round_and_verify_policy(
     return pi_opt, achieved_reward
 
 
+# HiGHS' default `small_matrix_value`: constraint matrix entries whose absolute
+# value is <= this are discarded by the solver before it solves.
+_HIGHS_SMALL_MATRIX_VALUE = 1e-9
+
+
+def _to_solver_matrix(A):
+    """
+    Converts a dense constraint matrix into the sparse matrix HiGHS actually
+    solves with.
+
+    `A_eq` is dense: every transition row carries a `-gamma * mu0` term for
+    every state-action, but with `gamma` ~1e-9 those terms are far below
+    HiGHS' `small_matrix_value`, so HiGHS drops all of them anyway. Passing
+    the dense matrix makes scipy densely stack, scan and convert millions of
+    entries on every solve, which dominates the solve time. Dropping those
+    same entries up front and handing HiGHS a sparse matrix produces the exact
+    same model, and so the exact same solution, at a fraction of the cost.
+    """
+    if A is None or issparse(A):
+        return A
+    A = np.atleast_2d(np.asarray(A, dtype=float))
+    rows, cols = np.nonzero(np.abs(A) > _HIGHS_SMALL_MATRIX_VALUE)
+    return csc_array((A[rows, cols], (rows, cols)), shape=A.shape)
+
+
 def _solve_lp(c, A_eq, b_eq, A_ub, b_ub):
-    if A_ub is None or len(A_ub) == 0:
+    if A_ub is None or A_ub.shape[0] == 0:
         assert b_ub is None or len(b_ub) == 0
         return linprog(c, A_eq=A_eq, b_eq=b_eq)
     return linprog(c, A_eq=A_eq, b_eq=b_eq, A_ub=A_ub, b_ub=b_ub)
@@ -562,6 +686,8 @@ def _find_all_solutions_lp(
     error_term=1e-12,
     skip_error_terms=True,
     method="highs",
+    A_eq_solve=None,
+    A_ub_solve=None,
 ):
     """
     Wrapper around scipy.optimize.linprog that finds ALL optimal solutions
@@ -594,6 +720,11 @@ def _find_all_solutions_lp(
     method : str, default 'highs'
         The scipy solver method to use. Options are 'highs' (default),
         'highs-ds', 'highs-ipm'.
+    A_eq_solve, A_ub_solve : scipy.sparse array, optional
+        `A_eq` and `A_ub` as passed to the solver (see `_to_solver_matrix`).
+        Computed from `A_eq` and `A_ub` when not given; callers solving many
+        problems that share a constraint matrix can pass it in to convert it
+        only once.
 
     Returns
     -------
@@ -611,10 +742,22 @@ def _find_all_solutions_lp(
         gap, where no deterministic policy reaches what a randomized one
         could.
     """
+    if A_eq_solve is None:
+        A_eq_solve = _to_solver_matrix(A_eq)
+    if A_ub_solve is None:
+        A_ub_solve = _to_solver_matrix(A_ub)
+
     candidates = {}  # pi_opt (as tuple) -> achieved_reward
 
     def _consider(res):
-        result = _round_and_verify_policy(res, n_states, c, A_eq, b_eq, A_ub, b_ub)
+        # Verified against the equality constraints the solver was given,
+        # whose matrix-vector product is far cheaper than the dense `A_eq`'s.
+        # It only omits entries with magnitude <= 1e-9 (see
+        # `_to_solver_matrix`), which shifts `A_eq @ x` by at most ~1e-9 --
+        # negligible next to the verification's 1e-6 tolerance.
+        result = _round_and_verify_policy(
+            res, n_states, c, A_eq_solve, b_eq, A_ub, b_ub
+        )
         if result is None:
             return
         pi_opt, achieved_reward = result
@@ -626,7 +769,7 @@ def _find_all_solutions_lp(
     # Always try the unperturbed problem first. Its objective value is also
     # the fractional LP relaxation's bound, used below to judge whether the
     # cheap search left room for improvement.
-    res_unperturbed = _solve_lp(c, A_eq, b_eq, A_ub, b_ub)
+    res_unperturbed = _solve_lp(c, A_eq_solve, b_eq, A_ub_solve, b_ub)
     _consider(res_unperturbed)
     fractional_bound = (
         -1 * res_unperturbed.fun if res_unperturbed.x is not None else None
@@ -639,11 +782,11 @@ def _find_all_solutions_lp(
         for i in range(len(c)):
             cpos = np.array(c)
             cpos[i] += error_term
-            _consider(_solve_lp(cpos, A_eq, b_eq, A_ub, b_ub))
+            _consider(_solve_lp(cpos, A_eq_solve, b_eq, A_ub_solve, b_ub))
 
             cneg = np.array(c)
             cneg[i] -= error_term
-            _consider(_solve_lp(cneg, A_eq, b_eq, A_ub, b_ub))
+            _consider(_solve_lp(cneg, A_eq_solve, b_eq, A_ub_solve, b_ub))
 
         best_found = max(candidates.values()) if candidates else -1 * np.inf
         # Perturbing one coordinate at a time only explores axis-aligned
@@ -678,7 +821,7 @@ def _find_all_solutions_lp(
                 c_rand = np.asarray(c, dtype=float) + rng.normal(
                     scale=random_scale, size=len(c)
                 )
-                _consider(_solve_lp(c_rand, A_eq, b_eq, A_ub, b_ub))
+                _consider(_solve_lp(c_rand, A_eq_solve, b_eq, A_ub_solve, b_ub))
                 if candidates and fractional_bound is not None:
                     best_found = max(candidates.values())
                     if np.isclose(best_found, fractional_bound, atol=0.001):
@@ -693,16 +836,7 @@ def _find_all_solutions_lp(
         # better to hand back a possibly-imperfect policy than to crash
         # every caller that indexes into an empty list.
         if res_unperturbed.x is not None:
-            n_actions = 2
-            pi_opt = np.zeros(n_states, dtype=int)
-            x_det = np.zeros_like(res_unperturbed.x)
-            for s in range(n_states):
-                start_idx = s * n_actions
-                end_idx = start_idx + n_actions
-                state_slice = res_unperturbed.x[start_idx:end_idx]
-                a = state_slice.argmax()
-                pi_opt[s] = a
-                x_det[start_idx + a] = state_slice.sum()
+            pi_opt, x_det = _round_occupancy(res_unperturbed.x, n_states)
             fallback_reward = -1 * (np.asarray(c) @ x_det)
             # logging.warning(
             #     "_find_all_solutions_lp found no verified-feasible "

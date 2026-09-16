@@ -90,6 +90,78 @@ def compute_optimal_policy(
         restrict_y=restrict_y,
     )
 
+    return _sample_optimal_policy(clf_mdp, clf, skip_error_terms, method)
+
+
+def fit_state_mdp(
+    clf_df,
+    x_cols,
+    obj_set,
+    gamma=1e-9,
+    min_freq_fill_pct=0,
+    restrict_y=True,
+):
+    """
+    Fits the part of the MDP `compute_optimal_policy()` builds that doesn't
+    depend on the reward weights, so that the optimal policies of many reward
+    weights can be computed from it with `compute_optimal_policy_of_state_mdp()`
+    without refitting it for each of them.
+
+    The parameters are those of `compute_optimal_policy()`. `obj_set` is
+    copied rather than fit in place, so that the returned MDP is unaffected by
+    whatever else `obj_set` is later fit to.
+
+    Returns
+    -------
+    state_mdp : fair_irl.rl.clf_mdp.ClassificationMDP
+        MDP fit with `fit_states()`, whose objectives are fit to it.
+    """
+    state_mdp = ClassificationMDP(
+        gamma=gamma,
+        obj_set=copy.deepcopy(obj_set),
+        x_cols=x_cols,
+    )
+    state_mdp.fit_states(
+        clf_df=clf_df,
+        min_freq_fill_pct=min_freq_fill_pct,
+        restrict_y=restrict_y,
+    )
+    state_mdp.obj_set.fit_objectives(state_mdp.ldf_)
+    return state_mdp
+
+
+def compute_optimal_policy_of_state_mdp(
+    state_mdp,
+    clf,
+    reward_weights,
+    skip_error_terms=True,
+    method="highs",
+):
+    """
+    Equivalent to `compute_optimal_policy()` with the parameters `state_mdp`
+    was fit with by `fit_state_mdp()`, but without refitting any of the MDP.
+
+    Parameters
+    ----------
+    state_mdp : fair_irl.rl.clf_mdp.ClassificationMDP
+        The MDP returned by `fit_state_mdp()`. It is not modified.
+    clf, reward_weights, skip_error_terms, method
+        See `compute_optimal_policy()`.
+
+    Returns
+    -------
+    opt_pol : fair_irl.rl.clf_mdp.ClassificationMDPPolicy
+        The optimal policy. If there are multiple, it randomly selects one.
+    """
+    clf_mdp = state_mdp.with_reward_weights(reward_weights)
+    return _sample_optimal_policy(clf_mdp, clf, skip_error_terms, method)
+
+
+def _sample_optimal_policy(clf_mdp, clf, skip_error_terms, method):
+    """
+    Solves the fitted `clf_mdp` and returns one of its optimal policies, picked
+    at random if there are multiple.
+    """
     # Compute the optimal policy(s). This does NOT fit the classifier that
     # predicts Y from Z, X. That occurs on the generate_demo() call. This
     # `compute_optimal_policies` computes the optimal policy, assuming the
@@ -176,7 +248,7 @@ class OptClfMDPPolicyExpert:
         )
 
 
-def generate_demo(clf, X_test, y_test, can_observe_y=False):
+def generate_demo(clf, X_test, y_test, can_observe_y=False, yhat=None):
     """
     Create demonstration dataframe (columns are '**X', 'yhat', 'y') from a
     fitted classifer `clf`.
@@ -188,6 +260,9 @@ def generate_demo(clf, X_test, y_test, can_observe_y=False):
     y_test : pandas.Series
     can_observe_y : bool, default False
         Whether the policy can "see" y or if it needs to predict it from X.
+    yhat : array-like, optional
+        `clf`'s predictions on `X_test`, if they are already known. Used
+        instead of calling `clf.predict(X_test)` when `can_observe_y` is False.
 
     Returns
     -------
@@ -206,8 +281,10 @@ def generate_demo(clf, X_test, y_test, can_observe_y=False):
             demo["yhat"] = demo["y"].copy()
         else:
             demo["yhat"] = y_test
-    else:
+    elif yhat is None:
         demo["yhat"] = clf.predict(X_test).astype(np.int64)
+    else:
+        demo["yhat"] = np.asarray(yhat).astype(np.int64)
 
     demo["y"] = y_test.copy()
 

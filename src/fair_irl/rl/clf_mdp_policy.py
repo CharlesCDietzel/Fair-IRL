@@ -34,7 +34,7 @@ class ClassificationMDPPolicy(BaseEstimator, ClassifierMixin):
         self.pi = pi
         self.clf = clf
         self.default_action = default_action
-        self._construct_pi_df()
+        self._pi_df = None
 
     def fit(self, X, y):
         """
@@ -81,6 +81,30 @@ class ClassificationMDPPolicy(BaseEstimator, ClassifierMixin):
         actions : numpy.array<int>, len(len(X))
             The "predictions", actually the actions from the Clf MDP.
         """
+        return self.actions_for_states(self.lookup_states(X, y=y))
+
+    def lookup_states(self, X, y=None):
+        """
+        Looks up the MDP state of each row of `X`, predicting `y` from `X` if
+        it isn't provided (see `predict()`).
+
+        The states only depend on the MDP and `clf`, not on the policy `pi`, so
+        they can be computed once and reused with `actions_for_states()` for
+        any number of policies of the same MDP.
+
+        Parameters
+        ---------
+        X : pandas.DataFrame
+            Input data.
+        y : pandas.Series
+            label data.
+
+        Returns
+        -------
+        states : numpy.array<int>, len(len(X))
+            The MDP state index of each row, or -1 where the state lookup
+            failed.
+        """
         X = X.copy()
         df = pd.DataFrame(X)
         # By using `predict_proba` and inserting randomness, we ensure that the
@@ -92,8 +116,6 @@ class ClassificationMDPPolicy(BaseEstimator, ClassifierMixin):
             df["y"] = self.clf.predict(df)
         else:
             df["y"] = y
-
-        actions = np.zeros(len(X))
 
         # Get rid of any unused columns otherwise the state lookup breaks.
         df = df[self.mdp.x_cols + ["z", "y"]]
@@ -112,17 +134,24 @@ class ClassificationMDPPolicy(BaseEstimator, ClassifierMixin):
                     df[x] = df[x].astype(object)
                     df.loc[mask, x] = default_val
 
-        n_state_lookup_errors = 0
+        # Build each row's state key column-wise rather than with iterrows(),
+        # which is orders of magnitude slower. The keys hash and compare equal
+        # to the `tuple(row)` keys iterrows() produces, so every row resolves
+        # to the same state.
+        state_keys = list(zip(*(df[col].tolist() for col in df.columns)))
+        lookup = self.mdp.reduced_state_lookup_
+        states = np.fromiter(
+            (lookup.get(key, -1) for key in state_keys),
+            dtype=np.int64,
+            count=len(state_keys),
+        )
+        not_found = states < 0
+        n_state_lookup_errors = int(np.count_nonzero(not_found))
 
-        for i, (idx, row) in enumerate(df.iterrows()):
-            try:
-                state = self.mdp.reduced_state_lookup_[tuple(row)]
-                actions[i] = self.pi[state]
-            except KeyError as e:
-                logging.debug("\tState Lookup Error: " + str(e))
+        if n_state_lookup_errors and logging.getLogger().isEnabledFor(logging.DEBUG):
+            for i in np.flatnonzero(not_found):
+                logging.debug("\tState Lookup Error: " + str(state_keys[i]))
                 logging.debug(f"\tUsing default action: {self.default_action}")
-                actions[i] = self.default_action
-                n_state_lookup_errors += 1
         log_msg = f"""
             \t\tThere were {n_state_lookup_errors} state lookup errors when trying
             \t\tto set the optimal action for the input dataset. There are
@@ -130,7 +159,41 @@ class ClassificationMDPPolicy(BaseEstimator, ClassifierMixin):
             \t\tforced to use the default action ({self.default_action}).
             """
         logging.debug(log_msg)
+        return states
+
+    def actions_for_states(self, states):
+        """
+        The policy's action for each of `states` (as returned by
+        `lookup_states()`), using the default action where the state lookup
+        failed.
+
+        Parameters
+        ----------
+        states : numpy.array<int>
+            MDP state indices, -1 for a failed state lookup.
+
+        Returns
+        -------
+        actions : numpy.array<float>, len(len(states))
+        """
+        actions = np.zeros(len(states))
+        found = states >= 0
+        actions[found] = np.asarray(self.pi)[states[found]]
+        actions[~found] = self.default_action
         return actions
+
+    @property
+    def pi_df_(self):
+        """
+        The policy represented as a dataframe: the self.mdp.ldf_ dataframe
+        with the policy actions added as a column.
+
+        Built on first access rather than in __init__, since constructing it
+        runs a full prediction that most policies never need.
+        """
+        if self._pi_df is None:
+            self._construct_pi_df()
+        return self._pi_df
 
     def _construct_pi_df(self):
         """
@@ -143,5 +206,5 @@ class ClassificationMDPPolicy(BaseEstimator, ClassifierMixin):
         """
         pi_df = self.mdp.ldf_.iloc[:, :-2].drop_duplicates().copy()
         pi_df["a"] = self.predict(pi_df)
-        self.pi_df_ = pi_df
+        self._pi_df = pi_df
         return None
