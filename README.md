@@ -89,6 +89,27 @@ demonstrations it imitates, which performance/fairness measures it optimizes,
 its learning rate and iteration count) and the `FAIR_LOGLOSS_*` entries for the
 fair-log-loss baselines.
 
+### Reproducing the Superhuman Fairness paper
+
+The Superhuman Fairness paper's own versions of its two datasets are available as the `Adult_SH`
+and `COMPAS_SH` datasets. They are the reference implementation's
+already-encoded `dataset/<name>/dataset_ref.csv` files, which this repository
+does not track; copy them from
+[its repository](https://github.com/omidMemari/superhumn-fairness) to
+`data/superhuman_fairness/Adult/dataset_ref.csv` and
+`data/superhuman_fairness/COMPAS/dataset_ref.csv`. They differ from this
+project's `Adult` and `COMPAS` in their rows, encoding, label and protected
+attribute (see their loaders in `src/fair_irl/datasets.py`).
+
+Listing either in `selected_datasets` runs it under the paper's experimental
+conditions, which `sh_paper_exp_info` in `Fair_IRL_Biased_Demonstrations.py`
+sets: the paper's post-processing demonstrations, measures, hyperparameters and
+stratified half/half split, plus, for COMPAS, the learning rate
+(`lr_theta = 0.0001`), iteration count (5) and fair log-loss initialization
+its runs used. Then set `plot_demo_source = "superhuman"` and
+`fair_logloss_paper_metrics = True` in the plotting notebook to draw the
+figures the way the paper does.
+
 The Superhuman Fairness paper's own demonstrator -- the post-processing model
 its `SH_DEMO_SOURCE = "pp_baseline"` setting learns from -- is also available
 to the FairIRL Bias Reduction technique as the `"PostProcDemo"` entry of

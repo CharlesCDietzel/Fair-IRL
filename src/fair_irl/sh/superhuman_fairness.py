@@ -50,11 +50,14 @@ are flagged where they occur:
 Both are left as they are upstream: reproducing the published baseline
 faithfully matters more than fixing it.
 
+The original's COMPAS-only initialization of `theta` from a fair log-loss
+classifier is available as `base_theta_init="fair_logloss_dp"`, off by
+default; see `SuperhumanFairness._fit_base_model()`.
+
 Not ported: the `NN` base model (`-m NN`), which needs PyTorch and is not the
-configuration the paper's main results use, and the `fair_logloss` classifier,
-which the original uses to initialize `theta` for its own particular COMPAS
-encoding and as an alternative demonstration baseline. Both are called out in
-`SuperhumanFairness` where they would attach.
+configuration the paper's main results use, and the `fair_logloss`
+demonstration baseline (`-b fair_logloss`), which is not the demonstrator the
+paper's figures use. Both are called out where they would attach.
 """
 
 import logging
@@ -75,7 +78,11 @@ from sklearn.metrics import balanced_accuracy_score, zero_one_loss
 from sklearn.model_selection import train_test_split
 
 from fair_irl.rl.objectives import OBJ_LOOKUP_BY_NAME, ObjectiveSet
-from fair_irl.sh.baselines import fit_post_processing_model
+from fair_irl.sh.baselines import (
+    FAIR_LOGLOSS_C,
+    FAIR_LOGLOSS_CLASSIFIERS,
+    fit_post_processing_model,
+)
 from fair_irl.utils import sklearn_clf_pipeline
 
 # The original's `logi_params` (main.py). `penalty="l2"` is spelled here as
@@ -103,6 +110,18 @@ SH_DEMO_TRAIN_FRAC = 0.5
 # class balancing lives with the post-processing model, in
 # `fair_irl.sh.baselines`.
 SH_SPLIT_RANDOM_STATE = 12345
+
+# The ways `theta` can be initialized, i.e. the valid `base_theta_init`s:
+# "logistic_regression" is the original's general path; the others replace the
+# logistic regression's coefficients with those of the fair log-loss
+# classifier of that fairness constraint, which the original does for COMPAS
+# (with demographic parity).
+SH_BASE_THETA_INITS = {
+    "logistic_regression": None,
+    "fair_logloss_dp": "demographic_parity",
+    "fair_logloss_eqodds": "equalized_odds",
+    "fair_logloss_eqopp": "equalized_opportunity",
+}
 
 
 def compute_alphas(raw_demos_feat_loss, clf_demos_feat_loss, lamda=SH_DEFAULT_LAMDA):
@@ -481,6 +500,9 @@ class SuperhumanFairness:
         used (rather than the global numpy random state) so that enabling this
         baseline cannot shift the random draws of the FairIRL technique running
         alongside it.
+    base_theta_init : str, default "logistic_regression"
+        How the starting `theta` is obtained; one of `SH_BASE_THETA_INITS`.
+        See `_fit_base_model()`.
 
     Attributes
     ----------
@@ -504,7 +526,13 @@ class SuperhumanFairness:
         lamda=SH_DEFAULT_LAMDA,
         logi_params=None,
         rng=None,
+        base_theta_init="logistic_regression",
     ):
+        if base_theta_init not in SH_BASE_THETA_INITS:
+            raise ValueError(
+                f"Unrecognized base_theta_init: {base_theta_init!r}."
+                f" Valid values are {list(SH_BASE_THETA_INITS)}."
+            )
         self.feature_types = feature_types
         self.feature_names = list(feature_names)
         self.num_of_features = len(self.feature_names)
@@ -514,6 +542,7 @@ class SuperhumanFairness:
         self.lamda = lamda
         self.logi_params = dict(logi_params or SH_DEFAULT_LOGI_PARAMS)
         self.rng = rng if rng is not None else np.random.default_rng()
+        self.base_theta_init = base_theta_init
 
         self.pipeline_ = None
         self.threshold_ = None
@@ -575,12 +604,11 @@ class SuperhumanFairness:
         `Super_human.base_model()`: a logistic regression fit on a stratified
         half of the training pool.
 
-        The original additionally replaces this `theta` with a fair log-loss
-        classifier's when the dataset is its own COMPAS encoding. That branch
-        is not ported: it depends on that encoding's specific columns and
-        protected-attribute coding, neither of which this project's datasets
-        share. Every dataset here therefore takes the original's general
-        (logistic regression) path.
+        With `base_theta_init` set to one of the fair log-loss options, the
+        logistic regression's coefficients are then replaced with those of a
+        fair log-loss classifier fit on the same half, as the original does
+        for its COMPAS dataset (with demographic parity). See
+        `_init_theta_from_fair_logloss()`.
         """
         X_base, _, y_base, _ = train_test_split(
             X,
@@ -596,8 +624,60 @@ class SuperhumanFairness:
         )
         self.pipeline_.fit(X_base, y_base)
 
+        fair_logloss_mode = SH_BASE_THETA_INITS[self.base_theta_init]
+        if fair_logloss_mode is not None:
+            self._init_theta_from_fair_logloss(X_base, y_base, fair_logloss_mode)
+
         # `eval_model()` thresholds at the mean of the training labels.
         self.threshold_ = float(np.mean(np.asarray(y)))
+
+    def _init_theta_from_fair_logloss(self, X_base, y_base, mode):
+        """
+        Replace `theta` with a fair log-loss classifier's coefficients.
+
+        The COMPAS branch of `Super_human.base_model()`: fit the fair log-loss
+        classifier of `mode` (with the original's `C=.005` and random start)
+        on the base model's half of the pool, and take its weights, minus its
+        trailing intercept, as `theta`. The logistic regression's own
+        intercept is kept, as upstream, since only `coef_` is replaced.
+
+        Upstream fits it on a copy of the raw features in which every column
+        with values outside [0, 1] is standardized -- twice, with the same
+        mean and standard deviation both times, since the assignment is
+        duplicated. That is reproduced as-is on the design matrix. On the
+        original's COMPAS encoding the only such column is already
+        standardized, which makes both passes all but no-ops.
+
+        The classifier's random start draws from numpy's global random state,
+        which is seeded from this model's own generator and then restored, as
+        `FairLogLossBaseline.fit()` does, so the rest of the experiment's
+        random draws are unaffected.
+        """
+        design = np.array(
+            self.pipeline_.named_steps["preprocessor"].transform(X_base), dtype=float
+        )
+        for c in range(design.shape[1]):
+            if design[:, c].min() < 0 or design[:, c].max() > 1:
+                mu = design[:, c].mean()
+                s = design[:, c].std(ddof=0)
+                design[:, c] = (design[:, c] - mu) / s
+                design[:, c] = (design[:, c] - mu) / s
+
+        h = FAIR_LOGLOSS_CLASSIFIERS[mode](
+            C=FAIR_LOGLOSS_C, random_initialization=True, verbose=False
+        )
+        state = np.random.get_state()
+        try:
+            np.random.seed(int(self.rng.integers(0, 2**32)))
+            h.fit(
+                design,
+                np.asarray(y_base).astype(float),
+                np.asarray(X_base["z"]).astype(float),
+            )
+        finally:
+            np.random.set_state(state)
+
+        self._update_model_theta(h.theta[:-1])
 
     def _get_model_theta(self):
         return self.pipeline_.named_steps["classifier"].coef_[0]

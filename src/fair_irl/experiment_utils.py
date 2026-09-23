@@ -910,6 +910,10 @@ SH_DEFAULTS = {
     # The fairness constraint the "pp_baseline" demonstrator satisfies. Unused
     # by the "expert_demos" source.
     "SH_DEMO_CONSTRAINTS": "demographic_parity",
+    # How the starting `theta` is obtained; one of `SH_BASE_THETA_INITS`.
+    # "logistic_regression" is the original's general path; "fair_logloss_dp"
+    # is what it does for its COMPAS dataset.
+    "SH_BASE_THETA_INIT": "logistic_regression",
 }
 
 
@@ -1897,6 +1901,11 @@ def _bias_dataset_labels(exp_info, X, y, feature_types, dataset_bias_type):
     return y_biased
 
 
+# The (train, val, test) fractions of the dataset split, unless
+# exp_info["DATA_SPLIT_FRACTIONS"] overrides them.
+DEFAULT_DATA_SPLIT_FRACTIONS = (0.60, 0.20, 0.20)
+
+
 def _split_dataset_and_generate_expert_demos(
     exp_info,
     expert_algo_lookup,
@@ -1939,9 +1948,33 @@ def _split_dataset_and_generate_expert_demos(
     # One randomized split, shared by every bias type: the biased datasets
     # differ from each other only by their labels, so splitting them all along
     # the same indices keeps their results comparable.
+    #
+    # DATA_SPLIT_FRACTIONS sets the (train, val, test) fractions, and
+    # DATA_SPLIT_STRATIFY stratifies both splits by the unbiased labels, as the
+    # Superhuman Fairness paper's split does. The defaults reproduce this
+    # project's usual unstratified 60/20/20 split exactly.
+    train_frac, val_frac, test_frac = exp_info.get(
+        "DATA_SPLIT_FRACTIONS", DEFAULT_DATA_SPLIT_FRACTIONS
+    )
+    if not np.isclose(train_frac + val_frac + test_frac, 1.0):
+        raise ValueError(
+            "exp_info['DATA_SPLIT_FRACTIONS'] must sum to 1, got"
+            f" {(train_frac, val_frac, test_frac)}."
+        )
+    stratify = exp_info.get("DATA_SPLIT_STRATIFY", False)
+    y_values = np.asarray(y)
+
     idxs = np.arange(len(X))
-    train_idxs, val_test_idxs = train_test_split(idxs, train_size=0.60)
-    val_idxs, test_idxs = train_test_split(val_test_idxs, test_size=0.50)
+    train_idxs, val_test_idxs = train_test_split(
+        idxs,
+        train_size=train_frac,
+        stratify=y_values if stratify else None,
+    )
+    val_idxs, test_idxs = train_test_split(
+        val_test_idxs,
+        test_size=test_frac / (val_frac + test_frac),
+        stratify=y_values[val_test_idxs] if stratify else None,
+    )
 
     X_train = X.iloc[train_idxs]
     X_val = X.iloc[val_idxs]
@@ -3295,6 +3328,7 @@ def _run_superhuman_trial(
                 iters=sh_config["SH_ITERS"],
                 lamda=sh_config["SH_LAMDA"],
                 rng=rng,
+                base_theta_init=sh_config["SH_BASE_THETA_INIT"],
             )
             sh_model.fit(pool_X, pool_y, demo_list)
 
@@ -3317,6 +3351,16 @@ def _run_superhuman_trial(
 
             run.summary["superhuman_iterations"] = sh_model.history_.n_iterations
             run.summary["superhuman_num_demos"] = len(demo_list)
+            # The demonstrations this model imitated, as losses: one row per
+            # demonstration, one column per `superhuman_demo_feat_loss_metrics`
+            # entry. These are the `post_proc_demos` the original's
+            # `plot_features()` scatters, which differ from the expert's
+            # `expert_demo_feat_loss_*` groups unless SH_DEMO_SOURCE is
+            # "expert_demos". Like those, they are nested lists, not scalars.
+            run.summary["superhuman_demo_feat_loss_metrics"] = list(feature_names)
+            run.summary["superhuman_demo_feat_loss"] = _json_safe(
+                np.asarray(sh_model.demo_losses_, dtype=float)
+            )
             for j, name in enumerate(feature_names):
                 run.summary[f"superhuman_gamma_{name}"] = (
                     sh_model.history_.gamma_superhuman[-1][j]
@@ -3583,11 +3627,7 @@ def run_experiment_trial(
     # one.
     unbiased_demos = demos_by_dataset_bias_type[0]
 
-    x_cols = (
-        feature_types["boolean"]
-        + feature_types["categoric"]
-        + feature_types["continuous"]
-    )
+    x_cols = input_columns(feature_types)
     x_cols.remove("z")
 
     # The expert is an optimal classifier policy whose reward weights are

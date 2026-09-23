@@ -216,11 +216,7 @@ class OptClfMDPPolicyExpert:
         -------
         clf_pol : ClassificationMDPPolicy
         """
-        x_cols = (
-            self.feature_types["boolean"]
-            + self.feature_types["categoric"]
-            + self.feature_types["continuous"]
-        )
+        x_cols = input_columns(self.feature_types)
         x_cols.remove("z")
 
         inner_clf = sklearn_clf_pipeline(
@@ -324,7 +320,7 @@ def add_redlining_bias(X, y, dataset_bias_type=(), dataset=None):
     # ry - redline Y outcome
     # nrz - non-redlined Z value
     # nry - non-redline Y outcome
-    if dataset == "Adult":
+    if dataset in ("Adult", "Adult_SH"):
         rz = 0
         ry = 0
         nrz = 1
@@ -339,7 +335,7 @@ def add_redlining_bias(X, y, dataset_bias_type=(), dataset=None):
         ry = 0
         nrz = 1
         nry = 1
-    elif dataset == "COMPAS":  # COMPAS Y redlining is reversed
+    elif dataset in ("COMPAS", "COMPAS_SH"):  # COMPAS Y redlining is reversed
         rz = 0
         ry = 1
         nrz = 1

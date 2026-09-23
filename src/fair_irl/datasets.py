@@ -32,6 +32,10 @@ def generate_dataset(dataset_name, n_samples: int | None = None):
         X, y, feature_types = generate_adult_dataset(n_samples)
     elif dataset_name == "COMPAS":
         X, y, feature_types = generate_compas_dataset(n_samples)
+    elif dataset_name == "Adult_SH":
+        X, y, feature_types = generate_adult_sh_dataset(n_samples)
+    elif dataset_name == "COMPAS_SH":
+        X, y, feature_types = generate_compas_sh_dataset(n_samples)
     elif dataset_name == "Boston":
         X, y, feature_types = generate_boston_housing_dataset(n_samples)
     elif "ACSIncome__" in dataset_name:
@@ -274,6 +278,145 @@ def generate_compas_dataset(
             "v_score_text",
         ],
     }
+
+    return X, y, feature_types
+
+
+def _read_sh_dataset_ref(filepath, label_col, protected_col, n=None):
+    """
+    Read one of the Superhuman Fairness paper's `dataset_ref.csv` files.
+
+    These are the already-encoded datasets of the paper's reference
+    implementation (https://github.com/omidMemari/superhumn-fairness), whose
+    `dataset/<name>/dataset_ref.csv` is expected at `filepath`. Every column
+    but the label is a model input, used exactly as the original uses it, so
+    they are all 'passthrough' features. That includes the original's own
+    sensitive column, which stays among the inputs in its own coding, just as
+    it stays in the original's `X`. The protected attribute `z` is added
+    alongside it as a 'protected' feature, so the model inputs are exactly the
+    original's.
+
+    Returns
+    -------
+    df : pandas.DataFrame
+        The dataset, sampled down to `n` rows if given.
+    feature_types : dict<str, list>
+        With every input column under 'passthrough' and `z` under 'protected'.
+    """
+    try:
+        df = pd.read_csv(filepath, index_col=0)
+    except FileNotFoundError as error:
+        raise FileNotFoundError(
+            f"{filepath} not found. Copy `dataset/<name>/dataset_ref.csv` from"
+            " the Superhuman Fairness reference implementation"
+            " (https://github.com/omidMemari/superhumn-fairness) there."
+        ) from error
+
+    # Take sample if possible
+    if n is not None and n < len(df):
+        df = df.sample(n)
+
+    input_cols = [c for c in df.columns if c != label_col]
+    assert protected_col in input_cols
+    feature_types = {
+        "boolean": [],
+        "categoric": [],
+        "continuous": [],
+        "passthrough": input_cols,
+        "protected": ["z"],
+        "meta": [],
+        "hidden": [],
+    }
+    return df, feature_types
+
+
+def generate_adult_sh_dataset(
+    n: int | None = None,
+    filepath="./data/superhuman_fairness/Adult/dataset_ref.csv",
+):
+    """
+    The Adult dataset exactly as the Superhuman Fairness paper uses it.
+
+    The paper's reference implementation's own `dataset_ref.csv`: 48,842 rows
+    with standardized continuous columns and one-hot categorical ones, label
+    `label` (income over 50K) and sensitive attribute `gender` (1 = Male,
+    2 = Female). Unlike this project's `Adult`, it is not resampled, and its
+    protected attribute is gender rather than race.
+
+    Parameters
+    ---------
+    n : int, default None
+        Number of records to sample from dataset. If None, use the whole dataset.
+    filepath : str
+        Where the reference implementation's `dataset/Adult/dataset_ref.csv`
+        has been copied to.
+
+    Returns
+    -------
+    X : pandas.DataFrame
+        The X (including z) columns. `gender` stays among the model inputs in
+        its original {1, 2} coding; `z` is 1 for Male and 0 for Female, so that
+        `z = 0` is the disadvantaged group, as elsewhere in this project.
+    y : pandas.Series
+        Just the y column.
+    feature_types : dict<str, array-like>
+        Mapping of column names to their type of feature. Used to when
+        constructing sklearn pipelines.
+    """
+    df, feature_types = _read_sh_dataset_ref(filepath, "label", "gender", n)
+
+    y = df["label"].astype(int).rename("y")
+    X = df.drop(columns=["label"])
+    X = X.assign(z=(X["gender"] == 1).astype(int))
+
+    logging.debug("Dataset count of each z, y group")
+    logging.debug(df_to_log(pd.DataFrame({"z": X["z"], "y": y}).groupby("z").agg(["count", "mean"])))
+
+    return X, y, feature_types
+
+
+def generate_compas_sh_dataset(
+    n: int | None = None,
+    filepath="./data/superhuman_fairness/COMPAS/dataset_ref.csv",
+):
+    """
+    The COMPAS dataset exactly as the Superhuman Fairness paper uses it.
+
+    The paper's reference implementation's own `dataset_ref.csv`: 5,278 rows
+    of ProPublica's `compas-scores-two-years.csv`, restricted to African-American
+    and Caucasian defendants, with an explicit `intercept` column, one-hot
+    `age_cat`, a standardized `priors_count`, label `two_year_recid` and
+    sensitive attribute `race` (1 = Caucasian, 0 = African-American). This
+    project's `COMPAS` is a different file (`cox-violent-parsed.csv`), label
+    (`is_recid`) and grouping (white vs. everyone else).
+
+    Parameters
+    ---------
+    n : int, default None
+        Number of records to sample from dataset. If None, use the whole dataset.
+    filepath : str
+        Where the reference implementation's `dataset/COMPAS/dataset_ref.csv`
+        has been copied to.
+
+    Returns
+    -------
+    X : pandas.DataFrame
+        The X (including z) columns. `race` stays among the model inputs; `z`
+        is the same {0, 1} coding (1 = Caucasian).
+    y : pandas.Series
+        Just the y column.
+    feature_types : dict<str, array-like>
+        Mapping of column names to their type of feature. Used to when
+        constructing sklearn pipelines.
+    """
+    df, feature_types = _read_sh_dataset_ref(filepath, "two_year_recid", "race", n)
+
+    y = df["two_year_recid"].astype(int).rename("y")
+    X = df.drop(columns=["two_year_recid"])
+    X = X.assign(z=X["race"].astype(int))
+
+    logging.debug("Dataset count of each z, y group")
+    logging.debug(df_to_log(pd.DataFrame({"z": X["z"], "y": y}).groupby("z").agg(["count", "mean"])))
 
     return X, y, feature_types
 

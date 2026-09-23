@@ -151,7 +151,7 @@ def main():
         #       on the same rows.
         #   "pp_baseline"  -- the original paper's own demonstrator: a logistic
         #       regression post-processed by a fairlearn ThresholdOptimizer.
-        "SH_DEMO_SOURCE": "expert_demos",
+        "SH_DEMO_SOURCE": "pp_baseline",
         # The performance/fairness measures the baseline optimizes -- the `-f`
         # flag of the original implementation. Entries may be this project's
         # objective names (e.g. "Acc", "DemPar", "TNRPar") or the original
@@ -180,6 +180,49 @@ def main():
         ##
         "FAIR_LOGLOSS_C": 0.005,
         "FAIR_LOGLOSS_RANDOM_INIT": True,
+        ##
+        # Data split parameters.
+        ##
+        # The (train, val, test) fractions of each dataset, and whether both
+        # splits are stratified by the label. The Superhuman Fairness baseline
+        # trains on (and builds its demonstrations from) the train split.
+        "DATA_SPLIT_FRACTIONS": (0.6, 0.2, 0.2),
+        "DATA_SPLIT_STRATIFY": False,
+    }
+
+    # The Superhuman Fairness paper's experimental conditions. They are applied
+    # to the Adult_SH and COMPAS_SH experiments below -- the paper's own
+    # datasets -- so that those reproduce the paper's results and its
+    # `plot_features()` figures. Remove the `|= sh_paper_exp_info` line of
+    # either experiment to run its dataset under this project's usual
+    # conditions instead. To draw the figures the way the paper does, set
+    # `plot_demo_source = "superhuman"` and `fair_logloss_paper_metrics = True`
+    # in the plotting notebook.
+    sh_paper_exp_info = {
+        # The paper's demonstrator (a logistic regression post-processed for
+        # demographic parity), refit for each of 50 demonstrations on a random
+        # half of the training pool and scored on the other half.
+        "SH_DEMO_SOURCE": "pp_baseline",
+        "SH_NUM_DEMOS": 50,
+        "SH_DEMO_CONSTRAINTS": "demographic_parity",
+        # The measures the paper's figures are drawn on (`-f inacc dp eqodds
+        # prp`).
+        "SH_FEATURES": ["inacc", "dp", "eqodds", "prp"],
+        # The original's defaults (`default_args` and the constants of its
+        # main.py), which its Adult runs use. COMPAS_SH overrides some below.
+        "SH_ITERS": 30,
+        "SH_LR_THETA": 0.01,
+        "SH_LAMDA": 0.001,
+        "SH_BASE_THETA_INIT": "logistic_regression",
+        # The original splits each dataset in half, stratified by the label:
+        # one half is the training pool the model and its demonstrations are
+        # fit on, the other its test set. This project also needs a validation
+        # split, so the second half is shared between validation and test.
+        "DATA_SPLIT_FRACTIONS": (0.5, 0.25, 0.25),
+        "DATA_SPLIT_STRATIFY": True,
+        # The paper's error-bar figures average 10 experiments; its
+        # `plot_features()` figures show one.
+        # "N_TRIALS": 10,
     }
 
     # ### COMPAS
@@ -244,6 +287,59 @@ def main():
     exp_dict = {}
     exp_dict["base_exp_info"] = base_exp_info
     exp_dict["source_states"] = source_states
+    exp_list.append(exp_dict)
+
+    # Adult_SH: the Adult dataset exactly as the Superhuman Fairness paper uses
+    # it (its reference implementation's `dataset_ref.csv`, copied to
+    # data/superhuman_fairness/Adult/), under the paper's conditions.
+    base_exp_info = {
+        "EXPERIMENT_NAME": "Adult_SH",
+        # Only matters to FairIRL Bias Reduction. This dataset's one-hot
+        # columns leave its MDP at ~11k states whatever this is set to, far
+        # more than any other dataset here.
+        "MIN_FREQ_FILL_PCT": 0.24,
+    }
+    base_exp_info |= common_exp_info
+    base_exp_info |= sh_paper_exp_info
+
+    source_states = [
+        "Adult_SH",
+    ]
+
+    exp_dict = {}
+    exp_dict["base_exp_info"] = base_exp_info
+    exp_dict["source_states"] = source_states
+    exp_list.append(exp_dict)
+
+    # COMPAS_SH: the COMPAS dataset exactly as the Superhuman Fairness paper
+    # uses it (its reference implementation's `dataset_ref.csv`, copied to
+    # data/superhuman_fairness/COMPAS/), under the paper's conditions.
+    base_exp_info = {
+        "EXPERIMENT_NAME": "COMPAS_SH",
+        "MIN_FREQ_FILL_PCT": 0.08,
+    }
+    base_exp_info |= common_exp_info
+    base_exp_info |= sh_paper_exp_info
+
+    source_states = [
+        "COMPAS_SH",
+    ]
+
+    exp_dict = {}
+    exp_dict["base_exp_info"] = base_exp_info
+    exp_dict["source_states"] = source_states
+
+    # The paper's COMPAS runs differ from its defaults: all 10 of the runs
+    # behind its COMPAS figures record lr_theta = 0.0001 and 5 iterations, and
+    # the original always starts COMPAS from a demographic-parity fair
+    # log-loss classifier's coefficients (the COMPAS branch of its
+    # `base_model()`). At the default lr_theta of 0.01 its model collapses to
+    # predicting every label 0 -- in the original implementation too.
+    exp_dict["base_exp_info"] |= {
+        "SH_LR_THETA": 0.0001,
+        "SH_ITERS": 5,
+        "SH_BASE_THETA_INIT": "fair_logloss_dp",
+    }
     exp_list.append(exp_dict)
 
     # ACSIncome: MA
@@ -461,6 +557,10 @@ def main():
     selected_datasets = [
         "COMPAS",
         "Adult",
+        # The Superhuman Fairness paper's own datasets, run under its
+        # conditions (see `sh_paper_exp_info` above).
+        # "Adult_SH",
+        # "COMPAS_SH",
         # "ACSIncome__MA",
         # "ACSIncome__MS",
         # "ACSIncome__CA",
@@ -529,11 +629,7 @@ def main():
                 # (e.g. state reduction).
                 source_X[f] = source_X[f].map(str).astype(object)
 
-            source_X_cols = (
-                source_feature_types["boolean"]
-                + source_feature_types["categoric"]
-                + source_feature_types["continuous"]
-            )
+            source_X_cols = input_columns(source_feature_types)
 
             if exp_info["USE_HIDDEN_FEATURES_SOURCE"]:
                 source_X_cols += source_feature_types["hidden"]
