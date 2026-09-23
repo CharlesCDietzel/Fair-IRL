@@ -2860,6 +2860,7 @@ def _evaluate_policy(
 
 
 def _finalize_trial(
+    exp_info,
     run,
     results,
     feat_obj_set,
@@ -2872,6 +2873,11 @@ def _finalize_trial(
     """Book-keeping for one (bias type, weight adjustment) pair of a trial:
     report the learned policy's results to W&B, where they are stored in the
     run summary.
+
+    Alongside the scalar results, the summary also records the expert's
+    demonstrations as the individual subdominance groups every policy is scored
+    against (see `_expert_demo_losses_summary()`), so that plots can show the
+    spread of the expert's decisions rather than only their mean.
     """
     # Compare the learned policy with the expert demonstrations
     logging.info(
@@ -2894,8 +2900,47 @@ def _finalize_trial(
         trial_runtime,
         trial_inputsize,
     )
+    summary.update(_expert_demo_losses_summary(exp_info, bias_demos))
     run.summary["converged"] = True
     run.summary.update(summary)
+
+
+def _expert_demo_losses_summary(exp_info, bias_demos):
+    """
+    The expert's per-demonstration losses, ready for a W&B run summary.
+
+    The expert's demonstrations of each split are sampled into
+    `N_SUBDOMINANCE_GROUPS` groups by `generate_subdominance_groups()`, and
+    each group is scored on the subdominance metrics as a loss (lower is
+    better). Each group is one "demonstration" in the sense of the Superhuman
+    Fairness paper -- with `SH_DEMO_SOURCE="expert_demos"` they are exactly the
+    demonstrations that baseline imitates -- so these are the points its
+    `plot_features()` figures scatter.
+
+    The losses are stored as nested lists rather than as scalar keys: they are
+    one value per group, not one value per run, so they have no meaningful
+    average across trials and must not be folded into the scalar results.
+
+    Returns
+    -------
+    summary : dict
+        `expert_demo_feat_loss_metrics`: the metric names, in column order.
+        `expert_demo_feat_loss_{split}`: shape (n_groups, n_metrics), for each
+        of the train, val and test splits.
+    """
+    summary = {
+        "expert_demo_feat_loss_metrics": subdominance_metric_names(exp_info),
+    }
+    split_groups = (
+        ("train", bias_demos.subdom_groups_train),
+        ("val", bias_demos.subdom_groups_val),
+        ("test", bias_demos.subdom_groups_test),
+    )
+    for split, (_group_idxs, _raw_demos, raw_demos_feat_loss) in split_groups:
+        summary[f"expert_demo_feat_loss_{split}"] = _json_safe(
+            np.asarray(raw_demos_feat_loss, dtype=float)
+        )
+    return summary
 
 
 def _build_superhuman_demo_list(
@@ -3102,6 +3147,7 @@ def _evaluate_and_finalize(
     trial_runtime = (datetime.datetime.now() - trial_start).total_seconds()
 
     _finalize_trial(
+        exp_info,
         run,
         results,
         feat_obj_set,
@@ -3215,6 +3261,10 @@ def _run_superhuman_trial(
                 run.summary[f"superhuman_gamma_{name}"] = (
                     sh_model.history_.gamma_superhuman[-1][j]
                 )
+                # The model's final alpha, `model_params["alpha"]` upstream,
+                # whose reciprocal is the margin the Superhuman Fairness
+                # plots draw around the model.
+                run.summary[f"superhuman_alpha_{name}"] = sh_model.alpha_[j]
         except Exception as error:
             _report_run_failure(run, ALGORITHM_SUPERHUMAN, error)
 
@@ -3681,6 +3731,7 @@ def _run_fairirl_trials(
             trial_runtime = (datetime.datetime.now() - trial_start).total_seconds()
 
             _finalize_trial(
+                exp_info,
                 run,
                 results,
                 feat_obj_set,
