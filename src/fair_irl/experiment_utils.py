@@ -66,7 +66,9 @@ from .sh.superhuman_fairness import (
     build_pp_demo_list,
     compute_alphas,
     make_feature_loss_fn,
+    feature_losses_from_demo,
     objective_feature_losses,
+    validate_feature_names,
 )
 
 # `OBJ_LOOKUP_BY_NAME` now lives in `fair_irl.rl.objectives`, next to the
@@ -264,13 +266,17 @@ class UnfairNoisyClassifier:
         return preds
 
 
-def generate_expert_algo_lookup(feature_types):
+def generate_expert_algo_lookup(feature_types, exp_info=None):
     """
     Parameters
     ----------
     feature_types : dict<str, array-like>
         Mapping of column names to their type of feature. Used to when
         constructing the sklearn pipeline.
+    exp_info : dict, Optional
+        Experiment parameters. Only the `"PostProcDemo"` expert reads them --
+        for its fairness constraint and its random seed -- so leaving this out
+        builds that expert with the defaults of `SH_DEFAULTS`.
 
     Returns
     -------
@@ -278,6 +284,7 @@ def generate_expert_algo_lookup(feature_types):
         The expert algo lookup dictionary that maps the string name for an
         algorithm to the actual implementation.
     """
+    exp_info = exp_info if exp_info is not None else {}
     # OptAcc
     opt_acc_pipe = sklearn_clf_pipeline(
         feature_types,
@@ -718,6 +725,25 @@ def generate_expert_algo_lookup(feature_types):
         lambda row: int(row["decile_score"] >= 6)
     )
 
+    # PostProcDemo: the demonstrator of the Superhuman Fairness paper -- a
+    # logistic regression post-processed by a fairlearn ThresholdOptimizer that
+    # is fit on a class-balanced subsample (see `fit_post_processing_model()`).
+    # It is the very model `SH_DEMO_SOURCE="pp_baseline"` builds that
+    # baseline's demonstrations from, so selecting it here lets the FairIRL
+    # Bias Reduction technique learn from the same demonstrator the paper's
+    # own technique does. Its fairness constraint is the demonstrator's
+    # `SH_DEMO_CONSTRAINTS`, so both use the same one.
+    #
+    # Unlike the `Hardt*` experts, whose ThresholdOptimizers draw their
+    # prediction-time randomization from the global numpy random state, this
+    # one draws from a generator seeded from the experiment's own
+    # `RANDOM_SEED`, so its demonstrations are reproducible.
+    post_proc_demo_expert = PostProcessingBaseline(
+        feature_types=feature_types,
+        constraints=_superhuman_config(exp_info)["SH_DEMO_CONSTRAINTS"],
+        rng=np.random.default_rng(_baseline_seed(exp_info, "PostProcDemo", (), 0)),
+    )
+
     # OptClfMDPPol: optimal classifier policy (see compute_optimal_policy() in
     # fair_irl.py), with reward weights split equally (and positively) across
     # every feature-expectation objective. Its ClassificationMDPPolicy is
@@ -754,6 +780,7 @@ def generate_expert_algo_lookup(feature_types):
         "BoundedGroupLoss": bgl_wrapper,
         "COMPAS": compas_score_high,
         "OptClfMDPPol": opt_clf_mdp_pol_expert,
+        "PostProcDemo": post_proc_demo_expert,
         # Initial policies
         "OptAccNoisy": UnfairNoisyClassifier(clf=opt_acc_pipe, prob=[0.15, 0.25]),
         "HardtDemParNoisy": UnfairNoisyClassifier(
@@ -2901,8 +2928,41 @@ def _finalize_trial(
         trial_inputsize,
     )
     summary.update(_expert_demo_losses_summary(exp_info, bias_demos))
+    summary.update(_model_feat_loss_summary(exp_info, results))
     run.summary["converged"] = True
     run.summary.update(summary)
+
+
+def _model_feat_loss_summary(exp_info, results):
+    """
+    The learned model's loss on each subdominance metric, for the run summary.
+
+    The scalar results already report every objective of
+    `PERF_MEAS_OBJECTIVE_NAMES` as a feature expectation, but the subdominance
+    metrics may be named in the Superhuman Fairness paper's vocabulary (e.g.
+    `"prp"`, `"error_rate_diff"`), which has no objective behind it and so no
+    feature expectation. These keys report the model on exactly the measures
+    the subdominance metric -- and the `opt_debias` weight search that
+    minimizes it -- is computed over, whichever vocabulary names them, so that
+    the two are always directly comparable and the plots can read either.
+
+    Returns
+    -------
+    summary : dict<str, float>
+        `model_feat_loss_{split}_{metric}` for each split and metric.
+    """
+    metric_names = subdominance_metric_names(exp_info)
+    summary = {}
+    split_demos = (
+        ("train", results.demo_train),
+        ("val", results.demo_val),
+        ("test", results.demo_test),
+    )
+    for split, demo in split_demos:
+        losses = feature_losses_from_demo(demo, metric_names)
+        for name, loss in zip(metric_names, losses):
+            summary[f"model_feat_loss_{split}_{name}"] = float(loss)
+    return summary
 
 
 def _expert_demo_losses_summary(exp_info, bias_demos):
@@ -3503,7 +3563,7 @@ def run_experiment_trial(
     can_observe_y = "FO" in exp_info["IRL_METHOD"]
     X, y, feature_types = _load_or_generate_dataset(exp_info, X, y, feature_types)
 
-    expert_algo_lookup = generate_expert_algo_lookup(feature_types)
+    expert_algo_lookup = generate_expert_algo_lookup(feature_types, exp_info)
 
     demos_by_dataset_bias_type = _split_dataset_and_generate_expert_demos(
         exp_info,
@@ -3744,18 +3804,28 @@ def _run_fairirl_trials(
 
 
 def subdominance_metric_names(exp_info):
-    """The objective names the subdominance metric is computed over, in order."""
-    return list(exp_info["SUBDOMINANCE_PERF_METRICS_LIST"]) + list(
+    """
+    The performance/fairness measures the subdominance metric is computed over,
+    in order: the perf ones first, then the fair ones.
+
+    Each may be named in either of the two vocabularies
+    `feature_losses_from_demo()` accepts -- this project's objectives (e.g.
+    `"Acc"`, `"DemPar"`) or the original Superhuman Fairness paper's metrics
+    (e.g. `"inacc"`, `"dp"`, `"prp"`) -- and the two may be mixed.
+    """
+    names = list(exp_info["SUBDOMINANCE_PERF_METRICS_LIST"]) + list(
         exp_info["SUBDOMINANCE_FAIR_METRICS_LIST"]
     )
+    validate_feature_names(names, context="subdominance metric")
+    return names
 
 
 def compute_relevant_feat_loss(exp_info, demo):
-    # Generate feature expectations of the demo, inverted to be loss, where
-    # lower is better. `objective_feature_losses()` is the shared definition of
-    # that inversion, so that the Superhuman Fairness baseline optimizes and is
-    # scored on exactly the quantities used here.
-    demo_feat_exp = objective_feature_losses(demo, subdominance_metric_names(exp_info))
+    # Generate the demo's loss on each subdominance metric, where lower is
+    # better. `feature_losses_from_demo()` is the shared definition of that
+    # loss, so that the Superhuman Fairness baseline optimizes and is scored on
+    # exactly the quantities used here, whichever vocabulary names them.
+    demo_feat_exp = feature_losses_from_demo(demo, subdominance_metric_names(exp_info))
 
     # Now compute the same feature expectations using Fairlearn's metric functions
     # obj_names = (

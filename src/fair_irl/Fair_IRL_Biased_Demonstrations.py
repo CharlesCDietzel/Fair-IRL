@@ -350,7 +350,15 @@ def main():
 
     # Set Experts
     expert_algos = [
-        "OptClfMDPPol"
+        # "OptClfMDPPol"
+        # The demonstrator of the Superhuman Fairness paper: a logistic
+        # regression post-processed by a fairlearn ThresholdOptimizer, fit on a
+        # class-balanced subsample. This is the same model the Superhuman
+        # Fairness baseline builds its demonstrations from when
+        # SH_DEMO_SOURCE is "pp_baseline", and it takes its fairness
+        # constraint from SH_DEMO_CONSTRAINTS below, so selecting it here makes
+        # both techniques imitate the same demonstrator.
+        "PostProcDemo",
         # "OptAcc",
         # "CatBoostOptAcc",
         # "XGBoostOptAcc",
@@ -397,7 +405,7 @@ def main():
         # ("balanced_redlining", 0.2),
         # ("perfectly_balanced_redlining", 0.2),
         # ("corruption_bias", "CatBoost", 0.0001, "gaussian", 1.0),
-        ("corruption_bias", "CatBoost", 0.001, "gaussian", 1.0),
+        # ("corruption_bias", "CatBoost", 0.001, "gaussian", 1.0),
         # ("corruption_bias", "CatBoost", 0.01, "gaussian", 1.0),
     )
     # dataset_bias_types_list = (("perfectly_balanced_redlining"))
@@ -421,18 +429,44 @@ def main():
         # ("opt_debias", "nevergrad", "Powell", 500),
     )
 
-    subdominance_perf_metrics_list = ("Acc",)
-    subdominance_fair_metrics_list = ("AccPar", "DemPar", "EqOpp", "TNRPar")
+    # The performance and fairness measures the subdominance metric is computed
+    # over. FairIRL Bias Reduction optimizes relative to these: its
+    # `opt_debias` weight search minimizes the subdominance of the policies the
+    # candidate weights produce, scored on exactly these measures. They are
+    # also what the Superhuman Fairness baseline optimizes by default (see
+    # SH_FEATURES above), and what every technique's figures are plotted on.
+    #
+    # Entries may be named in either vocabulary, and the two may be mixed:
+    #   This project's objectives -- "Acc", "AccPar", "DemPar", "EqOpp",
+    #       "FPRPar", "EqOdds", "TNRPar", "FNRPar", "PredPar", "NegPredPar",
+    #       and the per-group rates ("PR_Z0", "TPR_Z1", ...). Each is a
+    #       "goodness" measure, turned into a loss as `1 - mu`.
+    #   The Superhuman Fairness paper's metrics -- "inacc" (prediction error),
+    #       "dp", "eqodds", "prp" (the larger of the PPV and NPV differences),
+    #       "eqopp", "fnr", "fpr", "ppv", "npv" and "error_rate_diff" (the
+    #       balanced error rate difference). These are already losses, computed
+    #       exactly as that paper's `util.get_metrics_df()` computes them.
+    #
+    # Several of the two overlap exactly -- "inacc" is "Acc", "dp" is "DemPar",
+    # "fpr" is "TNRPar", "eqopp" and "fnr" are "EqOpp" -- while "prp" and
+    # "error_rate_diff" have no objective equivalent. The split between the two
+    # lists only sets the weighting: sum-aggregated subdominance gives the perf
+    # metrics half the weight and the fair metrics the other half.
+    # subdominance_perf_metrics_list = ("Acc",)
+    # subdominance_fair_metrics_list = ("AccPar", "DemPar", "EqOpp", "TNRPar")
+    # The superhuman fairness paper's own configuration, for reference:
+    subdominance_perf_metrics_list = ("inacc",)
+    subdominance_fair_metrics_list = ("dp", "eqodds", "prp")
 
     selected_datasets = [
         "COMPAS",
         "Adult",
-        "ACSIncome__MA",
-        "ACSIncome__MS",
-        "ACSIncome__CA",
-        "ACSIncome__IL",
-        "ACSIncome__AL",
-        "ACSIncome__HI",
+        # "ACSIncome__MA",
+        # "ACSIncome__MS",
+        # "ACSIncome__CA",
+        # "ACSIncome__IL",
+        # "ACSIncome__AL",
+        # "ACSIncome__HI",
     ]
 
     # Run experiments. Results are reported to Weights & Biases (project

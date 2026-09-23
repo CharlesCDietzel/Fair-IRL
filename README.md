@@ -89,6 +89,12 @@ demonstrations it imitates, which performance/fairness measures it optimizes,
 its learning rate and iteration count) and the `FAIR_LOGLOSS_*` entries for the
 fair-log-loss baselines.
 
+The Superhuman Fairness paper's own demonstrator -- the post-processing model
+its `SH_DEMO_SOURCE = "pp_baseline"` setting learns from -- is also available
+to the FairIRL Bias Reduction technique as the `"PostProcDemo"` entry of
+`expert_algos`. It takes its fairness constraint from `SH_DEMO_CONSTRAINTS`,
+so selecting it makes both techniques imitate the same demonstrator.
+
 # Figures
 
 Use VSCode or your IDE of choice to view and run the various python notebooks. 

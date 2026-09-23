@@ -279,6 +279,78 @@ def objective_feature_losses(demo, obj_names):
     return -np.array(obj_set.compute_demo_feature_exp(demo)) + 1
 
 
+def validate_feature_names(feature_names, context="feature"):
+    """
+    Raise if any name is neither one of this project's objectives nor one of
+    the original paper's metrics.
+    """
+    unknown = [
+        name
+        for name in feature_names
+        if name not in OBJ_LOOKUP_BY_NAME and name not in SH_PAPER_FEATURE_LOSSES
+    ]
+    if unknown:
+        raise ValueError(
+            f"Unrecognized {context} name(s): {unknown}."
+            f" Valid names are this project's objectives"
+            f" {sorted(OBJ_LOOKUP_BY_NAME)} and the original paper's metrics"
+            f" {sorted(SH_PAPER_FEATURE_LOSSES)}."
+        )
+
+
+def feature_losses_from_demo(demo, feature_names):
+    """
+    Compute a demonstration's loss on each named performance/fairness measure.
+
+    This is the one definition of "feature loss" in the project: the
+    subdominance metric (`compute_relevant_feat_loss()`), the Superhuman
+    Fairness baseline and the expert demonstrations recorded for plotting all
+    come through here, so every one of them is measuring the same quantity.
+
+    Two vocabularies are accepted, and may be mixed:
+
+    * This project's objective names (`OBJ_LOOKUP_BY_NAME`, e.g. `"Acc"`,
+      `"DemPar"`). These are "goodness" measures in [0, 1], so they are
+      inverted with `-mu + 1` to get a loss where lower is better.
+    * The original paper's metric names (`SH_PAPER_FEATURE_LOSSES`, e.g.
+      `"inacc"`, `"dp"`, `"prp"`), which are already losses, and which
+      reproduce `util.get_metrics_df()` of the reference implementation.
+
+    Parameters
+    ----------
+    demo : pandas.DataFrame
+        Demonstration frame with at least `y`, `yhat` and `z` columns.
+    feature_names : sequence<str>
+        The measures to compute, in the order they are returned.
+
+    Returns
+    -------
+    losses : numpy.ndarray, shape (len(feature_names),)
+    """
+    validate_feature_names(feature_names)
+
+    # This project's objectives are computed in one batch, since an
+    # ObjectiveSet evaluates all of its objectives in a single pass.
+    obj_names = [name for name in feature_names if name in OBJ_LOOKUP_BY_NAME]
+    obj_losses = (
+        dict(zip(obj_names, objective_feature_losses(demo, obj_names)))
+        if obj_names
+        else {}
+    )
+
+    return np.array(
+        [
+            (
+                obj_losses[name]
+                if name in obj_losses
+                else SH_PAPER_FEATURE_LOSSES[name](demo)
+            )
+            for name in feature_names
+        ],
+        dtype=float,
+    )
+
+
 def make_feature_loss_fn(feature_names):
     """
     Build the loss function the baseline optimizes and is measured with.
@@ -295,22 +367,7 @@ def make_feature_loss_fn(feature_names):
     loss_fn : callable(y_true, y_pred, z) -> numpy.ndarray
         The losses of the given decisions, in the order of `feature_names`.
     """
-    unknown = [
-        name
-        for name in feature_names
-        if name not in OBJ_LOOKUP_BY_NAME and name not in SH_PAPER_FEATURE_LOSSES
-    ]
-    if unknown:
-        raise ValueError(
-            f"Unrecognized Superhuman Fairness feature name(s): {unknown}."
-            f" Valid names are this project's objectives"
-            f" {sorted(OBJ_LOOKUP_BY_NAME)} and the original paper's metrics"
-            f" {sorted(SH_PAPER_FEATURE_LOSSES)}."
-        )
-
-    # Project objectives are computed in one batch, since an ObjectiveSet
-    # evaluates all of its objectives in a single pass over the demo.
-    obj_names = [name for name in feature_names if name in OBJ_LOOKUP_BY_NAME]
+    validate_feature_names(feature_names, context="Superhuman Fairness feature")
 
     def loss_fn(y_true, y_pred, z):
         # Every objective and every paper metric is a function of `y`, `yhat`
@@ -326,21 +383,7 @@ def make_feature_loss_fn(feature_names):
             }
         )
 
-        obj_losses = {}
-        if obj_names:
-            obj_losses = dict(zip(obj_names, objective_feature_losses(demo, obj_names)))
-
-        return np.array(
-            [
-                (
-                    obj_losses[name]
-                    if name in obj_losses
-                    else SH_PAPER_FEATURE_LOSSES[name](demo)
-                )
-                for name in feature_names
-            ],
-            dtype=float,
-        )
+        return feature_losses_from_demo(demo, feature_names)
 
     return loss_fn
 
