@@ -50,6 +50,16 @@ are flagged where they occur:
 Both are left as they are upstream: reproducing the published baseline
 faithfully matters more than fixing it.
 
+The first quirk has a large effect, though. With each demonstration covering
+half the pool, it makes `phi_j - E[phi]` equal to half the mean of `phi` --
+the same for every demonstration -- plus the demonstration-specific signal,
+and the shared half dominates the gradient. Since the subdominance weights
+multiplying it sum to a positive number, every step pushes all of the logits
+down, so the model drifts toward predicting every label 0 rather than
+learning from the demonstrations. `fix_normalization=True` (the "Superhuman
+Fairness Fixed" technique) normalizes `E[phi]` like `phi_j`, which leaves only
+the demonstration-specific signal. See `_compute_feature_matching()`.
+
 The original's COMPAS-only initialization of `theta` from a fair log-loss
 classifier is available as `base_theta_init="fair_logloss_dp"`, off by
 default; see `SuperhumanFairness._fit_base_model()`.
@@ -503,6 +513,10 @@ class SuperhumanFairness:
     base_theta_init : str, default "logistic_regression"
         How the starting `theta` is obtained; one of `SH_BASE_THETA_INITS`.
         See `_fit_base_model()`.
+    fix_normalization : bool, default False
+        Normalize `E[phi(X, Y)]` by each demonstration's size, like
+        `phi(X, Y)` itself, instead of by the whole pool's size as upstream
+        does. See `_compute_feature_matching()`.
 
     Attributes
     ----------
@@ -527,6 +541,7 @@ class SuperhumanFairness:
         logi_params=None,
         rng=None,
         base_theta_init="logistic_regression",
+        fix_normalization=False,
     ):
         if base_theta_init not in SH_BASE_THETA_INITS:
             raise ValueError(
@@ -543,6 +558,7 @@ class SuperhumanFairness:
         self.logi_params = dict(logi_params or SH_DEFAULT_LOGI_PARAMS)
         self.rng = rng if rng is not None else np.random.default_rng()
         self.base_theta_init = base_theta_init
+        self.fix_normalization = fix_normalization
 
         self.pipeline_ = None
         self.threshold_ = None
@@ -762,7 +778,14 @@ class SuperhumanFairness:
         by the size of the demonstration -- so the expectation subtracted here
         is on a different scale than the term it is subtracted from. That is
         how the reference implementation computes it, so it is reproduced
-        exactly.
+        exactly by default.
+
+        With `fix_normalization`, the expectation is normalized by each
+        demonstration's size as well, making it the mean of the `phi(X, Y)`
+        terms themselves. Each row returned is then only that demonstration's
+        deviation from the mean, i.e. the demonstration-specific signal,
+        without the component shared by every demonstration that the
+        mismatched normalization adds.
 
         Returns
         -------
@@ -770,7 +793,8 @@ class SuperhumanFairness:
         """
         n_pool = self.design_.shape[0]
 
-        # compute_exp_phi_X_Y(): normalized by the whole pool's size.
+        # compute_exp_phi_X_Y(): normalized by the whole pool's size, or with
+        # `fix_normalization` by the demonstration's size, like phi_X_Y.
         exp_phi_X_Y = np.zeros(self.num_of_attributs_)
         # feature_matching(): normalized by the demonstration's size.
         phi_X_Y = np.zeros((self.num_of_demos_, self.num_of_attributs_))
@@ -778,7 +802,9 @@ class SuperhumanFairness:
         for i, demo in enumerate(self.demo_list_):
             design_demo = self.design_[demo.idx]
             weighted_sum = design_demo.T @ samples_demo_indexed[i]
-            exp_phi_X_Y += weighted_sum / n_pool
+            exp_phi_X_Y += weighted_sum / (
+                design_demo.shape[0] if self.fix_normalization else n_pool
+            )
             phi_X_Y[i] = weighted_sum / design_demo.shape[0]
 
         exp_phi_X_Y /= self.num_of_demos_

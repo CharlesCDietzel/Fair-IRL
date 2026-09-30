@@ -831,14 +831,18 @@ SUBDOMINANCE_KEYS = tuple(
 # a run of the experiment script actually covers is set per experiment, as
 # `exp_info["ALGORITHMS"]`.
 #
-# The four names after Superhuman Fairness are the fair-classification
-# baselines that paper compares itself against, ported in
+# Superhuman Fairness Fixed is Superhuman Fairness with the normalization of
+# its gradient's feature-matching term fixed; see `SUPERHUMAN_VARIANTS`.
+#
+# The four names after it are the fair-classification baselines the
+# Superhuman Fairness paper compares itself against, ported in
 # `fair_irl.sh.baselines`. Its fifth, MFOpt (Hsu et al., 2022), is absent
 # because its reference repository ships no implementation of it -- only CSVs
 # of predictions produced elsewhere -- and its authors published no code; see
 # the module docstring of `fair_irl.sh.baselines`.
 ALGORITHM_FAIRIRL = "FairIRL Bias Reduction"
 ALGORITHM_SUPERHUMAN = "Superhuman Fairness"
+ALGORITHM_SUPERHUMAN_FIXED = "Superhuman Fairness Fixed"
 ALGORITHM_POST_PROC_DP = "Post Proc DP"
 ALGORITHM_POST_PROC_EQODDS = "Post Proc EqOdds"
 ALGORITHM_FAIR_LOGLOSS_DP = "Fair LogLoss DP"
@@ -846,6 +850,7 @@ ALGORITHM_FAIR_LOGLOSS_EQODDS = "Fair LogLoss EqOdds"
 ALGORITHMS = (
     ALGORITHM_FAIRIRL,
     ALGORITHM_SUPERHUMAN,
+    ALGORITHM_SUPERHUMAN_FIXED,
     ALGORITHM_POST_PROC_DP,
     ALGORITHM_POST_PROC_EQODDS,
     ALGORITHM_FAIR_LOGLOSS_DP,
@@ -907,6 +912,11 @@ SH_DEFAULTS = {
     "SH_ITERS": SH_DEFAULT_ITERS,
     "SH_LR_THETA": SH_DEFAULT_LR_THETA,
     "SH_LAMDA": SH_DEFAULT_LAMDA,
+    # Superhuman Fairness Fixed's own `iters`, `lr_theta` and `lamda`, so that
+    # it can be tuned separately. It shares every other setting here.
+    "SH_FIXED_ITERS": SH_DEFAULT_ITERS,
+    "SH_FIXED_LR_THETA": SH_DEFAULT_LR_THETA,
+    "SH_FIXED_LAMDA": SH_DEFAULT_LAMDA,
     # The fairness constraint the "pp_baseline" demonstrator satisfies. Unused
     # by the "expert_demos" source.
     "SH_DEMO_CONSTRAINTS": "demographic_parity",
@@ -914,6 +924,25 @@ SH_DEFAULTS = {
     # "logistic_regression" is the original's general path; "fair_logloss_dp"
     # is what it does for its COMPAS dataset.
     "SH_BASE_THETA_INIT": "logistic_regression",
+}
+
+# The two Superhuman Fairness techniques, which share `_run_superhuman_trial()`.
+# Each has its own `SH_DEFAULTS` keys for `iters`, `lr_theta` and `lamda`.
+# Superhuman Fairness Fixed differs only in `fix_normalization`: see
+# `SuperhumanFairness._compute_feature_matching()`.
+SUPERHUMAN_VARIANTS = {
+    ALGORITHM_SUPERHUMAN: {
+        "fix_normalization": False,
+        "iters": "SH_ITERS",
+        "lr_theta": "SH_LR_THETA",
+        "lamda": "SH_LAMDA",
+    },
+    ALGORITHM_SUPERHUMAN_FIXED: {
+        "fix_normalization": True,
+        "iters": "SH_FIXED_ITERS",
+        "lr_theta": "SH_FIXED_LR_THETA",
+        "lamda": "SH_FIXED_LAMDA",
+    },
 }
 
 
@@ -3266,9 +3295,10 @@ def _run_superhuman_trial(
     group,
     session_id,
     trial_start,
+    algorithm=ALGORITHM_SUPERHUMAN,
 ):
     """
-    Train and evaluate the Superhuman Fairness baseline for one bias type.
+    Train and evaluate one Superhuman Fairness technique for one bias type.
 
     Reports one W&B run, built by the same `start_wandb_run()` and finished by
     the same `_evaluate_and_finalize()` every other technique here goes
@@ -3280,16 +3310,23 @@ def _run_superhuman_trial(
     weights : numpy.ndarray
         The reward weights the weighted metrics are computed with. See
         `_evaluate_and_finalize()`.
+    algorithm : str, default ALGORITHM_SUPERHUMAN
+        Which of `SUPERHUMAN_VARIANTS` to run.
     """
     sh_config = _superhuman_config(exp_info)
+    variant = SUPERHUMAN_VARIANTS[algorithm]
     feature_names = sh_config["SH_FEATURES"] or subdominance_metric_names(exp_info)
+    # Both variants draw from the generator seeded for Superhuman Fairness, so
+    # that on the same trial they imitate exactly the same demonstrations and
+    # start from exactly the same model, and differ only by the normalization
+    # fix and their own hyperparameters.
     rng = _baseline_rng(
         exp_info, ALGORITHM_SUPERHUMAN, bias_demos.dataset_bias_type, trial_i
     )
 
     with start_wandb_run(
         exp_info,
-        ALGORITHM_SUPERHUMAN,
+        algorithm,
         bias_demos.dataset_bias_type,
         (),
         trial_i,
@@ -3304,7 +3341,10 @@ def _run_superhuman_trial(
                     f"{key}_RESOLVED": _json_safe(value)
                     for key, value in sh_config.items()
                 }
-                | {"SH_FEATURES_RESOLVED": _json_safe(list(feature_names))},
+                | {
+                    "SH_FEATURES_RESOLVED": _json_safe(list(feature_names)),
+                    "SH_FIX_NORMALIZATION_RESOLVED": variant["fix_normalization"],
+                },
                 allow_val_change=True,
             )
 
@@ -3319,16 +3359,17 @@ def _run_superhuman_trial(
                 f" features {list(feature_names)}"
             )
 
-            logging.info("Training Superhuman Fairness...")
+            logging.info(f"Training {algorithm}...")
             sh_model = SuperhumanFairness(
                 feature_types=feature_types,
                 feature_names=feature_names,
                 loss_fn=loss_fn,
-                lr_theta=sh_config["SH_LR_THETA"],
-                iters=sh_config["SH_ITERS"],
-                lamda=sh_config["SH_LAMDA"],
+                lr_theta=sh_config[variant["lr_theta"]],
+                iters=sh_config[variant["iters"]],
+                lamda=sh_config[variant["lamda"]],
                 rng=rng,
                 base_theta_init=sh_config["SH_BASE_THETA_INIT"],
+                fix_normalization=variant["fix_normalization"],
             )
             sh_model.fit(pool_X, pool_y, demo_list)
 
@@ -3370,7 +3411,7 @@ def _run_superhuman_trial(
                 # plots draw around the model.
                 run.summary[f"superhuman_alpha_{name}"] = sh_model.alpha_[j]
         except Exception as error:
-            _report_run_failure(run, ALGORITHM_SUPERHUMAN, error)
+            _report_run_failure(run, algorithm, error)
 
 
 def _fair_logloss_config(exp_info):
@@ -3677,8 +3718,10 @@ def run_experiment_trial(
                 trial_start,
             )
 
-        if ALGORITHM_SUPERHUMAN in algorithms:
-            logging.info(f"ALGORITHM: {ALGORITHM_SUPERHUMAN}")
+        for algorithm in algorithms:
+            if algorithm not in SUPERHUMAN_VARIANTS:
+                continue
+            logging.info(f"ALGORITHM: {algorithm}")
             _run_superhuman_trial(
                 exp_info,
                 bias_demos,
@@ -3691,6 +3734,7 @@ def run_experiment_trial(
                 group,
                 session_id,
                 trial_start,
+                algorithm=algorithm,
             )
 
         for algorithm in algorithms:

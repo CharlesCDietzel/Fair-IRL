@@ -117,8 +117,16 @@ def main():
         # bias type, produced by the same evaluation code on the same data
         # split, so that their metrics are directly comparable.
         #
-        # The five after FairIRL are the Superhuman Fairness technique and the
-        # fair-classification baselines that paper compares itself against:
+        # The six after FairIRL are the Superhuman Fairness technique, its
+        # fixed variant, and the fair-classification baselines that paper
+        # compares itself against:
+        #   "Superhuman Fairness Fixed"
+        #       Superhuman Fairness with the normalization of its gradient's
+        #       feature-matching term fixed, so that it learns from the
+        #       demonstration-specific signal instead of drifting toward
+        #       predicting every label 0. It shares every SH_* setting below
+        #       except its own SH_FIXED_ITERS, SH_FIXED_LR_THETA and
+        #       SH_FIXED_LAMDA.
         #   "Post Proc DP" / "Post Proc EqOdds"
         #       The post-processing model of Hardt et al. (2016), with
         #       demographic parity / equalized odds as the fairness constraint.
@@ -134,6 +142,7 @@ def main():
         "ALGORITHMS": [
             "FairIRL Bias Reduction",
             "Superhuman Fairness",
+            "Superhuman Fairness Fixed",
             "Post Proc DP",
             "Post Proc EqOdds",
             "Fair LogLoss DP",
@@ -141,7 +150,8 @@ def main():
         ],
         ##
         # Superhuman Fairness baseline parameters. Ignored unless
-        # "Superhuman Fairness" is listed in ALGORITHMS above.
+        # "Superhuman Fairness" or "Superhuman Fairness Fixed" is listed in
+        # ALGORITHMS above.
         ##
         # Where the reference decisions ("demonstrations") the baseline
         # imitates come from:
@@ -170,6 +180,11 @@ def main():
         "SH_ITERS": 30,
         "SH_LR_THETA": 0.01,
         "SH_LAMDA": 0.001,
+        # Superhuman Fairness Fixed's own `iters`, `lr_theta` and `lamda`, in
+        # place of the three above, so that it can be tuned separately.
+        "SH_FIXED_ITERS": 30,
+        "SH_FIXED_LR_THETA": 0.01,
+        "SH_FIXED_LAMDA": 0.001,
         # The fairness constraint the "pp_baseline" demonstrator satisfies.
         # Unused by the "expert_demos" source.
         "SH_DEMO_CONSTRAINTS": "demographic_parity",
@@ -213,6 +228,9 @@ def main():
         "SH_ITERS": 30,
         "SH_LR_THETA": 0.01,
         "SH_LAMDA": 0.001,
+        "SH_FIXED_ITERS": 30,
+        "SH_FIXED_LR_THETA": 0.01,
+        "SH_FIXED_LAMDA": 0.001,
         "SH_BASE_THETA_INIT": "logistic_regression",
         # The original splits each dataset in half, stratified by the label:
         # one half is the training pool the model and its demonstrations are
@@ -338,6 +356,8 @@ def main():
     exp_dict["base_exp_info"] |= {
         "SH_LR_THETA": 0.0001,
         "SH_ITERS": 5,
+        "SH_FIXED_LR_THETA": 0.0001,
+        "SH_FIXED_ITERS": 5,
         "SH_BASE_THETA_INIT": "fair_logloss_dp",
     }
     exp_list.append(exp_dict)
