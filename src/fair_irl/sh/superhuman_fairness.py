@@ -463,6 +463,10 @@ class SuperhumanTrainingHistory:
         The `alpha` values of each iteration.
     n_iterations : int
         How many iterations actually ran before the early stopping tests fired.
+    learning_rate : list<float>
+        The optimizer learning rate each iteration's step was taken with, for
+        models whose learning rate changes during training (the neural network
+        variant). Empty otherwise.
     """
 
     subdom_sum: list = field(default_factory=list)
@@ -470,6 +474,7 @@ class SuperhumanTrainingHistory:
     gamma_superhuman: list = field(default_factory=list)
     alphas: list = field(default_factory=list)
     n_iterations: int = 0
+    learning_rate: list = field(default_factory=list)
 
 
 class SuperhumanFairness:
@@ -528,6 +533,10 @@ class SuperhumanFairness:
         The current per-feature `alpha`.
     history_ : SuperhumanTrainingHistory
         Per-iteration diagnostics of the last `fit()`.
+    selected_iteration_ : int
+        The index, into `history_`, of the iteration whose model `fit()`
+        returns: always the last one here, as upstream keeps training `theta`
+        in place.
     """
 
     def __init__(
@@ -569,6 +578,7 @@ class SuperhumanFairness:
         # unreachable. Kept as-is so the stopping behavior matches.
         self.gamma_superhuman_ = np.zeros(self.num_of_features)
         self.history_ = SuperhumanTrainingHistory()
+        self.selected_iteration_ = None
 
     ##
     # Training
@@ -939,6 +949,7 @@ class SuperhumanFairness:
             self.history_.gamma_superhuman.append(gamma_superhuman)
             self.history_.alphas.append(new_alpha)
             self.history_.n_iterations = i + 1
+            self.selected_iteration_ = i
 
             logging.info(
                 f"\t\t SH iter {i + 1}/{self.iters}:"

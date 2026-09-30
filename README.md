@@ -32,7 +32,7 @@ To reproduce the results, run ```python3 src/fair_irl/Fair_IRL_Biased_Demonstrat
 
 ## Techniques
 
-Seven techniques can be trained and evaluated:
+Eight techniques can be trained and evaluated:
 
 * **FairIRL Bias Reduction** -- this project's own technique.
 * **Superhuman Fairness** -- the ICML 2023 technique of Memarrast et al.
@@ -49,6 +49,14 @@ Seven techniques can be trained and evaluated:
   only. It shares every `SH_*` setting except its own `SH_FIXED_ITERS`,
   `SH_FIXED_LR_THETA` and `SH_FIXED_LAMDA`, so that it can be tuned separately,
   and imitates exactly the same demonstrations as Superhuman Fairness does.
+* **Superhuman Fairness Neural Network** -- the neural network version of
+  Superhuman Fairness from the reference implementation's
+  [`reorg_current` branch](https://github.com/omidMemari/superhumn-fairness/tree/reorg_current),
+  ported in `src/fair_irl/sh/superhuman_fairness_nn.py`. It shares the
+  `SH_*` settings except its own `SH_NN_*` ones (including `SH_NN_LR_THETA`,
+  which here is the network's Adam learning rate), and imitates the same
+  demonstrations as Superhuman Fairness. It trains with PyTorch, on a GPU when
+  PyTorch can see one and on the CPU otherwise (see `SH_NN_DEVICE`).
 * **Post Proc DP** and **Post Proc EqOdds** -- the post-processing model of
   Hardt et al. (2016), with demographic parity and with equalized odds as the
   fairness constraint.
@@ -74,6 +82,7 @@ Which techniques a run covers is the `ALGORITHMS` list in
     "FairIRL Bias Reduction",
     "Superhuman Fairness",
     "Superhuman Fairness Fixed",
+    "Superhuman Fairness Neural Network",
     "Post Proc DP",
     "Post Proc EqOdds",
     "Fair LogLoss DP",

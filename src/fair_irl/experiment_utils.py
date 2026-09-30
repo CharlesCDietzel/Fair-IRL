@@ -70,6 +70,14 @@ from .sh.superhuman_fairness import (
     objective_feature_losses,
     validate_feature_names,
 )
+from .sh.superhuman_fairness_nn import (
+    SH_NN_DEFAULT_BASE_FIT_EPOCHS,
+    SH_NN_DEFAULT_HIDDEN_NODES,
+    SH_NN_DEFAULT_LR_BOOST_FACTOR,
+    SH_NN_DEFAULT_LR_DECAY_GAMMA_FRAC,
+    SH_NN_DEFAULT_LR_THETA,
+    SuperhumanFairnessNN,
+)
 
 # `OBJ_LOOKUP_BY_NAME` now lives in `fair_irl.rl.objectives`, next to the
 # objectives it names, so that modules which cannot import this one (e.g.
@@ -832,9 +840,11 @@ SUBDOMINANCE_KEYS = tuple(
 # `exp_info["ALGORITHMS"]`.
 #
 # Superhuman Fairness Fixed is Superhuman Fairness with the normalization of
-# its gradient's feature-matching term fixed; see `SUPERHUMAN_VARIANTS`.
+# its gradient's feature-matching term fixed, and Superhuman Fairness Neural
+# Network is the neural network version of the reference implementation's
+# `reorg_current` branch; see `SUPERHUMAN_VARIANTS`.
 #
-# The four names after it are the fair-classification baselines the
+# The four names after them are the fair-classification baselines the
 # Superhuman Fairness paper compares itself against, ported in
 # `fair_irl.sh.baselines`. Its fifth, MFOpt (Hsu et al., 2022), is absent
 # because its reference repository ships no implementation of it -- only CSVs
@@ -843,6 +853,7 @@ SUBDOMINANCE_KEYS = tuple(
 ALGORITHM_FAIRIRL = "FairIRL Bias Reduction"
 ALGORITHM_SUPERHUMAN = "Superhuman Fairness"
 ALGORITHM_SUPERHUMAN_FIXED = "Superhuman Fairness Fixed"
+ALGORITHM_SUPERHUMAN_NN = "Superhuman Fairness Neural Network"
 ALGORITHM_POST_PROC_DP = "Post Proc DP"
 ALGORITHM_POST_PROC_EQODDS = "Post Proc EqOdds"
 ALGORITHM_FAIR_LOGLOSS_DP = "Fair LogLoss DP"
@@ -851,6 +862,7 @@ ALGORITHMS = (
     ALGORITHM_FAIRIRL,
     ALGORITHM_SUPERHUMAN,
     ALGORITHM_SUPERHUMAN_FIXED,
+    ALGORITHM_SUPERHUMAN_NN,
     ALGORITHM_POST_PROC_DP,
     ALGORITHM_POST_PROC_EQODDS,
     ALGORITHM_FAIR_LOGLOSS_DP,
@@ -917,6 +929,19 @@ SH_DEFAULTS = {
     "SH_FIXED_ITERS": SH_DEFAULT_ITERS,
     "SH_FIXED_LR_THETA": SH_DEFAULT_LR_THETA,
     "SH_FIXED_LAMDA": SH_DEFAULT_LAMDA,
+    # Superhuman Fairness Neural Network's own `iters`, `lr_theta` and
+    # `lamda`. Its `lr_theta` is the network's Adam learning rate, whose
+    # default is the reference implementation's 1e-5.
+    "SH_NN_ITERS": SH_DEFAULT_ITERS,
+    "SH_NN_LR_THETA": SH_NN_DEFAULT_LR_THETA,
+    "SH_NN_LAMDA": SH_DEFAULT_LAMDA,
+    # Its network and schedule; see `SuperhumanFairnessNN`.
+    "SH_NN_HIDDEN_NODES": SH_NN_DEFAULT_HIDDEN_NODES,
+    "SH_NN_BASE_FIT_EPOCHS": SH_NN_DEFAULT_BASE_FIT_EPOCHS,
+    "SH_NN_LR_BOOST_FACTOR": SH_NN_DEFAULT_LR_BOOST_FACTOR,
+    "SH_NN_LR_DECAY_GAMMA_FRAC": SH_NN_DEFAULT_LR_DECAY_GAMMA_FRAC,
+    # The torch device it trains on; `None` uses a GPU if torch sees one.
+    "SH_NN_DEVICE": None,
     # The fairness constraint the "pp_baseline" demonstrator satisfies. Unused
     # by the "expert_demos" source.
     "SH_DEMO_CONSTRAINTS": "demographic_parity",
@@ -926,22 +951,58 @@ SH_DEFAULTS = {
     "SH_BASE_THETA_INIT": "logistic_regression",
 }
 
-# The two Superhuman Fairness techniques, which share `_run_superhuman_trial()`.
-# Each has its own `SH_DEFAULTS` keys for `iters`, `lr_theta` and `lamda`.
-# Superhuman Fairness Fixed differs only in `fix_normalization`: see
-# `SuperhumanFairness._compute_feature_matching()`.
+def _build_superhuman_lr(common, sh_config, fix_normalization):
+    """A logistic regression `SuperhumanFairness`."""
+    return SuperhumanFairness(
+        **common,
+        base_theta_init=sh_config["SH_BASE_THETA_INIT"],
+        fix_normalization=fix_normalization,
+    )
+
+
+def _build_superhuman_nn(common, sh_config):
+    """A neural network `SuperhumanFairnessNN`."""
+    return SuperhumanFairnessNN(
+        **common,
+        hidden_nodes=sh_config["SH_NN_HIDDEN_NODES"],
+        base_fit_epochs=sh_config["SH_NN_BASE_FIT_EPOCHS"],
+        lr_boost_factor=sh_config["SH_NN_LR_BOOST_FACTOR"],
+        lr_decay_gamma_frac=sh_config["SH_NN_LR_DECAY_GAMMA_FRAC"],
+        device=sh_config["SH_NN_DEVICE"],
+    )
+
+
+# The Superhuman Fairness techniques, which share `_run_superhuman_trial()`:
+# the same demonstrations, features and evaluation. Each has its own
+# `SH_DEFAULTS` keys for `iters`, `lr_theta` and `lamda`, and `build`s its own
+# model from them (passed in `common`) and from `SH_DEFAULTS`. `resolved` is
+# recorded in its runs' config.
+#
+# Superhuman Fairness Fixed differs from Superhuman Fairness only in
+# `fix_normalization`: see `SuperhumanFairness._compute_feature_matching()`.
+# Superhuman Fairness Neural Network is `SuperhumanFairnessNN`, which ignores
+# SH_BASE_THETA_INIT (see its module docstring).
 SUPERHUMAN_VARIANTS = {
     ALGORITHM_SUPERHUMAN: {
-        "fix_normalization": False,
         "iters": "SH_ITERS",
         "lr_theta": "SH_LR_THETA",
         "lamda": "SH_LAMDA",
+        "build": partial(_build_superhuman_lr, fix_normalization=False),
+        "resolved": {"SH_FIX_NORMALIZATION_RESOLVED": False},
     },
     ALGORITHM_SUPERHUMAN_FIXED: {
-        "fix_normalization": True,
         "iters": "SH_FIXED_ITERS",
         "lr_theta": "SH_FIXED_LR_THETA",
         "lamda": "SH_FIXED_LAMDA",
+        "build": partial(_build_superhuman_lr, fix_normalization=True),
+        "resolved": {"SH_FIX_NORMALIZATION_RESOLVED": True},
+    },
+    ALGORITHM_SUPERHUMAN_NN: {
+        "iters": "SH_NN_ITERS",
+        "lr_theta": "SH_NN_LR_THETA",
+        "lamda": "SH_NN_LAMDA",
+        "build": _build_superhuman_nn,
+        "resolved": {},
     },
 }
 
@@ -3171,6 +3232,8 @@ def _log_superhuman_training(run, sh_model):
                 i
             ][j]
             metrics[f"superhuman/alpha/{name}"] = history.alphas[i][j]
+        if history.learning_rate:
+            metrics["superhuman/learning_rate"] = history.learning_rate[i]
         run.log(metrics)
 
 
@@ -3316,10 +3379,11 @@ def _run_superhuman_trial(
     sh_config = _superhuman_config(exp_info)
     variant = SUPERHUMAN_VARIANTS[algorithm]
     feature_names = sh_config["SH_FEATURES"] or subdominance_metric_names(exp_info)
-    # Both variants draw from the generator seeded for Superhuman Fairness, so
-    # that on the same trial they imitate exactly the same demonstrations and
-    # start from exactly the same model, and differ only by the normalization
-    # fix and their own hyperparameters.
+    # Every variant draws from the generator seeded for Superhuman Fairness, so
+    # that on the same trial they all imitate exactly the same
+    # demonstrations. The two logistic regression variants also start from
+    # exactly the same model, and differ only by the normalization fix and
+    # their own hyperparameters.
     rng = _baseline_rng(
         exp_info, ALGORITHM_SUPERHUMAN, bias_demos.dataset_bias_type, trial_i
     )
@@ -3341,10 +3405,8 @@ def _run_superhuman_trial(
                     f"{key}_RESOLVED": _json_safe(value)
                     for key, value in sh_config.items()
                 }
-                | {
-                    "SH_FEATURES_RESOLVED": _json_safe(list(feature_names)),
-                    "SH_FIX_NORMALIZATION_RESOLVED": variant["fix_normalization"],
-                },
+                | {"SH_FEATURES_RESOLVED": _json_safe(list(feature_names))}
+                | variant["resolved"],
                 allow_val_change=True,
             )
 
@@ -3360,16 +3422,17 @@ def _run_superhuman_trial(
             )
 
             logging.info(f"Training {algorithm}...")
-            sh_model = SuperhumanFairness(
-                feature_types=feature_types,
-                feature_names=feature_names,
-                loss_fn=loss_fn,
-                lr_theta=sh_config[variant["lr_theta"]],
-                iters=sh_config[variant["iters"]],
-                lamda=sh_config[variant["lamda"]],
-                rng=rng,
-                base_theta_init=sh_config["SH_BASE_THETA_INIT"],
-                fix_normalization=variant["fix_normalization"],
+            sh_model = variant["build"](
+                {
+                    "feature_types": feature_types,
+                    "feature_names": feature_names,
+                    "loss_fn": loss_fn,
+                    "lr_theta": sh_config[variant["lr_theta"]],
+                    "iters": sh_config[variant["iters"]],
+                    "lamda": sh_config[variant["lamda"]],
+                    "rng": rng,
+                },
+                sh_config,
             )
             sh_model.fit(pool_X, pool_y, demo_list)
 
@@ -3391,6 +3454,12 @@ def _run_superhuman_trial(
             )
 
             run.summary["superhuman_iterations"] = sh_model.history_.n_iterations
+            # The iteration whose model was kept and evaluated: the last one,
+            # except for the neural network, which keeps its best.
+            run.summary["superhuman_selected_iteration"] = sh_model.selected_iteration_
+            if isinstance(sh_model, SuperhumanFairnessNN):
+                # What SH_NN_DEVICE resolved to.
+                run.summary["superhuman_nn_device"] = str(sh_model.device)
             run.summary["superhuman_num_demos"] = len(demo_list)
             # The demonstrations this model imitated, as losses: one row per
             # demonstration, one column per `superhuman_demo_feat_loss_metrics`
@@ -3404,9 +3473,9 @@ def _run_superhuman_trial(
             )
             for j, name in enumerate(feature_names):
                 run.summary[f"superhuman_gamma_{name}"] = (
-                    sh_model.history_.gamma_superhuman[-1][j]
+                    sh_model.history_.gamma_superhuman[sh_model.selected_iteration_][j]
                 )
-                # The model's final alpha, `model_params["alpha"]` upstream,
+                # The selected model's alpha, `model_params["alpha"]` upstream,
                 # whose reciprocal is the margin the Superhuman Fairness
                 # plots draw around the model.
                 run.summary[f"superhuman_alpha_{name}"] = sh_model.alpha_[j]

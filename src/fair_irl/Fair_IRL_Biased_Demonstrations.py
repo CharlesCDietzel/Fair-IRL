@@ -117,8 +117,8 @@ def main():
         # bias type, produced by the same evaluation code on the same data
         # split, so that their metrics are directly comparable.
         #
-        # The six after FairIRL are the Superhuman Fairness technique, its
-        # fixed variant, and the fair-classification baselines that paper
+        # The seven after FairIRL are the Superhuman Fairness technique, two
+        # variants of it, and the fair-classification baselines that paper
         # compares itself against:
         #   "Superhuman Fairness Fixed"
         #       Superhuman Fairness with the normalization of its gradient's
@@ -127,6 +127,12 @@ def main():
         #       predicting every label 0. It shares every SH_* setting below
         #       except its own SH_FIXED_ITERS, SH_FIXED_LR_THETA and
         #       SH_FIXED_LAMDA.
+        #   "Superhuman Fairness Neural Network"
+        #       The neural network version of Superhuman Fairness, from the
+        #       reference implementation's `reorg_current` branch. It shares
+        #       the SH_* settings below except its own SH_NN_* ones, and
+        #       ignores SH_BASE_THETA_INIT. It needs PyTorch, and trains on a
+        #       GPU when PyTorch can see one.
         #   "Post Proc DP" / "Post Proc EqOdds"
         #       The post-processing model of Hardt et al. (2016), with
         #       demographic parity / equalized odds as the fairness constraint.
@@ -143,15 +149,15 @@ def main():
             "FairIRL Bias Reduction",
             "Superhuman Fairness",
             "Superhuman Fairness Fixed",
+            "Superhuman Fairness Neural Network",
             "Post Proc DP",
             "Post Proc EqOdds",
             "Fair LogLoss DP",
             "Fair LogLoss EqOdds",
         ],
         ##
-        # Superhuman Fairness baseline parameters. Ignored unless
-        # "Superhuman Fairness" or "Superhuman Fairness Fixed" is listed in
-        # ALGORITHMS above.
+        # Superhuman Fairness baseline parameters. Ignored unless one of the
+        # "Superhuman Fairness ..." techniques is listed in ALGORITHMS above.
         ##
         # Where the reference decisions ("demonstrations") the baseline
         # imitates come from:
@@ -185,6 +191,30 @@ def main():
         "SH_FIXED_ITERS": 30,
         "SH_FIXED_LR_THETA": 0.01,
         "SH_FIXED_LAMDA": 0.001,
+        # Superhuman Fairness Neural Network's own `iters`, `lr_theta` and
+        # `lamda`, in place of SH_ITERS/SH_LR_THETA/SH_LAMDA. Its `lr_theta`
+        # is the network's Adam learning rate: the reference implementation's
+        # network ignores `lr_theta` and steps with Adam at 1e-5, which is the
+        # value here. (Its own config trains for 40 iterations.)
+        "SH_NN_ITERS": 30,
+        "SH_NN_LR_THETA": 1e-5,
+        "SH_NN_LAMDA": 0.001,
+        # Its network: two ReLU hidden layers, of SH_NN_HIDDEN_NODES and half
+        # as many units, first fit with SH_NN_BASE_FIT_EPOCHS full-batch Adam
+        # steps. Both are the reference implementation's.
+        "SH_NN_HIDDEN_NODES": 512,
+        "SH_NN_BASE_FIT_EPOCHS": 15000,
+        # Its learning-rate schedule, the reference implementation's: the
+        # rate is multiplied by SH_NN_LR_BOOST_FACTOR after the first
+        # iteration, and divided by it again the first time the
+        # gamma-superhuman sum reaches SH_NN_LR_DECAY_GAMMA_FRAC of the number
+        # of features.
+        "SH_NN_LR_BOOST_FACTOR": 10,
+        "SH_NN_LR_DECAY_GAMMA_FRAC": 0.9,
+        # The torch device it trains on, e.g. "cpu" or "cuda". None uses a GPU
+        # if PyTorch can see one (AMD GPUs included, with a ROCm build of
+        # PyTorch), and the CPU otherwise.
+        "SH_NN_DEVICE": None,
         # The fairness constraint the "pp_baseline" demonstrator satisfies.
         # Unused by the "expert_demos" source.
         "SH_DEMO_CONSTRAINTS": "demographic_parity",
@@ -231,6 +261,9 @@ def main():
         "SH_FIXED_ITERS": 30,
         "SH_FIXED_LR_THETA": 0.01,
         "SH_FIXED_LAMDA": 0.001,
+        "SH_NN_ITERS": 30,
+        "SH_NN_LR_THETA": 1e-5,
+        "SH_NN_LAMDA": 0.001,
         "SH_BASE_THETA_INIT": "logistic_regression",
         # The original splits each dataset in half, stratified by the label:
         # one half is the training pool the model and its demonstrations are
@@ -358,6 +391,9 @@ def main():
         "SH_ITERS": 5,
         "SH_FIXED_LR_THETA": 0.0001,
         "SH_FIXED_ITERS": 5,
+        # The network's `lr_theta` is its Adam learning rate, so it keeps its
+        # own value; only the iteration count is mirrored.
+        "SH_NN_ITERS": 5,
         "SH_BASE_THETA_INIT": "fair_logloss_dp",
     }
     exp_list.append(exp_dict)
@@ -568,11 +604,11 @@ def main():
     # "error_rate_diff" have no objective equivalent. The split between the two
     # lists only sets the weighting: sum-aggregated subdominance gives the perf
     # metrics half the weight and the fair metrics the other half.
-    # subdominance_perf_metrics_list = ("Acc",)
-    # subdominance_fair_metrics_list = ("AccPar", "DemPar", "EqOpp", "TNRPar")
+    subdominance_perf_metrics_list = ("Acc",)
+    subdominance_fair_metrics_list = ("AccPar", "DemPar", "EqOpp", "TNRPar")
     # The superhuman fairness paper's own configuration, for reference:
-    subdominance_perf_metrics_list = ("inacc",)
-    subdominance_fair_metrics_list = ("dp", "eqodds", "prp")
+    # subdominance_perf_metrics_list = ("inacc",)
+    # subdominance_fair_metrics_list = ("dp", "eqodds", "prp")
 
     selected_datasets = [
         "COMPAS",
