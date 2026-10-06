@@ -117,7 +117,7 @@ def main():
         # bias type, produced by the same evaluation code on the same data
         # split, so that their metrics are directly comparable.
         #
-        # The seven after FairIRL are the Superhuman Fairness technique, two
+        # The eight after FairIRL are the Superhuman Fairness technique, three
         # variants of it, and the fair-classification baselines that paper
         # compares itself against:
         #   "Superhuman Fairness Fixed"
@@ -133,6 +133,13 @@ def main():
         #       the SH_* settings below except its own SH_NN_* ones, and
         #       ignores SH_BASE_THETA_INIT. It needs PyTorch, and trains on a
         #       GPU when PyTorch can see one.
+        #   "Superhuman Fairness Neural Network Fixed"
+        #       Superhuman Fairness Neural Network with its training loss
+        #       fixed: centered on the demonstrations' mean subdominance, so
+        #       it no longer drifts toward predicting every label 0, and built
+        #       from the sampled decisions, so its gradient learns which
+        #       decisions beat the demonstrations. It has its own SH_NN_FIXED_*
+        #       counterpart of every SH_NN_* setting.
         #   "Post Proc DP" / "Post Proc EqOdds"
         #       The post-processing model of Hardt et al. (2016), with
         #       demographic parity / equalized odds as the fairness constraint.
@@ -150,6 +157,7 @@ def main():
             "Superhuman Fairness",
             "Superhuman Fairness Fixed",
             "Superhuman Fairness Neural Network",
+            "Superhuman Fairness Neural Network Fixed",
             "Post Proc DP",
             "Post Proc EqOdds",
             "Fair LogLoss DP",
@@ -215,6 +223,16 @@ def main():
         # if PyTorch can see one (AMD GPUs included, with a ROCm build of
         # PyTorch), and the CPU otherwise.
         "SH_NN_DEVICE": None,
+        # Superhuman Fairness Neural Network Fixed's own counterparts of every
+        # SH_NN_* setting above, so that it can be tuned separately.
+        "SH_NN_FIXED_ITERS": 30,
+        "SH_NN_FIXED_LR_THETA": 1e-5,
+        "SH_NN_FIXED_LAMDA": 0.001,
+        "SH_NN_FIXED_HIDDEN_NODES": 512,
+        "SH_NN_FIXED_BASE_FIT_EPOCHS": 15000,
+        "SH_NN_FIXED_LR_BOOST_FACTOR": 10,
+        "SH_NN_FIXED_LR_DECAY_GAMMA_FRAC": 0.9,
+        "SH_NN_FIXED_DEVICE": None,
         # The fairness constraint the "pp_baseline" demonstrator satisfies.
         # Unused by the "expert_demos" source.
         "SH_DEMO_CONSTRAINTS": "demographic_parity",
@@ -264,6 +282,9 @@ def main():
         "SH_NN_ITERS": 30,
         "SH_NN_LR_THETA": 1e-5,
         "SH_NN_LAMDA": 0.001,
+        "SH_NN_FIXED_ITERS": 30,
+        "SH_NN_FIXED_LR_THETA": 1e-5,
+        "SH_NN_FIXED_LAMDA": 0.001,
         "SH_BASE_THETA_INIT": "logistic_regression",
         # The original splits each dataset in half, stratified by the label:
         # one half is the training pool the model and its demonstrations are
@@ -394,6 +415,7 @@ def main():
         # The network's `lr_theta` is its Adam learning rate, so it keeps its
         # own value; only the iteration count is mirrored.
         "SH_NN_ITERS": 5,
+        "SH_NN_FIXED_ITERS": 5,
         "SH_BASE_THETA_INIT": "fair_logloss_dp",
     }
     exp_list.append(exp_dict)

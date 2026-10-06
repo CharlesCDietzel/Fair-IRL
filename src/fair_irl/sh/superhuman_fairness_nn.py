@@ -55,6 +55,23 @@ Quirks of the branch, reproduced deliberately and flagged where they occur:
   sum, the latest one among ties: upstream pickles the model each time the sum
   matches or beats its best so far, and tests the last pickle.
 
+The training loss has two problems, which `fix_gradient=True` (the
+"Superhuman Fairness Neural Network Fixed" technique) fixes; see
+`_fixed_loss()`:
+
+1. Its gradient is dominated by a direction shared by every demonstration.
+   Each demonstration covers a random half of the pool, so every
+   `sum_{i in demo j} p1(x_i)` has nearly the same gradient, and the
+   demonstrations' weights `sum_k s_jk` are all positive (the running-mean
+   subdominance constant, which is meant to center them, averages a partly
+   filled tensor and so subtracts too little). Every step therefore lowers
+   every row's probability of predicting 1, and the model drifts toward
+   predicting every label 0 -- the same failure as the logistic regression
+   version's normalization mismatch.
+2. The sampled decisions never reach the gradient: only the probabilities
+   `p1(x_i)` do, so the gradient cannot tell which decisions made a sample
+   beat or lose to a demonstration.
+
 Not ported, since neither affects a single decision the model makes: the
 network's `linear` layer, which `forward()` never uses (its weights are what
 upstream's `get_model_theta()` reports), and the COMPAS branch of
@@ -124,10 +141,22 @@ class SuperhumanNet(nn.Module):
         self.fc3 = nn.Linear(int(n_nodes / 2), 2)
         self.out = nn.Softmax(dim=1)
 
-    def forward(self, x):
+    def logits(self, x):
+        """The pre-softmax output."""
         x = self.relu1(self.fc1(x))
         x = self.relu2(self.fc2(x))
-        return self.out(self.fc3(x))
+        return self.fc3(x)
+
+    def forward(self, x):
+        return self.out(self.logits(x))
+
+    def log_proba(self, x):
+        """
+        The log of `forward()`, computed stably: the network routinely
+        saturates to probabilities that underflow to 0, whose log would be
+        `-inf`.
+        """
+        return torch.log_softmax(self.logits(x), dim=1)
 
 
 class SuperhumanFairnessNN:
@@ -175,6 +204,9 @@ class SuperhumanFairnessNN:
     device : str, Optional
         The torch device to train on. Defaults to a GPU when torch can see one
         (which includes AMD GPUs under ROCm), and the CPU otherwise.
+    fix_gradient : bool, default False
+        Train on `_fixed_loss()` instead of upstream's loss. Everything else,
+        down to the random draws, is the same.
 
     Attributes
     ----------
@@ -207,6 +239,7 @@ class SuperhumanFairnessNN:
         lr_boost_factor=SH_NN_DEFAULT_LR_BOOST_FACTOR,
         lr_decay_gamma_frac=SH_NN_DEFAULT_LR_DECAY_GAMMA_FRAC,
         device=None,
+        fix_gradient=False,
     ):
         self.feature_types = feature_types
         self.feature_names = list(feature_names)
@@ -220,6 +253,7 @@ class SuperhumanFairnessNN:
         self.base_fit_epochs = base_fit_epochs
         self.lr_boost_factor = lr_boost_factor
         self.lr_decay_gamma_frac = lr_decay_gamma_frac
+        self.fix_gradient = fix_gradient
         if device is None:
             device = "cuda" if torch.cuda.is_available() else "cpu"
         self.device = torch.device(device)
@@ -259,6 +293,12 @@ class SuperhumanFairnessNN:
         self.demo_list_ = demo_list
         self.num_of_demos_ = len(demo_list)
         self.demo_losses_ = np.array([demo.metric for demo in demo_list], dtype=float)
+        # Every (demonstration, row it covers) pair, flattened, for
+        # `_fixed_loss()`.
+        self.pair_demo_ = np.concatenate(
+            [np.full(len(demo.idx), j) for j, demo in enumerate(demo_list)]
+        )
+        self.pair_row_ = np.concatenate([np.asarray(demo.idx) for demo in demo_list])
 
         logging.info(f"\t\t SH NN training on {self.device}")
         self._fit_base_model(X, y)
@@ -386,7 +426,7 @@ class SuperhumanFairnessNN:
             )
         return sample_loss
 
-    def _train_step(self, sample_loss):
+    def _train_step(self, sample_loss, sample_matrix):
         """
         One Adam step on the subdominance-weighted training loss.
 
@@ -402,6 +442,10 @@ class SuperhumanFairnessNN:
         here one forward pass over the pool gives each row's probability, and
         each row's weight is the total of the demonstrations covering it, which
         is the same loss.
+
+        With `fix_gradient`, the step is taken on `_fixed_loss()` instead. The
+        subdominance tensor is still filled as above, in the same shuffled
+        order, so the value reported and every random draw stay the same.
 
         Returns
         -------
@@ -423,21 +467,72 @@ class SuperhumanFairnessNN:
                 - subdom_constant
             )
 
-        row_weight = np.zeros(self.design_.shape[0])
-        for j, demo in enumerate(self.demo_list_):
-            np.add.at(
-                row_weight, demo.idx, subdom_tensor[j, :].sum() / self.num_of_demos_
-            )
-
         self.optimizer_.zero_grad()
-        loss = torch.sum(
-            self._p1(self.design_)
-            * torch.as_tensor(row_weight, dtype=torch.float32, device=self.device)
-        )
+        if self.fix_gradient:
+            loss = self._fixed_loss(sample_loss, sample_matrix)
+        else:
+            row_weight = np.zeros(self.design_.shape[0])
+            for j, demo in enumerate(self.demo_list_):
+                np.add.at(
+                    row_weight,
+                    demo.idx,
+                    subdom_tensor[j, :].sum() / self.num_of_demos_,
+                )
+            loss = torch.sum(
+                self._p1(self.design_)
+                * torch.as_tensor(row_weight, dtype=torch.float32, device=self.device)
+            )
         loss.backward()
         self.optimizer_.step()
 
         return float(np.sum(subdom_tensor))
+
+    def _fixed_loss(self, sample_loss, sample_matrix):
+        """
+        The training loss of Superhuman Fairness Neural Network Fixed.
+
+            (1 / n) * sum_j (w_j - mean(w)) * sum_{i in demo j} log P(yhat_ji | x_i)
+
+        where `yhat_ji` is the decision sampled for row `i` in demonstration
+        `j`'s sample, and `w_j = sum_k max(alpha_k * (sample_loss_jk -
+        demo_loss_jk) + 1, 0)` is that sample's subdominance.
+
+        This fixes both problems of upstream's loss (see the module
+        docstring):
+
+        1. Centering the weights on their mean removes the component shared by
+           every demonstration exactly: the shared part of the demonstrations'
+           gradients is multiplied by `sum_j (w_j - mean(w)) = 0`. The mean
+           replaces upstream's running-mean subdominance constant, the
+           centering it was meant to provide. Subtracting the mean including
+           `w_j` itself is `(n - 1) / n` times subtracting the mean of the
+           other demonstrations, a baseline that leaves the gradient an
+           unbiased estimate.
+        2. The gradient is the score-function (REINFORCE) estimate of the
+           gradient of the expected subdominance: it raises the probability of
+           the decisions of samples that dominate their demonstrations better
+           than average, and lowers that of the others. This is the neural
+           network counterpart of the logistic regression version's
+           `phi_j - E[phi]` with the normalization fixed, whose `phi_j` is
+           built from the sampled decisions in the same way.
+        """
+        hinge = np.maximum(
+            self.alpha_ * (sample_loss - self.demo_losses_) + 1, 0
+        ).sum(axis=1)
+        weight = (hinge - hinge.mean()) / self.num_of_demos_
+
+        sampled = sample_matrix[self.pair_demo_, self.pair_row_].astype(np.int64)
+        log_proba = self.model_.log_proba(self.design_)
+        log_proba_sampled = log_proba[
+            torch.as_tensor(self.pair_row_, device=self.device),
+            torch.as_tensor(sampled, device=self.device),
+        ]
+        return torch.sum(
+            log_proba_sampled
+            * torch.as_tensor(
+                weight[self.pair_demo_], dtype=torch.float32, device=self.device
+            )
+        )
 
     def _set_learning_rate(self, lr):
         for g in self.optimizer_.param_groups:
@@ -497,7 +592,7 @@ class SuperhumanFairnessNN:
             sample_loss = self._get_sample_loss(sample_matrix)
 
             lr = self._get_learning_rate()
-            subdom_tensor_sum = self._train_step(sample_loss)
+            subdom_tensor_sum = self._train_step(sample_loss, sample_matrix)
 
             # find new alpha, from the samples of the model before the step
             new_alpha = compute_alphas(self.demo_losses_, sample_loss, self.lamda)
