@@ -535,9 +535,7 @@ class ClassificationMDP:
         cols = np.concatenate(cols)
         vals = np.concatenate(vals)
         keep = np.abs(vals) > _HIGHS_SMALL_MATRIX_VALUE
-        A_eq = csc_array(
-            (vals[keep], (rows[keep], cols[keep])), shape=(n_rows, n_cols)
-        )
+        A_eq = csc_array((vals[keep], (rows[keep], cols[keep])), shape=(n_rows, n_cols))
         # Canonical (sorted) row indices within each column, as
         # `_to_solver_matrix` produces.
         A_eq.sort_indices()

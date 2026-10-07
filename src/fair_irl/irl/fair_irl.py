@@ -54,7 +54,7 @@ def compute_optimal_policy(
     reward_weights : dict<str, float>
         Keys are objective identifiers. Values are their respective reward
         weights.
-    skip_error_terms : bool, default False
+    skip_error_terms : bool, default True
         If true, doesn't try and find all solutions and instead just invokes
         the scipy solver on the input terms.
     method : str, default 'highs'

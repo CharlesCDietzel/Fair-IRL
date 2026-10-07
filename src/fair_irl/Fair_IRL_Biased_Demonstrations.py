@@ -87,15 +87,15 @@ def main():
         "USE_HIDDEN_FEATURES_SOURCE": True,
         "N_EXPERT_DEMOS": 2,
         "RESTRICT_Y_ACTION": True,
-        # Policy learning parameters
-        "METHOD": "highs",
+        # Fair-IRL Policy learning parameters
+        "METHOD": "highs",  # TODO: Tune this hyperparameter (options: 'highs', 'highs-ds', 'highs-ipm')
         # The most iterations the `opt_debias` weight adjustment runs before
         # giving up on finding a better weight set. This is only a safety net
         # -- the loop is expected to stop on its own as soon as an iteration
         # fails to improve.
         # Setting this to 1 for now because the Iteration loop does not appear
         # to improve performance versus the initial weight set.
-        "OPT_DEBIAS_MAX_ITERATIONS": 2,
+        "OPT_DEBIAS_MAX_ITERATIONS": 1,
         "N_TRIALS": 1,  # TODO: CHANGE THIS BACK TO 3 FOR FINAL PAPER RESULTS
         "N_SUBDOMINANCE_GROUPS": 50,
         "DOT_WEIGHTS_FEAT_EXP": True,
@@ -136,21 +136,21 @@ def main():
         #       The robust fair-log-loss model of Rezaei et al. (2020), with
         #       demographic parity / equalized odds as the fairness constraint.
         #
-        # The Superhuman Fairness paper's remaining baseline, MFOpt 
-        # (Hsu et al., 2022), is not available: its reference repository ships 
-        # no implementation of it, only CSVs of predictions its authors 
+        # The Superhuman Fairness paper's remaining baseline, MFOpt
+        # (Hsu et al., 2022), is not available: its reference repository ships
+        # no implementation of it, only CSVs of predictions its authors
         # produced elsewhere, and Hsu et al. published no code. See the module
         # docstring of src/fair_irl/sh/baselines.py.
         "ALGORITHMS": [
             "FairIRL Bias Reduction",
-            # "Superhuman Fairness",
-            # "Superhuman Fairness Fixed",
-            # "Superhuman Fairness Neural Network",
-            # "Superhuman Fairness Neural Network Fixed",
-            # "Post Proc DP",
-            # "Post Proc EqOdds",
-            # "Fair LogLoss DP",
-            # "Fair LogLoss EqOdds",
+            "Superhuman Fairness",
+            "Superhuman Fairness Fixed",
+            "Superhuman Fairness Neural Network",
+            "Superhuman Fairness Neural Network Fixed",
+            "Post Proc DP",
+            "Post Proc EqOdds",
+            "Fair LogLoss DP",
+            "Fair LogLoss EqOdds",
         ],
         ##
         # Superhuman Fairness baseline parameters. Ignored unless one of the
@@ -180,47 +180,47 @@ def main():
         # group ("expert_demos") or the paper's 50 ("pp_baseline").
         "SH_NUM_DEMOS": None,
         # The original's `iters`, `lr_theta` and `lamda`.
-        "SH_ITERS": 30, # TODO: Tune this hyperparameter
-        "SH_LR_THETA": 0.01, # TODO: Tune this hyperparameter
-        "SH_LAMDA": 0.001, # TODO: Tune this hyperparameter
+        "SH_ITERS": 30,  # TODO: Tune this hyperparameter
+        "SH_LR_THETA": 0.01,  # TODO: Tune this hyperparameter
+        "SH_LAMDA": 0.001,  # TODO: Tune this hyperparameter
         # Superhuman Fairness Fixed's own `iters`, `lr_theta` and `lamda`, in
         # place of the three above, so that it can be tuned separately.
-        "SH_FIXED_ITERS": 30, # TODO: Tune this hyperparameter
-        "SH_FIXED_LR_THETA": 0.01, # TODO: Tune this hyperparameter
-        "SH_FIXED_LAMDA": 0.001, # TODO: Tune this hyperparameter
+        "SH_FIXED_ITERS": 30,  # TODO: Tune this hyperparameter
+        "SH_FIXED_LR_THETA": 0.01,  # TODO: Tune this hyperparameter
+        "SH_FIXED_LAMDA": 0.001,  # TODO: Tune this hyperparameter
         # Superhuman Fairness Neural Network's own `iters`, `lr_theta` and
         # `lamda`, in place of SH_ITERS/SH_LR_THETA/SH_LAMDA. Its `lr_theta`
         # is the network's Adam learning rate: the reference implementation's
         # network ignores `lr_theta` and steps with Adam at 1e-5, which is the
         # value here. (Its own config trains for 40 iterations.)
-        "SH_NN_ITERS": 30, # TODO: Tune this hyperparameter
-        "SH_NN_LR_THETA": 1e-5, # TODO: Tune this hyperparameter
-        "SH_NN_LAMDA": 0.001, # TODO: Tune this hyperparameter
+        "SH_NN_ITERS": 30,  # TODO: Tune this hyperparameter
+        "SH_NN_LR_THETA": 1e-5,  # TODO: Tune this hyperparameter
+        "SH_NN_LAMDA": 0.001,  # TODO: Tune this hyperparameter
         # Its network: two ReLU hidden layers, of SH_NN_HIDDEN_NODES and half
         # as many units, first fit with SH_NN_BASE_FIT_EPOCHS full-batch Adam
         # steps. Both are the reference implementation's.
-        "SH_NN_HIDDEN_NODES": 512, # TODO: Tune this hyperparameter
-        "SH_NN_BASE_FIT_EPOCHS": 15000, # TODO: Tune this hyperparameter
+        "SH_NN_HIDDEN_NODES": 512,  # TODO: Tune this hyperparameter
+        "SH_NN_BASE_FIT_EPOCHS": 15000,  # TODO: Tune this hyperparameter
         # Its learning-rate schedule, the reference implementation's: the
         # rate is multiplied by SH_NN_LR_BOOST_FACTOR after the first
         # iteration, and divided by it again the first time the
         # gamma-superhuman sum reaches SH_NN_LR_DECAY_GAMMA_FRAC of the number
         # of features.
-        "SH_NN_LR_BOOST_FACTOR": 10, # TODO: Tune this hyperparameter
-        "SH_NN_LR_DECAY_GAMMA_FRAC": 0.9, # TODO: Tune this hyperparameter
+        "SH_NN_LR_BOOST_FACTOR": 10,  # TODO: Tune this hyperparameter
+        "SH_NN_LR_DECAY_GAMMA_FRAC": 0.9,  # TODO: Tune this hyperparameter
         # The torch device it trains on, e.g. "cpu" or "cuda". None uses a GPU
         # if PyTorch can see one (AMD GPUs included, with a ROCm build of
         # PyTorch), and the CPU otherwise.
         "SH_NN_DEVICE": None,
         # Superhuman Fairness Neural Network Fixed's own counterparts of every
         # SH_NN_* setting above, so that it can be tuned separately.
-        "SH_NN_FIXED_ITERS": 30, # TODO: Tune this hyperparameter
-        "SH_NN_FIXED_LR_THETA": 1e-5, # TODO: Tune this hyperparameter
-        "SH_NN_FIXED_LAMDA": 0.001, # TODO: Tune this hyperparameter
-        "SH_NN_FIXED_HIDDEN_NODES": 512, # TODO: Tune this hyperparameter
-        "SH_NN_FIXED_BASE_FIT_EPOCHS": 15000, # TODO: Tune this hyperparameter
-        "SH_NN_FIXED_LR_BOOST_FACTOR": 10, # TODO: Tune this hyperparameter
-        "SH_NN_FIXED_LR_DECAY_GAMMA_FRAC": 0.9, # TODO: Tune this hyperparameter
+        "SH_NN_FIXED_ITERS": 30,  # TODO: Tune this hyperparameter
+        "SH_NN_FIXED_LR_THETA": 1e-5,  # TODO: Tune this hyperparameter
+        "SH_NN_FIXED_LAMDA": 0.001,  # TODO: Tune this hyperparameter
+        "SH_NN_FIXED_HIDDEN_NODES": 512,  # TODO: Tune this hyperparameter
+        "SH_NN_FIXED_BASE_FIT_EPOCHS": 15000,  # TODO: Tune this hyperparameter
+        "SH_NN_FIXED_LR_BOOST_FACTOR": 10,  # TODO: Tune this hyperparameter
+        "SH_NN_FIXED_LR_DECAY_GAMMA_FRAC": 0.9,  # TODO: Tune this hyperparameter
         "SH_NN_FIXED_DEVICE": None,
         # The fairness constraint the "pp_baseline" demonstrator satisfies.
         # Unused by the "expert_demos" source.
@@ -230,8 +230,8 @@ def main():
         # "Fair LogLoss ..." techniques is listed in ALGORITHMS above. Both are
         # what the original implementation passes.
         ##
-        "FAIR_LOGLOSS_C": 0.005,
-        "FAIR_LOGLOSS_RANDOM_INIT": True,
+        "FAIR_LOGLOSS_C": 0.005,  # TODO: Tune this hyperparameter
+        "FAIR_LOGLOSS_RANDOM_INIT": True,  # TODO: Tune this hyperparameter
         ##
         # Data split parameters.
         ##
@@ -562,7 +562,7 @@ def main():
         "NegPredPar",
     ]
 
-    #  all available bias types = ("unbalanced_redlining", "balanced_redlining", "perfectly_balanced_redlining", "corruption_bias")
+    # all available bias types = ("unbalanced_redlining", "balanced_redlining", "perfectly_balanced_redlining", "corruption_bias")
     # The unbiased run is always performed first, ahead of every bias type
     # listed here.
     dataset_bias_type_list = (
@@ -587,9 +587,11 @@ def main():
         # ("mul_negative_weights", 0.8),
         # ("mul_negative_weights", 0.9),
         # Optimization-based weight debiasing (see _ml_apply_weight_adjustment_debias in experiment_utils.py)
+        # TODO: Tune opt_debias config options to determine which weight adjustment method works best
         # ("opt_debias", "optuna", "CMA-ES", 500),
+        ("opt_debias", "optuna", "GP", 500),
         # ("opt_debias", "pybobyqa", "Multi-Start BOBYQA", 500),
-        ("opt_debias", "nevergrad", "BayesOpt", 500),
+        # ("opt_debias", "nevergrad", "BayesOpt", 500),
         # ("opt_debias", "nevergrad", "Nelder-Mead", 500),
         # ("opt_debias", "nevergrad", "Powell", 500),
     )
@@ -708,7 +710,6 @@ def main():
                 f"For dataset: {experiment['DATASET']} and expert algo: {experiment['EXPERT_ALGO']}:"
             )
 
-            # with cProfile.Profile() as pr:
             run_bias_experiment(
                 exp_info,
                 source_X=_source_X,
@@ -716,11 +717,6 @@ def main():
                 source_feature_types=source_feature_types,
                 session_id=session_id,
             )
-        #     stats = pstats.Stats(pr)
-        #     stats.sort_stats("cumulative").print_stats(100)
-        #     stats.sort_stats("time").print_stats(100)
-        #     break
-        # break
 
     logging.info(f"TRAINING FINISHED SUCESSFULLY! W&B session: {session_id}")
 

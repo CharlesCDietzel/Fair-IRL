@@ -964,6 +964,7 @@ SH_DEFAULTS = {
     "SH_BASE_THETA_INIT": "logistic_regression",
 }
 
+
 def _build_superhuman_lr(common, sh_config, fix_normalization):
     """A logistic regression `SuperhumanFairness`."""
     return SuperhumanFairness(
@@ -2741,15 +2742,29 @@ def optimize_weights(
                 x0={f"unnormalized_w{j}": float(x0[j]) for j in range(n_weights)},
                 seed=exp_info["RANDOM_SEED"],
             )
-            study = optuna.create_study(
-                direction="minimize",
-                sampler=sampler,
-                # optuna.create_study() otherwise generates a random
-                # UUID study name (via uuid.uuid4(), independent of
-                # any seed), which is a source of non-determinism.
-                study_name=f"opt_debias_{exp_info['RANDOM_SEED']}",
+        elif optimizer == "GP":
+            sampler = optuna.samplers.GPSampler(
+                seed=exp_info["RANDOM_SEED"],
+                # subdominance_of_weights() always returns the same loss for the
+                # same weights
+                deterministic_objective=True,
             )
-            study.optimize(objective, n_trials=n_steps)
+        study = optuna.create_study(
+            direction="minimize",
+            sampler=sampler,
+            # optuna.create_study() otherwise generates a random
+            # UUID study name (via uuid.uuid4(), independent of
+            # any seed), which is a source of non-determinism.
+            study_name=f"opt_debias_{exp_info['RANDOM_SEED']}",
+        )
+        if optimizer == "GP":
+            # GPSampler has no x0 parameter; evaluating the initial
+            # weights as the first trial gives it the same starting
+            # point the other optimizers get.
+            study.enqueue_trial(
+                {f"unnormalized_w{j}": float(x0[j]) for j in range(n_weights)}
+            )
+        study.optimize(objective, n_trials=n_steps)
         unnormalized_wi = np.array(
             [study.best_params[f"unnormalized_w{j}"] for j in range(n_weights)]
         )
