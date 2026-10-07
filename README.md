@@ -50,7 +50,7 @@ sweeps -- one per selected dataset, so every dataset gets its own
 hyperparameters -- and start an agent for each sweep id printed:
 
 ```sh
-uv run python -m fair_irl.sweep create configs/sweeps/superhuman_fairness.yaml
+uv run python -m fair_irl.sweep create configs/sweeps/<file>.yaml
 uv run wandb agent <entity>/<project>/<sweep id>
 ```
 
