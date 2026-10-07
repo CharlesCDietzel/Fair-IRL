@@ -95,8 +95,7 @@ def main():
         # fails to improve.
         # Setting this to 1 for now because the Iteration loop does not appear
         # to improve performance versus the initial weight set.
-        "OPT_DEBIAS_MAX_ITERATIONS": 1,
-        # Plotting parameters
+        "OPT_DEBIAS_MAX_ITERATIONS": 2,
         "N_TRIALS": 1,  # TODO: CHANGE THIS BACK TO 3 FOR FINAL PAPER RESULTS
         "N_SUBDOMINANCE_GROUPS": 50,
         "DOT_WEIGHTS_FEAT_EXP": True,
