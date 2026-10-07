@@ -27,10 +27,13 @@ class ClassificationMDP:
     ----------
     b_eq_ : numpy.array<float>
         A.k.a. "mu0". Initial state probabilities.
-    A_eq_ : numpy.ndarray<float>, shape (len(df), 2*len(df))
-        The state-action transition matrix.
+    A_eq_ : scipy.sparse.csc_array, shape (n_rows, 2*n_states_)
+        The state-action transition matrix, followed (if `restrict_y`) by the
+        action equality constraints. Entries with magnitude <= HiGHS'
+        `small_matrix_value` are omitted (see `_compute_A_eq`).
     A_eq_solve_ : scipy.sparse.csc_array
-        `A_eq_` as it is passed to the LP solver (see `_to_solver_matrix`).
+        `A_eq_` as it is passed to the LP solver (see `_to_solver_matrix`):
+        the same object as `A_eq_`.
     n_states_ : int
         Number of states.
     state_reducer_ : dict<str, dict<?, ?>>
@@ -267,8 +270,8 @@ class ClassificationMDP:
         # profiler.disable()
         # profiler.print_stats()
 
-        # `A_eq_` as the LP solver is given it, converted once here since every
-        # optimization problem shares it.
+        # `A_eq_` as the LP solver is given it. `A_eq_` is already built in
+        # that form, so this is the same object.
         self.A_eq_solve_ = _to_solver_matrix(self.A_eq_)
 
         return None
@@ -418,21 +421,40 @@ class ClassificationMDP:
 
         Returns
         -------
-        A_eq_
+        A_eq_ : scipy.sparse.csc_array
+            Exactly the matrix `_to_solver_matrix()` makes of the dense
+            constraint matrix: entries with magnitude <= HiGHS'
+            `small_matrix_value` (e.g. every `-gamma * mu0` term when gamma is
+            ~1e-9) are omitted, since HiGHS drops them anyway.
         """
+        # The matrix is built directly as the sparse matrix HiGHS solves with
+        # (see `_to_solver_matrix`), from its (row, col, value) entries. The
+        # dense matrix has ~2*n_states^2 entries (tens of GB for the larger
+        # datasets), almost all of which HiGHS would drop anyway.
+        #
         # Construct constraints that correspond to transition matrix.
         # A_eq[s, sp*n_actions + a] = (1 if s == sp else 0) - gamma * mu0[sp]
-        # Vectorized: every row starts as the same "-gamma*mu0" pattern
-        # (tiled across actions), then the diagonal blocks get +1 added.
+        # Every row has the same "-gamma*mu0" pattern (repeated across
+        # actions), plus +1 on its own diagonal block.
         n_states = len(mu0)
         n_actions = 2
+        n_cols = n_states * n_actions
         mu0_arr = np.asarray(mu0, dtype=float)
 
         base_row = -self.gamma * np.repeat(mu0_arr, n_actions)
-        A_eq = np.tile(base_row, (n_states, 1))
-        diag_idx = np.arange(n_states)
-        for a in range(n_actions):
-            A_eq[diag_idx, diag_idx * n_actions + a] += 1
+        state_of_col = np.repeat(np.arange(n_states), n_actions)
+        # Diagonal-block entries, one per column.
+        rows = [state_of_col]
+        cols = [np.arange(n_cols)]
+        vals = [base_row + 1]
+        # Off-diagonal "-gamma*mu0" entries, only for the columns where they
+        # exceed HiGHS' small_matrix_value (none when gamma is ~1e-9).
+        for j in np.flatnonzero(np.abs(base_row) > _HIGHS_SMALL_MATRIX_VALUE):
+            r = np.delete(np.arange(n_states), state_of_col[j])
+            rows.append(r)
+            cols.append(np.full(len(r), j))
+            vals.append(np.full(len(r), base_row[j]))
+        n_rows = n_states
 
         if restrict_y:
             # Construct constraints that require equal actions for the same `y`
@@ -483,7 +505,8 @@ class ClassificationMDP:
             mu0_vals = ldf["mu0"].to_numpy()
             y_vals = ldf["y"].to_numpy()
 
-            A_eq2 = np.zeros((n_constr, len(ldf)))
+            locy0s = np.empty(n_constr, dtype=np.intp)
+            locy1s = np.empty(n_constr, dtype=np.intp)
             row_i = 0
             for idx_arr in group_indices.values():
                 assert len(idx_arr) <= 2
@@ -495,13 +518,29 @@ class ClassificationMDP:
                     "expected the y=0 row to precede the y=1 row within each "
                     "x_cols+z+yhat group (relies on ldf's sort order)"
                 )
-                A_eq2[row_i, locy0] = mu0_vals[locy1]
-                A_eq2[row_i, locy1] = -mu0_vals[locy0]
+                locy0s[row_i] = locy0
+                locy1s[row_i] = locy1
                 row_i += 1
 
-            # Combine the two constraint matrices
-            A_eq = np.concatenate([A_eq, A_eq2])
+            # Each constraint row: mu0[y1] * x[y0] - mu0[y0] * x[y1] == 0
+            locy0s, locy1s = locy0s[:row_i], locy1s[:row_i]
+            constr_rows = n_states + np.arange(row_i)
+            rows += [constr_rows, constr_rows]
+            cols += [locy0s, locy1s]
+            vals += [mu0_vals[locy1s], -mu0_vals[locy0s]]
+            # Groups with a single row keep their (all-zero) constraint row.
+            n_rows += n_constr
 
+        rows = np.concatenate(rows)
+        cols = np.concatenate(cols)
+        vals = np.concatenate(vals)
+        keep = np.abs(vals) > _HIGHS_SMALL_MATRIX_VALUE
+        A_eq = csc_array(
+            (vals[keep], (rows[keep], cols[keep])), shape=(n_rows, n_cols)
+        )
+        # Canonical (sorted) row indices within each column, as
+        # `_to_solver_matrix` produces.
+        A_eq.sort_indices()
         return A_eq
 
     def _generate_lambda_linear_equations(self, reduced_state_df):
@@ -654,13 +693,17 @@ def _to_solver_matrix(A):
     Converts a dense constraint matrix into the sparse matrix HiGHS actually
     solves with.
 
-    `A_eq` is dense: every transition row carries a `-gamma * mu0` term for
-    every state-action, but with `gamma` ~1e-9 those terms are far below
-    HiGHS' `small_matrix_value`, so HiGHS drops all of them anyway. Passing
-    the dense matrix makes scipy densely stack, scan and convert millions of
-    entries on every solve, which dominates the solve time. Dropping those
-    same entries up front and handing HiGHS a sparse matrix produces the exact
-    same model, and so the exact same solution, at a fraction of the cost.
+    In the dense constraint matrix, every transition row carries a
+    `-gamma * mu0` term for every state-action, but with `gamma` ~1e-9 those
+    terms are far below HiGHS' `small_matrix_value`, so HiGHS drops all of
+    them anyway. Passing the dense matrix makes scipy densely stack, scan and
+    convert millions of entries on every solve, which dominates the solve
+    time. Dropping those same entries up front and handing HiGHS a sparse
+    matrix produces the exact same model, and so the exact same solution, at
+    a fraction of the cost.
+
+    `ClassificationMDP.A_eq_` is built directly in this form, so it is
+    returned unchanged (as is any sparse matrix).
     """
     if A is None or issparse(A):
         return A
