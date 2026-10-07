@@ -2749,6 +2749,8 @@ def optimize_weights(
                 # same weights
                 deterministic_objective=True,
             )
+        elif optimizer == "TPE":
+            sampler = optuna.samplers.TPESampler(seed=exp_info["RANDOM_SEED"])
         study = optuna.create_study(
             direction="minimize",
             sampler=sampler,
@@ -2757,10 +2759,10 @@ def optimize_weights(
             # any seed), which is a source of non-determinism.
             study_name=f"opt_debias_{exp_info['RANDOM_SEED']}",
         )
-        if optimizer == "GP":
-            # GPSampler has no x0 parameter; evaluating the initial
-            # weights as the first trial gives it the same starting
-            # point the other optimizers get.
+        if optimizer in ("GP", "TPE"):
+            # GPSampler and TPESampler have no x0 parameter; evaluating
+            # the initial weights as the first trial gives them the same
+            # starting point the other optimizers get.
             study.enqueue_trial(
                 {f"unnormalized_w{j}": float(x0[j]) for j in range(n_weights)}
             )

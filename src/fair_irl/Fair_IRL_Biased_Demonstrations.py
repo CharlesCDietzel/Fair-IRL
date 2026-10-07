@@ -590,6 +590,7 @@ def main():
         # TODO: Tune opt_debias config options to determine which weight adjustment method works best
         # ("opt_debias", "optuna", "CMA-ES", 500),
         ("opt_debias", "optuna", "GP", 500),
+        # ("opt_debias", "optuna", "TPE", 500),
         # ("opt_debias", "pybobyqa", "Multi-Start BOBYQA", 500),
         # ("opt_debias", "nevergrad", "BayesOpt", 500),
         # ("opt_debias", "nevergrad", "Nelder-Mead", 500),
