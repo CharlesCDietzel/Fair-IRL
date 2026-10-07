@@ -500,7 +500,7 @@ def main():
     # ACSIncome: HI
     base_exp_info = {
         "EXPERIMENT_NAME": "ACSIncome__HI",
-        "MIN_FREQ_FILL_PCT": 0.1,
+        # "MIN_FREQ_FILL_PCT": 0.1,
         "MIN_FREQ_FILL_PCT": 0.0,
     }
     base_exp_info |= common_exp_info
@@ -625,18 +625,18 @@ def main():
     # subdominance_fair_metrics_list = ("dp", "eqodds", "prp")
 
     selected_datasets = [
-        # "COMPAS",
-        # "Adult",
+        "COMPAS",
+        "Adult",
         # The Superhuman Fairness paper's own datasets, run under its
         # conditions (see `sh_paper_exp_info` above).
         # "Adult_SH",
         # "COMPAS_SH",
-        # "ACSIncome__MA",
-        # "ACSIncome__MS",
-        "ACSIncome__CA",
-        "ACSIncome__IL",
-        "ACSIncome__AL",
-        "ACSIncome__HI",
+        "ACSIncome__MA",
+        "ACSIncome__MS",
+        # "ACSIncome__CA",
+        # "ACSIncome__IL",
+        # "ACSIncome__AL",
+        # "ACSIncome__HI",
     ]
 
     # Run experiments. Results are reported to Weights & Biases (project
