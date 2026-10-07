@@ -84,18 +84,10 @@ def main():
             "PredPar",
             "NegPredPar",
         ],
-        # Expert demo parameters
-        #     'DATASET': 'ACSIncome__CA',
-        #     'TARGET_DATASET': 'ACSIncome__IL',
-        "EXPERT_CANNOT_PREDICT_IN_TARGET": False,
         "USE_HIDDEN_FEATURES_SOURCE": True,
-        "USE_HIDDEN_FEATURES_TARGET": False,
-        "N_EXPERT_DEMOS": 1,
-        "EXPERT_ALGO": None,
-        # "MIN_FREQ_FILL_PCT": 0.3,
+        "N_EXPERT_DEMOS": 2,
         "RESTRICT_Y_ACTION": True,
         # Policy learning parameters
-        "IRL_METHOD": None,
         "METHOD": "highs",
         # The most iterations the `opt_debias` weight adjustment runs before
         # giving up on finding a better weight set. This is only a safety net
@@ -105,8 +97,6 @@ def main():
         # to improve performance versus the initial weight set.
         "OPT_DEBIAS_MAX_ITERATIONS": 1,
         # Plotting parameters
-        "NOISE_FACTOR": 0.01,
-        "ANNOTATE": True,
         "N_TRIALS": 1,  # TODO: CHANGE THIS BACK TO 3 FOR FINAL PAPER RESULTS
         "N_SUBDOMINANCE_GROUPS": 50,
         "DOT_WEIGHTS_FEAT_EXP": True,
@@ -147,21 +137,21 @@ def main():
         #       The robust fair-log-loss model of Rezaei et al. (2020), with
         #       demographic parity / equalized odds as the fairness constraint.
         #
-        # The paper's remaining baseline, MFOpt (Hsu et al., 2022), is not
-        # available: its reference repository ships no implementation of it,
-        # only CSVs of predictions its authors produced elsewhere, and Hsu et
-        # al. published no code. See the module docstring of
-        # src/fair_irl/sh/baselines.py.
+        # The Superhuman Fairness paper's remaining baseline, MFOpt 
+        # (Hsu et al., 2022), is not available: its reference repository ships 
+        # no implementation of it, only CSVs of predictions its authors 
+        # produced elsewhere, and Hsu et al. published no code. See the module
+        # docstring of src/fair_irl/sh/baselines.py.
         "ALGORITHMS": [
             "FairIRL Bias Reduction",
-            "Superhuman Fairness",
-            "Superhuman Fairness Fixed",
-            "Superhuman Fairness Neural Network",
-            "Superhuman Fairness Neural Network Fixed",
-            "Post Proc DP",
-            "Post Proc EqOdds",
-            "Fair LogLoss DP",
-            "Fair LogLoss EqOdds",
+            # "Superhuman Fairness",
+            # "Superhuman Fairness Fixed",
+            # "Superhuman Fairness Neural Network",
+            # "Superhuman Fairness Neural Network Fixed",
+            # "Post Proc DP",
+            # "Post Proc EqOdds",
+            # "Fair LogLoss DP",
+            # "Fair LogLoss EqOdds",
         ],
         ##
         # Superhuman Fairness baseline parameters. Ignored unless one of the
@@ -175,7 +165,7 @@ def main():
         #       on the same rows.
         #   "pp_baseline"  -- the original paper's own demonstrator: a logistic
         #       regression post-processed by a fairlearn ThresholdOptimizer.
-        "SH_DEMO_SOURCE": "pp_baseline",
+        "SH_DEMO_SOURCE": "expert_demos",
         # The performance/fairness measures the baseline optimizes -- the `-f`
         # flag of the original implementation. Entries may be this project's
         # objective names (e.g. "Acc", "DemPar", "TNRPar") or the original
@@ -191,47 +181,47 @@ def main():
         # group ("expert_demos") or the paper's 50 ("pp_baseline").
         "SH_NUM_DEMOS": None,
         # The original's `iters`, `lr_theta` and `lamda`.
-        "SH_ITERS": 30,
-        "SH_LR_THETA": 0.01,
-        "SH_LAMDA": 0.001,
+        "SH_ITERS": 30, # TODO: Tune this hyperparameter
+        "SH_LR_THETA": 0.01, # TODO: Tune this hyperparameter
+        "SH_LAMDA": 0.001, # TODO: Tune this hyperparameter
         # Superhuman Fairness Fixed's own `iters`, `lr_theta` and `lamda`, in
         # place of the three above, so that it can be tuned separately.
-        "SH_FIXED_ITERS": 30,
-        "SH_FIXED_LR_THETA": 0.01,
-        "SH_FIXED_LAMDA": 0.001,
+        "SH_FIXED_ITERS": 30, # TODO: Tune this hyperparameter
+        "SH_FIXED_LR_THETA": 0.01, # TODO: Tune this hyperparameter
+        "SH_FIXED_LAMDA": 0.001, # TODO: Tune this hyperparameter
         # Superhuman Fairness Neural Network's own `iters`, `lr_theta` and
         # `lamda`, in place of SH_ITERS/SH_LR_THETA/SH_LAMDA. Its `lr_theta`
         # is the network's Adam learning rate: the reference implementation's
         # network ignores `lr_theta` and steps with Adam at 1e-5, which is the
         # value here. (Its own config trains for 40 iterations.)
-        "SH_NN_ITERS": 30,
-        "SH_NN_LR_THETA": 1e-5,
-        "SH_NN_LAMDA": 0.001,
+        "SH_NN_ITERS": 30, # TODO: Tune this hyperparameter
+        "SH_NN_LR_THETA": 1e-5, # TODO: Tune this hyperparameter
+        "SH_NN_LAMDA": 0.001, # TODO: Tune this hyperparameter
         # Its network: two ReLU hidden layers, of SH_NN_HIDDEN_NODES and half
         # as many units, first fit with SH_NN_BASE_FIT_EPOCHS full-batch Adam
         # steps. Both are the reference implementation's.
-        "SH_NN_HIDDEN_NODES": 512,
-        "SH_NN_BASE_FIT_EPOCHS": 15000,
+        "SH_NN_HIDDEN_NODES": 512, # TODO: Tune this hyperparameter
+        "SH_NN_BASE_FIT_EPOCHS": 15000, # TODO: Tune this hyperparameter
         # Its learning-rate schedule, the reference implementation's: the
         # rate is multiplied by SH_NN_LR_BOOST_FACTOR after the first
         # iteration, and divided by it again the first time the
         # gamma-superhuman sum reaches SH_NN_LR_DECAY_GAMMA_FRAC of the number
         # of features.
-        "SH_NN_LR_BOOST_FACTOR": 10,
-        "SH_NN_LR_DECAY_GAMMA_FRAC": 0.9,
+        "SH_NN_LR_BOOST_FACTOR": 10, # TODO: Tune this hyperparameter
+        "SH_NN_LR_DECAY_GAMMA_FRAC": 0.9, # TODO: Tune this hyperparameter
         # The torch device it trains on, e.g. "cpu" or "cuda". None uses a GPU
         # if PyTorch can see one (AMD GPUs included, with a ROCm build of
         # PyTorch), and the CPU otherwise.
         "SH_NN_DEVICE": None,
         # Superhuman Fairness Neural Network Fixed's own counterparts of every
         # SH_NN_* setting above, so that it can be tuned separately.
-        "SH_NN_FIXED_ITERS": 30,
-        "SH_NN_FIXED_LR_THETA": 1e-5,
-        "SH_NN_FIXED_LAMDA": 0.001,
-        "SH_NN_FIXED_HIDDEN_NODES": 512,
-        "SH_NN_FIXED_BASE_FIT_EPOCHS": 15000,
-        "SH_NN_FIXED_LR_BOOST_FACTOR": 10,
-        "SH_NN_FIXED_LR_DECAY_GAMMA_FRAC": 0.9,
+        "SH_NN_FIXED_ITERS": 30, # TODO: Tune this hyperparameter
+        "SH_NN_FIXED_LR_THETA": 1e-5, # TODO: Tune this hyperparameter
+        "SH_NN_FIXED_LAMDA": 0.001, # TODO: Tune this hyperparameter
+        "SH_NN_FIXED_HIDDEN_NODES": 512, # TODO: Tune this hyperparameter
+        "SH_NN_FIXED_BASE_FIT_EPOCHS": 15000, # TODO: Tune this hyperparameter
+        "SH_NN_FIXED_LR_BOOST_FACTOR": 10, # TODO: Tune this hyperparameter
+        "SH_NN_FIXED_LR_DECAY_GAMMA_FRAC": 0.9, # TODO: Tune this hyperparameter
         "SH_NN_FIXED_DEVICE": None,
         # The fairness constraint the "pp_baseline" demonstrator satisfies.
         # Unused by the "expert_demos" source.
@@ -300,7 +290,9 @@ def main():
     # ### COMPAS
     base_exp_info = {
         "EXPERIMENT_NAME": "COMPAS",
-        "MIN_FREQ_FILL_PCT": 0.08,  # MIN_FREQ_FILL_PCT values have been chosen
+        # "MIN_FREQ_FILL_PCT": 0.08,
+        "MIN_FREQ_FILL_PCT": 0.0,
+        # MIN_FREQ_FILL_PCT values have been chosen
         # so that the runtime per learned policy is roughly equal for all
         # datasets
         # "N_SUBDOMINANCE_GROUPS": 20,  # N_SUBDOMINANCE_GROUPS values have been
@@ -347,8 +339,8 @@ def main():
     # Adult
     base_exp_info = {
         "EXPERIMENT_NAME": "Adult",
-        "MIN_FREQ_FILL_PCT": 0.24,
-        # "N_SUBDOMINANCE_GROUPS": 10,
+        # "MIN_FREQ_FILL_PCT": 0.24,
+        "MIN_FREQ_FILL_PCT": 0.0,
     }
     base_exp_info |= common_exp_info
 
@@ -423,8 +415,8 @@ def main():
     # ACSIncome: MA
     base_exp_info = {
         "EXPERIMENT_NAME": "ACSIncome__MA",
-        "MIN_FREQ_FILL_PCT": 0.07,
-        # "N_SUBDOMINANCE_GROUPS": 20,
+        # "MIN_FREQ_FILL_PCT": 0.07,
+        "MIN_FREQ_FILL_PCT": 0.0,
     }
     base_exp_info |= common_exp_info
 
@@ -440,8 +432,8 @@ def main():
     # ACSIncome: MS
     base_exp_info = {
         "EXPERIMENT_NAME": "ACSIncome__MS",
-        "MIN_FREQ_FILL_PCT": 0.05,
-        # "N_SUBDOMINANCE_GROUPS": 10,
+        # "MIN_FREQ_FILL_PCT": 0.05,
+        "MIN_FREQ_FILL_PCT": 0.0,
     }
     base_exp_info |= common_exp_info
 
@@ -457,8 +449,8 @@ def main():
     # ACSIncome: CA
     base_exp_info = {
         "EXPERIMENT_NAME": "ACSIncome__CA",
-        "MIN_FREQ_FILL_PCT": 0.2,
-        # "N_SUBDOMINANCE_GROUPS": 20,
+        # "MIN_FREQ_FILL_PCT": 0.2,
+        "MIN_FREQ_FILL_PCT": 0.0,
     }
     base_exp_info |= common_exp_info
 
@@ -474,8 +466,8 @@ def main():
     # ACSIncome: IL
     base_exp_info = {
         "EXPERIMENT_NAME": "ACSIncome__IL",
-        "MIN_FREQ_FILL_PCT": 0.09,
-        # "N_SUBDOMINANCE_GROUPS": 50,
+        # "MIN_FREQ_FILL_PCT": 0.09,
+        "MIN_FREQ_FILL_PCT": 0.0,
     }
     base_exp_info |= common_exp_info
 
@@ -491,8 +483,8 @@ def main():
     # ACSIncome: AL
     base_exp_info = {
         "EXPERIMENT_NAME": "ACSIncome__AL",
-        "MIN_FREQ_FILL_PCT": 0.06,
-        # "N_SUBDOMINANCE_GROUPS": 20,
+        # "MIN_FREQ_FILL_PCT": 0.06,
+        "MIN_FREQ_FILL_PCT": 0.0,
     }
     base_exp_info |= common_exp_info
 
@@ -509,7 +501,7 @@ def main():
     base_exp_info = {
         "EXPERIMENT_NAME": "ACSIncome__HI",
         "MIN_FREQ_FILL_PCT": 0.1,
-        # "N_SUBDOMINANCE_GROUPS": 10,
+        "MIN_FREQ_FILL_PCT": 0.0,
     }
     base_exp_info |= common_exp_info
 
@@ -524,7 +516,7 @@ def main():
 
     # Set Experts
     expert_algos = [
-        # "OptClfMDPPol"
+        "OptClfMDPPol"
         # The demonstrator of the Superhuman Fairness paper: a logistic
         # regression post-processed by a fairlearn ThresholdOptimizer, fit on a
         # class-balanced subsample. This is the same model the Superhuman
@@ -532,7 +524,7 @@ def main():
         # SH_DEMO_SOURCE is "pp_baseline", and it takes its fairness
         # constraint from SH_DEMO_CONSTRAINTS below, so selecting it here makes
         # both techniques imitate the same demonstrator.
-        "PostProcDemo",
+        # "PostProcDemo",
         # "OptAcc",
         # "CatBoostOptAcc",
         # "XGBoostOptAcc",
@@ -598,7 +590,7 @@ def main():
         # Optimization-based weight debiasing (see _ml_apply_weight_adjustment_debias in experiment_utils.py)
         # ("opt_debias", "optuna", "CMA-ES", 500),
         # ("opt_debias", "pybobyqa", "Multi-Start BOBYQA", 500),
-        ("opt_debias", "nevergrad", "BayesOpt", 200),
+        ("opt_debias", "nevergrad", "BayesOpt", 500),
         # ("opt_debias", "nevergrad", "Nelder-Mead", 500),
         # ("opt_debias", "nevergrad", "Powell", 500),
     )
@@ -633,18 +625,18 @@ def main():
     # subdominance_fair_metrics_list = ("dp", "eqodds", "prp")
 
     selected_datasets = [
-        "COMPAS",
-        "Adult",
+        # "COMPAS",
+        # "Adult",
         # The Superhuman Fairness paper's own datasets, run under its
         # conditions (see `sh_paper_exp_info` above).
         # "Adult_SH",
         # "COMPAS_SH",
         # "ACSIncome__MA",
         # "ACSIncome__MS",
-        # "ACSIncome__CA",
-        # "ACSIncome__IL",
-        # "ACSIncome__AL",
-        # "ACSIncome__HI",
+        "ACSIncome__CA",
+        "ACSIncome__IL",
+        "ACSIncome__AL",
+        "ACSIncome__HI",
     ]
 
     # Run experiments. Results are reported to Weights & Biases (project
