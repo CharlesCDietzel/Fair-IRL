@@ -1,4 +1,6 @@
+import argparse
 import cProfile
+import json
 import logging
 import pstats
 import random
@@ -9,6 +11,12 @@ import numpy as np
 import pandas as pd
 from IPython.display import HTML, display
 
+from fair_irl.config import (
+    DEFAULT_CONFIG_PATH,
+    build_experiment_plan,
+    load_config,
+    parse_assignment,
+)
 from fair_irl.datasets import *
 from fair_irl.experiment_utils import *
 from fair_irl.irl.fair_irl import *
@@ -21,7 +29,81 @@ def play_notification():
     )
 
 
-def main():
+def parse_args(argv=None):
+    parser = argparse.ArgumentParser(
+        description=(
+            "Train and evaluate FairIRL Bias Reduction and its baselines, as"
+            " configured by an experiment config file, and report the results"
+            " to W&B."
+        )
+    )
+    parser.add_argument(
+        "--config",
+        default=str(DEFAULT_CONFIG_PATH),
+        help="The experiment config file. Default: %(default)s",
+    )
+    parser.add_argument(
+        "--set",
+        dest="overrides",
+        action="append",
+        default=[],
+        metavar="KEY=VALUE",
+        help=(
+            "Override one config value for every experiment, e.g. `--set"
+            " SH_ITERS=10` or `--set 'SELECTED_DATASETS=[\"COMPAS\"]'`. VALUE"
+            " is read as JSON, falling back to a plain string. Repeatable."
+        ),
+    )
+    parser.add_argument(
+        "--annotate",
+        action="append",
+        default=[],
+        metavar="KEY=VALUE",
+        help=(
+            "Record an extra value in every W&B run's config, without"
+            " affecting the experiments. Repeatable."
+        ),
+    )
+    parser.add_argument(
+        "--results-file",
+        help=(
+            "Also write every run's outcome and subdominance results to this"
+            " JSON file. Used by W&B sweep trials (see fair_irl.sweep)."
+        ),
+    )
+    return parser.parse_args(argv)
+
+
+def _run_result_recorder(records):
+    """
+    A `RUN_RESULT_LISTENERS` entry that collects each run's outcome into
+    `records`, keyed by run id so that a run first finalized and then marked as
+    failed ends up failed.
+    """
+
+    def record(run, summary):
+        records[run.id] = {
+            "run_id": run.id,
+            "ALGORITHM": run.config["ALGORITHM"],
+            "EXPERIMENT_NAME": run.config["EXPERIMENT_NAME"],
+            "DATASET": run.config["DATASET"],
+            "DATASET_BIAS_TYPE": run.config["DATASET_BIAS_TYPE"],
+            "WEIGHT_ADJUST": run.config["WEIGHT_ADJUST"],
+            "TRIAL": run.config["TRIAL"],
+            "converged": summary is not None,
+            "subdominance": (
+                {key: float(summary[key]) for key in SUBDOMINANCE_KEYS}
+                if summary is not None
+                else None
+            ),
+        }
+
+    return record
+
+
+def main(argv=None):
+    args = parse_args(argv)
+
     logging.basicConfig(level=logging.INFO)
     warnings.filterwarnings("ignore")
 
@@ -33,613 +115,21 @@ def main():
     # display(HTML("<style>div.output_area pre {white-space: pre;}</style>"))
     np.set_printoptions(linewidth=np.inf)
 
-    random_seed = 42
-    np.random.seed(random_seed)
-    random.seed(random_seed)
-
-    # Common Config
-    exp_list = []
-    common_exp_info = {
-        "FEAT_EXP_OBJECTIVE_NAMES": [
-            "Acc",
-            "AccPar",
-            "DemPar",
-            "EqOpp",
-            # "FPRPar",
-            # "EqOdds",
-            "TNRPar",
-            # "FNRPar",
-            # "PR_Z0",
-            # "PR_Z1",
-            # "NR_Z0",
-            # "NR_Z1",
-            # "TPR_Z0",
-            # "TPR_Z1",
-            # "TNR_Z0",
-            # "TNR_Z1",
-            # "FPR_Z0",
-            # "FPR_Z1",
-            # "FNR_Z0",
-            # "FNR_Z1",
-        ],
-        "PERF_MEAS_OBJECTIVE_NAMES": [
-            "Acc",
-            "AccPar",
-            "DemPar",
-            "EqOpp",
-            "FPRPar",
-            "EqOdds",
-            "TNRPar",
-            "FNRPar",
-            # "PR_Z0",
-            # "PR_Z1",
-            # "TPR_Z0",
-            # "TPR_Z1",
-            # "TNR_Z0",
-            # "TNR_Z1",
-            # "FPR_Z0",
-            # "FPR_Z1",
-            # "FNR_Z0",
-            # "FNR_Z1",
-            "PredPar",
-            "NegPredPar",
-        ],
-        "USE_HIDDEN_FEATURES_SOURCE": True,
-        "N_EXPERT_DEMOS": 2,
-        "RESTRICT_Y_ACTION": True,
-        # Fair-IRL Policy learning parameters
-        "METHOD": "highs",  # TODO: Tune this hyperparameter (options: 'highs', 'highs-ds', 'highs-ipm')
-        # The most iterations the `opt_debias` weight adjustment runs before
-        # giving up on finding a better weight set. This is only a safety net
-        # -- the loop is expected to stop on its own as soon as an iteration
-        # fails to improve.
-        # Setting this to 1 for now because the Iteration loop does not appear
-        # to improve performance versus the initial weight set.
-        "OPT_DEBIAS_MAX_ITERATIONS": 1,
-        "N_TRIALS": 1,  # TODO: CHANGE THIS BACK TO 3 FOR FINAL PAPER RESULTS
-        "N_SUBDOMINANCE_GROUPS": 50,
-        "DOT_WEIGHTS_FEAT_EXP": True,
-        "N_DATASET_SAMPLES": None,
-        "RANDOM_SEED": random_seed,
-        # Which techniques to train and evaluate. List any combination of the
-        # names below. Each listed technique gets its own W&B run per dataset
-        # bias type, produced by the same evaluation code on the same data
-        # split, so that their metrics are directly comparable.
-        #
-        # The eight after FairIRL are the Superhuman Fairness technique, three
-        # variants of it, and the fair-classification baselines that paper
-        # compares itself against:
-        #   "Superhuman Fairness Fixed"
-        #       Superhuman Fairness with the normalization of its gradient's
-        #       feature-matching term fixed, so that it learns from the
-        #       demonstration-specific signal instead of drifting toward
-        #       predicting every label 0. It shares every SH_* setting below
-        #       except its own SH_FIXED_ITERS, SH_FIXED_LR_THETA and
-        #       SH_FIXED_LAMDA.
-        #   "Superhuman Fairness Neural Network"
-        #       The neural network version of Superhuman Fairness, from the
-        #       reference implementation's `reorg_current` branch. It shares
-        #       the SH_* settings below except its own SH_NN_* ones, and
-        #       ignores SH_BASE_THETA_INIT. It needs PyTorch, and trains on a
-        #       GPU when PyTorch can see one.
-        #   "Superhuman Fairness Neural Network Fixed"
-        #       Superhuman Fairness Neural Network with its training loss
-        #       fixed: centered on the demonstrations' mean subdominance, so
-        #       it no longer drifts toward predicting every label 0, and built
-        #       from the sampled decisions, so its gradient learns which
-        #       decisions beat the demonstrations. It has its own SH_NN_FIXED_*
-        #       counterpart of every SH_NN_* setting.
-        #   "Post Proc DP" / "Post Proc EqOdds"
-        #       The post-processing model of Hardt et al. (2016), with
-        #       demographic parity / equalized odds as the fairness constraint.
-        #   "Fair LogLoss DP" / "Fair LogLoss EqOdds"
-        #       The robust fair-log-loss model of Rezaei et al. (2020), with
-        #       demographic parity / equalized odds as the fairness constraint.
-        #
-        # The Superhuman Fairness paper's remaining baseline, MFOpt
-        # (Hsu et al., 2022), is not available: its reference repository ships
-        # no implementation of it, only CSVs of predictions its authors
-        # produced elsewhere, and Hsu et al. published no code. See the module
-        # docstring of src/fair_irl/sh/baselines.py.
-        "ALGORITHMS": [
-            "FairIRL Bias Reduction",
-            "Superhuman Fairness",
-            "Superhuman Fairness Fixed",
-            "Superhuman Fairness Neural Network",
-            "Superhuman Fairness Neural Network Fixed",
-            "Post Proc DP",
-            "Post Proc EqOdds",
-            "Fair LogLoss DP",
-            "Fair LogLoss EqOdds",
-        ],
-        ##
-        # Superhuman Fairness baseline parameters. Ignored unless one of the
-        # "Superhuman Fairness ..." techniques is listed in ALGORITHMS above.
-        ##
-        # Where the reference decisions ("demonstrations") the baseline
-        # imitates come from:
-        #   "expert_demos" -- this project's own expert (EXPERT_ALGO), on the
-        #       same demonstration groups the subdominance metric scores every
-        #       policy against, so that both techniques imitate the same expert
-        #       on the same rows.
-        #   "pp_baseline"  -- the original paper's own demonstrator: a logistic
-        #       regression post-processed by a fairlearn ThresholdOptimizer.
-        "SH_DEMO_SOURCE": "expert_demos",
-        # The performance/fairness measures the baseline optimizes -- the `-f`
-        # flag of the original implementation. Entries may be this project's
-        # objective names (e.g. "Acc", "DemPar", "TNRPar") or the original
-        # paper's metric names ("inacc", "dp", "eqodds", "prp", "eqopp", "fnr",
-        # "fpr", "ppv", "npv", "error_rate_diff"). None uses this experiment's
-        # SUBDOMINANCE_PERF_METRICS_LIST + SUBDOMINANCE_FAIR_METRICS_LIST, so
-        # that the baseline optimizes exactly what both techniques are
-        # evaluated on. The paper's own configuration is
-        # ["inacc", "dp", "eqodds", "prp"].
-        # "SH_FEATURES": ["inacc", "dp", "eqodds", "prp"],
-        "SH_FEATURES": None,
-        # How many demonstrations to imitate. None uses every subdominance
-        # group ("expert_demos") or the paper's 50 ("pp_baseline").
-        "SH_NUM_DEMOS": None,
-        # The original's `iters`, `lr_theta` and `lamda`.
-        "SH_ITERS": 30,  # TODO: Tune this hyperparameter
-        "SH_LR_THETA": 0.01,  # TODO: Tune this hyperparameter
-        "SH_LAMDA": 0.001,  # TODO: Tune this hyperparameter
-        # Superhuman Fairness Fixed's own `iters`, `lr_theta` and `lamda`, in
-        # place of the three above, so that it can be tuned separately.
-        "SH_FIXED_ITERS": 30,  # TODO: Tune this hyperparameter
-        "SH_FIXED_LR_THETA": 0.01,  # TODO: Tune this hyperparameter
-        "SH_FIXED_LAMDA": 0.001,  # TODO: Tune this hyperparameter
-        # Superhuman Fairness Neural Network's own `iters`, `lr_theta` and
-        # `lamda`, in place of SH_ITERS/SH_LR_THETA/SH_LAMDA. Its `lr_theta`
-        # is the network's Adam learning rate: the reference implementation's
-        # network ignores `lr_theta` and steps with Adam at 1e-5, which is the
-        # value here. (Its own config trains for 40 iterations.)
-        "SH_NN_ITERS": 30,  # TODO: Tune this hyperparameter
-        "SH_NN_LR_THETA": 1e-5,  # TODO: Tune this hyperparameter
-        "SH_NN_LAMDA": 0.001,  # TODO: Tune this hyperparameter
-        # Its network: two ReLU hidden layers, of SH_NN_HIDDEN_NODES and half
-        # as many units, first fit with SH_NN_BASE_FIT_EPOCHS full-batch Adam
-        # steps. Both are the reference implementation's.
-        "SH_NN_HIDDEN_NODES": 512,  # TODO: Tune this hyperparameter
-        "SH_NN_BASE_FIT_EPOCHS": 15000,  # TODO: Tune this hyperparameter
-        # Its learning-rate schedule, the reference implementation's: the
-        # rate is multiplied by SH_NN_LR_BOOST_FACTOR after the first
-        # iteration, and divided by it again the first time the
-        # gamma-superhuman sum reaches SH_NN_LR_DECAY_GAMMA_FRAC of the number
-        # of features.
-        "SH_NN_LR_BOOST_FACTOR": 10,  # TODO: Tune this hyperparameter
-        "SH_NN_LR_DECAY_GAMMA_FRAC": 0.9,  # TODO: Tune this hyperparameter
-        # The torch device it trains on, e.g. "cpu" or "cuda". None uses a GPU
-        # if PyTorch can see one (AMD GPUs included, with a ROCm build of
-        # PyTorch), and the CPU otherwise.
-        "SH_NN_DEVICE": None,
-        # Superhuman Fairness Neural Network Fixed's own counterparts of every
-        # SH_NN_* setting above, so that it can be tuned separately.
-        "SH_NN_FIXED_ITERS": 30,  # TODO: Tune this hyperparameter
-        "SH_NN_FIXED_LR_THETA": 1e-5,  # TODO: Tune this hyperparameter
-        "SH_NN_FIXED_LAMDA": 0.001,  # TODO: Tune this hyperparameter
-        "SH_NN_FIXED_HIDDEN_NODES": 512,  # TODO: Tune this hyperparameter
-        "SH_NN_FIXED_BASE_FIT_EPOCHS": 15000,  # TODO: Tune this hyperparameter
-        "SH_NN_FIXED_LR_BOOST_FACTOR": 10,  # TODO: Tune this hyperparameter
-        "SH_NN_FIXED_LR_DECAY_GAMMA_FRAC": 0.9,  # TODO: Tune this hyperparameter
-        "SH_NN_FIXED_DEVICE": None,
-        # The fairness constraint the "pp_baseline" demonstrator satisfies.
-        # Unused by the "expert_demos" source.
-        "SH_DEMO_CONSTRAINTS": "demographic_parity",
-        ##
-        # Fair log-loss baseline parameters. Ignored unless one of the
-        # "Fair LogLoss ..." techniques is listed in ALGORITHMS above. Both are
-        # what the original implementation passes.
-        ##
-        "FAIR_LOGLOSS_C": 0.005,  # TODO: Tune this hyperparameter
-        "FAIR_LOGLOSS_RANDOM_INIT": True,  # TODO: Tune this hyperparameter
-        ##
-        # Data split parameters.
-        ##
-        # The (train, val, test) fractions of each dataset, and whether both
-        # splits are stratified by the label. The Superhuman Fairness baseline
-        # trains on (and builds its demonstrations from) the train split.
-        "DATA_SPLIT_FRACTIONS": (0.6, 0.2, 0.2),
-        "DATA_SPLIT_STRATIFY": False,
-    }
-
-    # The Superhuman Fairness paper's experimental conditions. They are applied
-    # to the Adult_SH and COMPAS_SH experiments below -- the paper's own
-    # datasets -- so that those reproduce the paper's results and its
-    # `plot_features()` figures. Remove the `|= sh_paper_exp_info` line of
-    # either experiment to run its dataset under this project's usual
-    # conditions instead. To draw the figures the way the paper does, set
-    # `plot_demo_source = "superhuman"` and `fair_logloss_paper_metrics = True`
-    # in the plotting notebook.
-    sh_paper_exp_info = {
-        # The paper's demonstrator (a logistic regression post-processed for
-        # demographic parity), refit for each of 50 demonstrations on a random
-        # half of the training pool and scored on the other half.
-        "SH_DEMO_SOURCE": "pp_baseline",
-        "SH_NUM_DEMOS": 50,
-        "SH_DEMO_CONSTRAINTS": "demographic_parity",
-        # The measures the paper's figures are drawn on (`-f inacc dp eqodds
-        # prp`).
-        "SH_FEATURES": ["inacc", "dp", "eqodds", "prp"],
-        # The original's defaults (`default_args` and the constants of its
-        # main.py), which its Adult runs use. COMPAS_SH overrides some below.
-        "SH_ITERS": 30,
-        "SH_LR_THETA": 0.01,
-        "SH_LAMDA": 0.001,
-        "SH_FIXED_ITERS": 30,
-        "SH_FIXED_LR_THETA": 0.01,
-        "SH_FIXED_LAMDA": 0.001,
-        "SH_NN_ITERS": 30,
-        "SH_NN_LR_THETA": 1e-5,
-        "SH_NN_LAMDA": 0.001,
-        "SH_NN_FIXED_ITERS": 30,
-        "SH_NN_FIXED_LR_THETA": 1e-5,
-        "SH_NN_FIXED_LAMDA": 0.001,
-        "SH_BASE_THETA_INIT": "logistic_regression",
-        # The original splits each dataset in half, stratified by the label:
-        # one half is the training pool the model and its demonstrations are
-        # fit on, the other its test set. This project also needs a validation
-        # split, so the second half is shared between validation and test.
-        "DATA_SPLIT_FRACTIONS": (0.5, 0.25, 0.25),
-        "DATA_SPLIT_STRATIFY": True,
-        # The paper's error-bar figures average 10 experiments; its
-        # `plot_features()` figures show one.
-        # "N_TRIALS": 10,
-    }
-
-    # ### COMPAS
-    base_exp_info = {
-        "EXPERIMENT_NAME": "COMPAS",
-        # "MIN_FREQ_FILL_PCT": 0.08,
-        "MIN_FREQ_FILL_PCT": 0.0,
-        # MIN_FREQ_FILL_PCT values have been chosen
-        # so that the runtime per learned policy is roughly equal for all
-        # datasets
-        # "N_SUBDOMINANCE_GROUPS": 20,  # N_SUBDOMINANCE_GROUPS values have been
-        # chosen so that none of the feature expectations before or after weight
-        # adjustment have zero values.
-        # (That would cause issues for the subdominance calculations)
-    }
-    base_exp_info |= common_exp_info
-
-    source_states = [
-        "COMPAS",
-    ]
-
-    exp_dict = {}
-    exp_dict["base_exp_info"] = base_exp_info
-    exp_dict["source_states"] = source_states
-    exp_list.append(exp_dict)
-
-    # Boston (DISABLED, SINCE NOT ENOUGH DATA FOR GOOD SUBDOMINANCE CALCS)
-    # base_exp_info = {
-    #     'EXPERIMENT_NAME': 'Boston',
-    #     "MIN_FREQ_FILL_PCT": 0.0,
-    #     "N_SUBDOMINANCE_GROUPS": 2,  # Even with only 2 subdominance groups,
-    #     # Boston is small and doesn't quite have enough samples to properly
-    #     # compute fairness features in some instances. However, this is the
-    #     # best we can do without reducing the number of subdominance groups
-    #     # to 1, and the compute_alphas() function requires at least 2.
-    #     # The good news is, since we are using sum-aggregated absolute
-    #     # subdominance, the effect of a few bad fairness feature estimates
-    #     # should be minimal. Therefore, we choose to keep this dataset in.
-    #     # Nevermind, taking it out.
-    # }
-    # base_exp_info |= common_exp_info
-
-    # source_states = [
-    #     'Boston',
-    # ]
-
-    # exp_dict = {}
-    # exp_dict["base_exp_info"] = base_exp_info
-    # exp_dict["source_states"] = source_states
-    # exp_list.append(exp_dict)
-
-    # Adult
-    base_exp_info = {
-        "EXPERIMENT_NAME": "Adult",
-        # "MIN_FREQ_FILL_PCT": 0.24,
-        "MIN_FREQ_FILL_PCT": 0.0,
-    }
-    base_exp_info |= common_exp_info
-
-    source_states = [
-        "Adult",
-    ]
-
-    exp_dict = {}
-    exp_dict["base_exp_info"] = base_exp_info
-    exp_dict["source_states"] = source_states
-    exp_list.append(exp_dict)
-
-    # Adult_SH: the Adult dataset exactly as the Superhuman Fairness paper uses
-    # it (its reference implementation's `dataset_ref.csv`, copied to
-    # data/superhuman_fairness/Adult/), under the paper's conditions.
-    base_exp_info = {
-        "EXPERIMENT_NAME": "Adult_SH",
-        # Only matters to FairIRL Bias Reduction. This dataset's one-hot
-        # columns leave its MDP at ~11k states whatever this is set to, far
-        # more than any other dataset here.
-        "MIN_FREQ_FILL_PCT": 0.24,
-    }
-    base_exp_info |= common_exp_info
-    base_exp_info |= sh_paper_exp_info
-
-    source_states = [
-        "Adult_SH",
-    ]
-
-    exp_dict = {}
-    exp_dict["base_exp_info"] = base_exp_info
-    exp_dict["source_states"] = source_states
-    exp_list.append(exp_dict)
-
-    # COMPAS_SH: the COMPAS dataset exactly as the Superhuman Fairness paper
-    # uses it (its reference implementation's `dataset_ref.csv`, copied to
-    # data/superhuman_fairness/COMPAS/), under the paper's conditions.
-    base_exp_info = {
-        "EXPERIMENT_NAME": "COMPAS_SH",
-        "MIN_FREQ_FILL_PCT": 0.08,
-    }
-    base_exp_info |= common_exp_info
-    base_exp_info |= sh_paper_exp_info
-
-    source_states = [
-        "COMPAS_SH",
-    ]
-
-    exp_dict = {}
-    exp_dict["base_exp_info"] = base_exp_info
-    exp_dict["source_states"] = source_states
-
-    # The paper's COMPAS runs differ from its defaults: all 10 of the runs
-    # behind its COMPAS figures record lr_theta = 0.0001 and 5 iterations, and
-    # the original always starts COMPAS from a demographic-parity fair
-    # log-loss classifier's coefficients (the COMPAS branch of its
-    # `base_model()`). At the default lr_theta of 0.01 its model collapses to
-    # predicting every label 0 -- in the original implementation too.
-    exp_dict["base_exp_info"] |= {
-        "SH_LR_THETA": 0.0001,
-        "SH_ITERS": 5,
-        "SH_FIXED_LR_THETA": 0.0001,
-        "SH_FIXED_ITERS": 5,
-        # The network's `lr_theta` is its Adam learning rate, so it keeps its
-        # own value; only the iteration count is mirrored.
-        "SH_NN_ITERS": 5,
-        "SH_NN_FIXED_ITERS": 5,
-        "SH_BASE_THETA_INIT": "fair_logloss_dp",
-    }
-    exp_list.append(exp_dict)
-
-    # ACSIncome: MA
-    base_exp_info = {
-        "EXPERIMENT_NAME": "ACSIncome__MA",
-        # "MIN_FREQ_FILL_PCT": 0.07,
-        "MIN_FREQ_FILL_PCT": 0.0,
-    }
-    base_exp_info |= common_exp_info
-
-    source_states = [
-        "ACSIncome__MA",
-    ]
-
-    exp_dict = {}
-    exp_dict["base_exp_info"] = base_exp_info
-    exp_dict["source_states"] = source_states
-    exp_list.append(exp_dict)
-
-    # ACSIncome: MS
-    base_exp_info = {
-        "EXPERIMENT_NAME": "ACSIncome__MS",
-        # "MIN_FREQ_FILL_PCT": 0.05,
-        "MIN_FREQ_FILL_PCT": 0.0,
-    }
-    base_exp_info |= common_exp_info
-
-    source_states = [
-        "ACSIncome__MS",
-    ]
-
-    exp_dict = {}
-    exp_dict["base_exp_info"] = base_exp_info
-    exp_dict["source_states"] = source_states
-    exp_list.append(exp_dict)
-
-    # ACSIncome: CA
-    base_exp_info = {
-        "EXPERIMENT_NAME": "ACSIncome__CA",
-        # "MIN_FREQ_FILL_PCT": 0.2,
-        "MIN_FREQ_FILL_PCT": 0.0,
-    }
-    base_exp_info |= common_exp_info
-
-    source_states = [
-        "ACSIncome__CA",
-    ]
-
-    exp_dict = {}
-    exp_dict["base_exp_info"] = base_exp_info
-    exp_dict["source_states"] = source_states
-    exp_list.append(exp_dict)
-
-    # ACSIncome: IL
-    base_exp_info = {
-        "EXPERIMENT_NAME": "ACSIncome__IL",
-        # "MIN_FREQ_FILL_PCT": 0.09,
-        "MIN_FREQ_FILL_PCT": 0.0,
-    }
-    base_exp_info |= common_exp_info
-
-    source_states = [
-        "ACSIncome__IL",
-    ]
-
-    exp_dict = {}
-    exp_dict["base_exp_info"] = base_exp_info
-    exp_dict["source_states"] = source_states
-    exp_list.append(exp_dict)
-
-    # ACSIncome: AL
-    base_exp_info = {
-        "EXPERIMENT_NAME": "ACSIncome__AL",
-        # "MIN_FREQ_FILL_PCT": 0.06,
-        "MIN_FREQ_FILL_PCT": 0.0,
-    }
-    base_exp_info |= common_exp_info
-
-    source_states = [
-        "ACSIncome__AL",
-    ]
-
-    exp_dict = {}
-    exp_dict["base_exp_info"] = base_exp_info
-    exp_dict["source_states"] = source_states
-    exp_list.append(exp_dict)
-
-    # ACSIncome: HI
-    base_exp_info = {
-        "EXPERIMENT_NAME": "ACSIncome__HI",
-        # "MIN_FREQ_FILL_PCT": 0.1,
-        "MIN_FREQ_FILL_PCT": 0.0,
-    }
-    base_exp_info |= common_exp_info
-
-    source_states = [
-        "ACSIncome__HI",
-    ]
-
-    exp_dict = {}
-    exp_dict["base_exp_info"] = base_exp_info
-    exp_dict["source_states"] = source_states
-    exp_list.append(exp_dict)
-
-    # Set Experts
-    expert_algos = [
-        "OptClfMDPPol"
-        # The demonstrator of the Superhuman Fairness paper: a logistic
-        # regression post-processed by a fairlearn ThresholdOptimizer, fit on a
-        # class-balanced subsample. This is the same model the Superhuman
-        # Fairness baseline builds its demonstrations from when
-        # SH_DEMO_SOURCE is "pp_baseline", and it takes its fairness
-        # constraint from SH_DEMO_CONSTRAINTS below, so selecting it here makes
-        # both techniques imitate the same demonstrator.
-        # "PostProcDemo",
-        # "OptAcc",
-        # "CatBoostOptAcc",
-        # "XGBoostOptAcc",
-        # "HardtDemPar",
-        # "HardtEqOpp",
-        # "HardtTNRPar",
-        # "HardtFPRPar",
-        # "HardtFNRPar",
-        # "HardtEqOdds",
-        # 'BoundedGroupLoss',
-        # 'COMPAS',
-    ]
-
-    ALL_FEAT_PERF_OBJECTIVE_NAMES = [
-        "Acc",
-        "AccPar",
-        "DemPar",
-        "EqOpp",
-        "FPRPar",
-        "EqOdds",
-        "TNRPar",
-        "FNRPar",
-        "PR_Z0",
-        "PR_Z1",
-        "NR_Z0",
-        "NR_Z1",
-        "TPR_Z0",
-        "TPR_Z1",
-        "TNR_Z0",
-        "TNR_Z1",
-        "FPR_Z0",
-        "FPR_Z1",
-        "FNR_Z0",
-        "FNR_Z1",
-        "PredPar",
-        "NegPredPar",
-    ]
-
-    # all available bias types = ("unbalanced_redlining", "balanced_redlining", "perfectly_balanced_redlining", "corruption_bias")
-    # The unbiased run is always performed first, ahead of every bias type
-    # listed here.
-    dataset_bias_type_list = (
-        # ("unbalanced_redlining", 0.2),
-        # ("balanced_redlining", 0.2),
-        # ("perfectly_balanced_redlining", 0.2),
-        # ("corruption_bias", "CatBoost", 0.0001, "gaussian", 1.0),
-        # ("corruption_bias", "CatBoost", 0.001, "gaussian", 1.0),
-        # ("corruption_bias", "CatBoost", 0.01, "gaussian", 1.0),
-    )
-    # dataset_bias_types_list = (("perfectly_balanced_redlining"))
-
-    weight_adjust_list = (
-        # ("mul_negative_weights", 0.0),
-        # ("mul_negative_weights", 0.1),
-        # ("mul_negative_weights", 0.2),
-        # ("mul_negative_weights", 0.3),
-        # ("mul_negative_weights", 0.4),
-        # ("mul_negative_weights", 0.5),
-        # ("mul_negative_weights", 0.6),
-        # ("mul_negative_weights", 0.7),
-        # ("mul_negative_weights", 0.8),
-        # ("mul_negative_weights", 0.9),
-        # Optimization-based weight debiasing for Fair-IRL Bias Reduction
-        # TODO: Tune this hyperparameter (which optimizer is best?)
-        # ("opt_debias", "optuna", "CMA-ES", 500),
-        ("opt_debias", "optuna", "GP", 500),
-        # ("opt_debias", "optuna", "TPE", 500),
-        # ("opt_debias", "pybobyqa", "Multi-Start BOBYQA", 500),
-        # ("opt_debias", "nevergrad", "BayesOpt", 500),
-        # ("opt_debias", "nevergrad", "Nelder-Mead", 500),
-        # ("opt_debias", "nevergrad", "Powell", 500),
+    # Every experiment setting lives in the config file; see the header of
+    # configs/experiment.yaml for how it is laid out.
+    logging.info(f"Loading experiment config: {args.config}")
+    plan = build_experiment_plan(
+        load_config(args.config),
+        overrides=dict(parse_assignment(text) for text in args.overrides),
+        annotations=dict(parse_assignment(text) for text in args.annotate),
     )
 
-    # The performance and fairness measures the subdominance metric is computed
-    # over. FairIRL Bias Reduction optimizes relative to these: its
-    # `opt_debias` weight search minimizes the subdominance of the policies the
-    # candidate weights produce, scored on exactly these measures. They are
-    # also what the Superhuman Fairness baseline optimizes by default (see
-    # SH_FEATURES above), and what every technique's figures are plotted on.
-    #
-    # Entries may be named in either vocabulary, and the two may be mixed:
-    #   This project's objectives -- "Acc", "AccPar", "DemPar", "EqOpp",
-    #       "FPRPar", "EqOdds", "TNRPar", "FNRPar", "PredPar", "NegPredPar",
-    #       and the per-group rates ("PR_Z0", "TPR_Z1", ...). Each is a
-    #       "goodness" measure, turned into a loss as `1 - mu`.
-    #   The Superhuman Fairness paper's metrics -- "inacc" (prediction error),
-    #       "dp", "eqodds", "prp" (the larger of the PPV and NPV differences),
-    #       "eqopp", "fnr", "fpr", "ppv", "npv" and "error_rate_diff" (the
-    #       balanced error rate difference). These are already losses, computed
-    #       exactly as that paper's `util.get_metrics_df()` computes them.
-    #
-    # Several of the two overlap exactly -- "inacc" is "Acc", "dp" is "DemPar",
-    # "fpr" is "TNRPar", "eqopp" and "fnr" are "EqOpp" -- while "prp" and
-    # "error_rate_diff" have no objective equivalent. The split between the two
-    # lists only sets the weighting: sum-aggregated subdominance gives the perf
-    # metrics half the weight and the fair metrics the other half.
-    subdominance_perf_metrics_list = ("Acc",)
-    subdominance_fair_metrics_list = ("AccPar", "DemPar", "EqOpp", "TNRPar")
-    # The superhuman fairness paper's own configuration, for reference:
-    # subdominance_perf_metrics_list = ("inacc",)
-    # subdominance_fair_metrics_list = ("dp", "eqodds", "prp")
+    np.random.seed(plan.random_seed)
+    random.seed(plan.random_seed)
 
-    selected_datasets = [
-        "COMPAS",
-        "Adult",
-        # The Superhuman Fairness paper's own datasets, run under its
-        # conditions (see `sh_paper_exp_info` above).
-        # "Adult_SH",
-        # "COMPAS_SH",
-        "ACSIncome__MA",
-        "ACSIncome__MS",
-        # "ACSIncome__CA",
-        # "ACSIncome__IL",
-        # "ACSIncome__AL",
-        # "ACSIncome__HI",
-    ]
+    run_records = {}
+    if args.results_file:
+        RUN_RESULT_LISTENERS.append(_run_result_recorder(run_records))
 
     # Run experiments. Results are reported to Weights & Biases (project
     # `WANDB_PROJECT`, default "fair-irl"); the server address and credentials
@@ -654,29 +144,20 @@ def main():
     logging.info(f"W&B session: {session_id}")
 
     # Create config for each experiment
-    for exp_dict in exp_list:
-        source_states = exp_dict["source_states"]
-        if source_states[0] not in selected_datasets:
+    for base_exp_info in plan.experiments:
+        if base_exp_info["DATASET"] not in plan.selected_datasets:
             logging.info(
-                f"Skipping experiment {exp_dict['base_exp_info']['EXPERIMENT_NAME']} since it is not in the selected datasets list."
+                f"Skipping experiment {base_exp_info['EXPERIMENT_NAME']} since it is not in the selected datasets list."
             )
             continue
-        base_exp_info = exp_dict["base_exp_info"]
-        exp_info = dict(base_exp_info)
         experiments = []
-        for expert_algo in expert_algos:
-            for source_dataset in source_states:
-                experiments.append(
-                    {
-                        "EXPERT_ALGO": expert_algo,
-                        "DATASET_BIAS_TYPE_LIST": dataset_bias_type_list,
-                        "IRL_METHOD": "FairIRL",
-                        "DATASET": source_dataset,
-                        "WEIGHT_ADJUST_LIST": weight_adjust_list,
-                        "SUBDOMINANCE_PERF_METRICS_LIST": subdominance_perf_metrics_list,
-                        "SUBDOMINANCE_FAIR_METRICS_LIST": subdominance_fair_metrics_list,
-                    }
-                )
+        for expert_algo in plan.expert_algos:
+            experiments.append(
+                {
+                    "EXPERT_ALGO": expert_algo,
+                    "DATASET": base_exp_info["DATASET"],
+                }
+            )
         for exp_i, experiment in enumerate(experiments):
             logging.info(f"EXPERIMENT {exp_i+1}/{len(experiments)}")
 
@@ -717,6 +198,14 @@ def main():
                 source_y=source_y,
                 source_feature_types=source_feature_types,
                 session_id=session_id,
+            )
+
+    if args.results_file:
+        with open(args.results_file, "w") as f:
+            json.dump(
+                {"session_id": session_id, "runs": list(run_records.values())},
+                f,
+                indent=2,
             )
 
     logging.info(f"TRAINING FINISHED SUCESSFULLY! W&B session: {session_id}")

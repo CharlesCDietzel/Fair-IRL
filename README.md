@@ -28,7 +28,38 @@ IMPORTANT NOTE: You will need to re-run ```wandb server start``` each time you r
 
 # Reproducing Results
 
-To reproduce the results, run ```python3 src/fair_irl/Fair_IRL_Biased_Demonstrations.py```
+To reproduce the results, run ```python3 src/fair_irl/Fair_IRL_Biased_Demonstrations.py``` (or ```uv run fair-irl```) from the repository root.
+
+Every experiment setting lives in `configs/experiment.yaml`: which datasets,
+experts and techniques are run, and every technique's hyperparameters. Its
+header explains how it is laid out. Use a different file with `--config`, or
+override single values with `--set`, which reads each value as JSON:
+
+```sh
+uv run fair-irl --set 'SELECTED_DATASETS=["COMPAS"]' --set SH_ITERS=10
+```
+
+## Hyperparameter tuning
+
+Each tunable technique has a W&B sweep config in `configs/sweeps/`, a search
+over its hyperparameters that minimizes its mean validation subdominance
+(`sum_abs_subdominance_val`): a grid search over all 21 combinations for
+FairIRL Bias Reduction, and a Bayesian search for each baseline. `Post Proc DP` and
+`Post Proc EqOdds` have no hyperparameters. To tune a technique, create its
+sweeps -- one per selected dataset, so every dataset gets its own
+hyperparameters -- and start an agent for each sweep id printed:
+
+```sh
+uv run python -m fair_irl.sweep create configs/sweeps/superhuman_fairness.yaml
+uv run wandb agent <entity>/<project>/<sweep id>
+```
+
+Add `--joint` to `create` to tune one set of hyperparameters across all the
+datasets instead, or `--dataset <name>` (repeatable) to choose the datasets;
+`--dry-run` prints the sweep configs without creating them. Run the agents from
+the repository root. Every sweep trial is a W&B run of its own, and also
+reports the usual per-technique runs, which record the trial in their
+`SWEEP_ID`/`SWEEP_RUN_ID` config. See `src/fair_irl/sweep.py` for details.
 
 ## Techniques
 
@@ -85,20 +116,19 @@ code, so there is nothing to port and any implementation here would be a
 reconstruction of the paper rather than the published method.
 
 Which techniques a run covers is the `ALGORITHMS` list in
-`Fair_IRL_Biased_Demonstrations.py`; list any combination:
+`configs/experiment.yaml`; list any combination:
 
-```python
-"ALGORITHMS": [
-    "FairIRL Bias Reduction",
-    "Superhuman Fairness",
-    "Superhuman Fairness Fixed",
-    "Superhuman Fairness Neural Network",
-    "Superhuman Fairness Neural Network Fixed",
-    "Post Proc DP",
-    "Post Proc EqOdds",
-    "Fair LogLoss DP",
-    "Fair LogLoss EqOdds",
-],
+```yaml
+ALGORITHMS:
+  - FairIRL Bias Reduction
+  - Superhuman Fairness
+  - Superhuman Fairness Fixed
+  - Superhuman Fairness Neural Network
+  - Superhuman Fairness Neural Network Fixed
+  - Post Proc DP
+  - Post Proc EqOdds
+  - Fair LogLoss DP
+  - Fair LogLoss EqOdds
 ```
 
 Every technique is trained on the same dataset, the same injected label bias
@@ -114,8 +144,8 @@ fair-log-loss optimizer can) is logged, its run marked `converged = False` --
 which is what the plotting notebook filters on -- and the trial carries on with
 the remaining techniques.
 
-The techniques' own parameters live next to `ALGORITHMS` in the same file and
-are documented there: the `SH_*` entries for Superhuman Fairness (which
+The techniques' own parameters live next to `ALGORITHMS` in the same config
+file and are documented there: the `SH_*` entries for Superhuman Fairness (which
 demonstrations it imitates, which performance/fairness measures it optimizes,
 its learning rate and iteration count) and the `FAIR_LOGLOSS_*` entries for the
 fair-log-loss baselines.
@@ -132,9 +162,8 @@ does not track; copy them from
 project's `Adult` and `COMPAS` in their rows, encoding, label and protected
 attribute (see their loaders in `src/fair_irl/datasets.py`).
 
-Listing either in `selected_datasets` runs it under the paper's experimental
-conditions, which `sh_paper_exp_info` in `Fair_IRL_Biased_Demonstrations.py`
-sets: the paper's post-processing demonstrations, measures, hyperparameters and
+Listing either in `SELECTED_DATASETS` runs it under the paper's experimental
+conditions, which the `sh_paper` preset in `configs/experiment.yaml` sets: the paper's post-processing demonstrations, measures, hyperparameters and
 stratified half/half split, plus, for COMPAS, the learning rate
 (`lr_theta = 0.0001`), iteration count (5) and fair log-loss initialization
 its runs used. Then set `plot_demo_source = "superhuman"` and
@@ -143,8 +172,8 @@ figures the way the paper does.
 
 The Superhuman Fairness paper's own demonstrator -- the post-processing model
 its `SH_DEMO_SOURCE = "pp_baseline"` setting learns from -- is also available
-to the FairIRL Bias Reduction technique as the `"PostProcDemo"` entry of
-`expert_algos`. It takes its fairness constraint from `SH_DEMO_CONSTRAINTS`,
+to the FairIRL Bias Reduction technique as the `PostProcDemo` entry of
+`EXPERT_ALGOS`. It takes its fairness constraint from `SH_DEMO_CONSTRAINTS`,
 so selecting it makes both techniques imitate the same demonstrator.
 
 # Figures

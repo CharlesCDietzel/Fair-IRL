@@ -1,0 +1,63 @@
+# W&B sweep: tunes Superhuman Fairness Neural Network.
+#
+# Create one sweep per selected dataset, then start an agent for each sweep id
+# it prints (from the repository root):
+#   uv run python -m fair_irl.sweep create configs/sweeps/superhuman_fairness_nn.yaml
+#   uv run wandb agent <entity>/<project>/<sweep id>
+#
+# Every value not listed under `parameters` comes from configs/experiment.yaml.
+name: Superhuman Fairness Neural Network
+project: fair-irl
+method: bayes
+metric:
+  # The mean validation subdominance (sum_abs_subdominance_val) of the
+  # technique's runs; see src/fair_irl/sweep.py.
+  name: objective
+  goal: minimize
+command:
+  - ${env}
+  - ${interpreter}
+  - -m
+  - fair_irl.sweep
+  - trial
+  - --config
+  - configs/experiment.yaml
+run_cap: 60
+parameters:
+  ALGORITHMS:
+    value: [Superhuman Fairness Neural Network]
+  # The reference implementation trains for 30-40 iterations.
+  SH_NN_ITERS:
+    distribution: int_uniform
+    min: 5
+    max: 60
+  # The network's Adam learning rate; the reference implementation's is 1e-5.
+  SH_NN_LR_THETA:
+    distribution: log_uniform_values
+    min: 1.0e-6
+    max: 1.0e-3
+  SH_NN_LAMDA:
+    distribution: log_uniform_values
+    min: 1.0e-5
+    max: 0.1
+  # The first hidden layer's width; the second has half as many units. The
+  # reference implementation's is 512.
+  SH_NN_HIDDEN_NODES:
+    values: [64, 128, 256, 512, 1024]
+  # Full-batch Adam steps of the initial fit; the reference implementation's
+  # is 15000.
+  SH_NN_BASE_FIT_EPOCHS:
+    distribution: int_uniform
+    min: 1000
+    max: 20000
+  # 1 disables the boost; the reference implementation's is 10.
+  SH_NN_LR_BOOST_FACTOR:
+    distribution: log_uniform_values
+    min: 1.0
+    max: 30.0
+  # The fraction of the features that must be gamma-superhuman before the
+  # boost is undone; the reference implementation's is 0.9.
+  SH_NN_LR_DECAY_GAMMA_FRAC:
+    distribution: uniform
+    min: 0.5
+    max: 1.0

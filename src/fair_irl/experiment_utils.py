@@ -891,19 +891,23 @@ BASELINE_SPECS = {
     ALGORITHM_FAIR_LOGLOSS_DP: {
         "builder": FairLogLossBaseline,
         "kwargs": {"mode": "demographic_parity"},
+        "config_prefix": "FAIR_LOGLOSS_DP_",
     },
     ALGORITHM_FAIR_LOGLOSS_EQODDS: {
         "builder": FairLogLossBaseline,
         "kwargs": {"mode": "equalized_odds"},
+        "config_prefix": "FAIR_LOGLOSS_EQODDS_",
     },
 }
 
-# Defaults for the fair log-loss baselines, overridable through the
-# correspondingly named `exp_info` keys. Both are what the original's
-# `eval_model_baseline()` passes.
+# Defaults for the fair log-loss baselines. Each baseline has its own copy of
+# these settings, so that each can be tuned separately: the `exp_info` key of a
+# setting is its baseline's `config_prefix` in `BASELINE_SPECS` followed by the
+# setting's name here, e.g. `FAIR_LOGLOSS_DP_C`. Both defaults are what the
+# original's `eval_model_baseline()` passes.
 FAIR_LOGLOSS_DEFAULTS = {
-    "FAIR_LOGLOSS_C": FAIR_LOGLOSS_C,
-    "FAIR_LOGLOSS_RANDOM_INIT": True,
+    "C": FAIR_LOGLOSS_C,
+    "RANDOM_INIT": True,
 }
 
 # Defaults for the Superhuman Fairness baseline's own configuration. Each is
@@ -1182,6 +1186,14 @@ def dataset_bias_type_name(dataset_bias_type):
         return "unbiased"
 
     return "_".join(str(component) for component in dataset_bias_type)
+
+
+# Callables notified of every run's outcome, as `listener(run, summary)`:
+# `summary` is the dict `_finalize_trial()` stored in the run summary, or `None`
+# when `_report_run_failure()` marked the run as not converged. The experiment
+# script registers one to hand its runs' results to a W&B sweep trial, which
+# cannot otherwise see them (see `fair_irl.sweep`).
+RUN_RESULT_LISTENERS = []
 
 
 def new_session_id():
@@ -3231,6 +3243,9 @@ def _finalize_trial(
     run.summary["converged"] = True
     run.summary.update(summary)
 
+    for listener in RUN_RESULT_LISTENERS:
+        listener(run, summary)
+
 
 def _model_feat_loss_summary(exp_info, results):
     """
@@ -3435,6 +3450,9 @@ def _report_run_failure(run, algorithm, error):
     if run is not None:
         run.summary["converged"] = False
         run.summary["error"] = f"{type(error).__name__}: {error}"
+
+        for listener in RUN_RESULT_LISTENERS:
+            listener(run, None)
 
 
 def _evaluate_and_finalize(
@@ -3660,11 +3678,18 @@ def _run_superhuman_trial(
             _report_run_failure(run, algorithm, error)
 
 
-def _fair_logloss_config(exp_info):
-    """`FAIR_LOGLOSS_DEFAULTS`, overridden by whatever `exp_info` sets."""
+def _fair_logloss_config(exp_info, prefix):
+    """
+    `FAIR_LOGLOSS_DEFAULTS`, overridden by whatever `exp_info` sets for the
+    fair log-loss baseline whose keys start with `prefix`.
+    """
     return {
-        key: exp_info.get(key, default) if exp_info.get(key) is not None else default
-        for key, default in FAIR_LOGLOSS_DEFAULTS.items()
+        name: (
+            exp_info[prefix + name]
+            if exp_info.get(prefix + name) is not None
+            else default
+        )
+        for name, default in FAIR_LOGLOSS_DEFAULTS.items()
     }
 
 
@@ -3701,9 +3726,9 @@ def _build_baseline_model(exp_info, algorithm, feature_types, seed):
         )
         return model, kwargs
 
-    fll_config = _fair_logloss_config(exp_info)
-    kwargs["C"] = fll_config["FAIR_LOGLOSS_C"]
-    kwargs["random_initialization"] = fll_config["FAIR_LOGLOSS_RANDOM_INIT"]
+    fll_config = _fair_logloss_config(exp_info, spec["config_prefix"])
+    kwargs["C"] = fll_config["C"]
+    kwargs["random_initialization"] = fll_config["RANDOM_INIT"]
     model = FairLogLossBaseline(feature_types=feature_types, seed=seed, **kwargs)
     return model, kwargs
 

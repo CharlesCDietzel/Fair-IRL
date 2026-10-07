@@ -1,0 +1,42 @@
+# W&B sweep: tunes Superhuman Fairness Fixed.
+#
+# Create one sweep per selected dataset, then start an agent for each sweep id
+# it prints (from the repository root):
+#   uv run python -m fair_irl.sweep create configs/sweeps/superhuman_fairness_fixed.yaml
+#   uv run wandb agent <entity>/<project>/<sweep id>
+#
+# Every value not listed under `parameters` comes from configs/experiment.yaml.
+name: Superhuman Fairness Fixed
+project: fair-irl
+method: bayes
+metric:
+  # The mean validation subdominance (sum_abs_subdominance_val) of the
+  # technique's runs; see src/fair_irl/sweep.py.
+  name: objective
+  goal: minimize
+command:
+  - ${env}
+  - ${interpreter}
+  - -m
+  - fair_irl.sweep
+  - trial
+  - --config
+  - configs/experiment.yaml
+run_cap: 50
+parameters:
+  ALGORITHMS:
+    value: [Superhuman Fairness Fixed]
+  # The reference implementation's defaults are 30 iterations, a learning
+  # rate of 0.01 and lamda 0.001; its COMPAS runs use 5 iterations at 0.0001.
+  SH_FIXED_ITERS:
+    distribution: int_uniform
+    min: 5
+    max: 60
+  SH_FIXED_LR_THETA:
+    distribution: log_uniform_values
+    min: 1.0e-5
+    max: 0.1
+  SH_FIXED_LAMDA:
+    distribution: log_uniform_values
+    min: 1.0e-5
+    max: 0.1
