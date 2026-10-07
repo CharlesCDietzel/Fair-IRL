@@ -586,8 +586,8 @@ def main():
         # ("mul_negative_weights", 0.7),
         # ("mul_negative_weights", 0.8),
         # ("mul_negative_weights", 0.9),
-        # Optimization-based weight debiasing (see _ml_apply_weight_adjustment_debias in experiment_utils.py)
-        # TODO: Tune opt_debias config options to determine which weight adjustment method works best
+        # Optimization-based weight debiasing for Fair-IRL Bias Reduction
+        # TODO: Tune this hyperparameter (which optimizer is best?)
         # ("opt_debias", "optuna", "CMA-ES", 500),
         ("opt_debias", "optuna", "GP", 500),
         # ("opt_debias", "optuna", "TPE", 500),
