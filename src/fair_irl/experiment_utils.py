@@ -1818,8 +1818,14 @@ def compute_iteration_subdominance(
     raw_demos_feat_loss,
     clf_demo_cur,
     subdominance_type="all",
+    alpha_lamda=SH_DEFAULT_LAMDA,
 ):
     """Compute the subdominance metric of a learned policy's demos.
+
+    `alpha_lamda` is the regularization of the per-measure `alpha` scaling (see
+    `compute_alphas()`). Every subdominance reported as a result uses the
+    default; only FairIRL Bias Reduction's `opt_debias` weight search passes its
+    own, `OPT_DEBIAS_LAMDA`, for the objective it minimizes.
 
     `group_idxs`, `raw_demos` and `raw_demos_feat_loss` come from
     `generate_subdominance_groups()`, which is called once per expert demo set in
@@ -1842,7 +1848,7 @@ def compute_iteration_subdominance(
             for clf_demo_group in clf_demos
         ]
     )
-    alphas = compute_alphas(raw_demos_feat_loss, clf_demos_feat_loss)
+    alphas = compute_alphas(raw_demos_feat_loss, clf_demos_feat_loss, lamda=alpha_lamda)
 
     if subdominance_type == "max_abs" or subdominance_type == "all":
         # Compute max-aggregated absolute subdominance:
@@ -2366,11 +2372,46 @@ def _compute_errors_and_metrics(
     )
 
 
-def _fit_clf_and_demo_df(feature_types, X_train, y_train):
+# Defaults for FairIRL Bias Reduction's own settings, overridable through the
+# correspondingly named `exp_info` keys.
+#
+# The FAIRIRL_CLF_* settings configure the random forest that predicts `y`
+# from `x` for the policies FairIRL Bias Reduction learns. Since those policies
+# cannot observe `y`, it decides which MDP state each row is in. The defaults
+# are scikit-learn's. The expert has its own, separately fit random forest
+# (see `OptClfMDPPolicyExpert`), which these leave untouched.
+#
+# OPT_DEBIAS_LAMDA is the regularization of the `alpha` scaling of the
+# subdominance the `opt_debias` weight search minimizes -- the counterpart of
+# the Superhuman Fairness baselines' SH_*LAMDA. It does not change the
+# subdominance reported as a result, which always uses `SH_DEFAULT_LAMDA`.
+FAIRIRL_DEFAULTS = {
+    "FAIRIRL_CLF_N_ESTIMATORS": 100,
+    "FAIRIRL_CLF_MAX_DEPTH": None,
+    "FAIRIRL_CLF_MIN_SAMPLES_LEAF": 1,
+    "OPT_DEBIAS_LAMDA": SH_DEFAULT_LAMDA,
+}
+
+
+def _fairirl_setting(exp_info, key):
+    """`exp_info[key]`, or its `FAIRIRL_DEFAULTS` value if unset."""
+    return exp_info[key] if key in exp_info else FAIRIRL_DEFAULTS[key]
+
+
+def opt_debias_lamda(exp_info):
+    """The `alpha` regularization of the `opt_debias` objective."""
+    return _fairirl_setting(exp_info, "OPT_DEBIAS_LAMDA")
+
+
+def _fit_clf_and_demo_df(exp_info, feature_types, X_train, y_train):
     """Fit a y|x predictor and build the demo DataFrame used by compute_optimal_policy."""
     clf = sklearn_clf_pipeline(
         feature_types=feature_types,
-        clf_inst=RandomForestClassifier(),
+        clf_inst=RandomForestClassifier(
+            n_estimators=_fairirl_setting(exp_info, "FAIRIRL_CLF_N_ESTIMATORS"),
+            max_depth=_fairirl_setting(exp_info, "FAIRIRL_CLF_MAX_DEPTH"),
+            min_samples_leaf=_fairirl_setting(exp_info, "FAIRIRL_CLF_MIN_SAMPLES_LEAF"),
+        ),
     )
     clf.fit(X_train, y_train)
     demo_df = pd.DataFrame(X_train)
@@ -2570,6 +2611,7 @@ class _OptDebiasStepLogger:
                 *self.expert_subdom_groups,
                 clf_demo_cur=demo,
                 subdominance_type="sum_abs",
+                alpha_lamda=opt_debias_lamda(self.exp_info),
             )
 
         if expert_subdom < self.best_subdom_iteration:
@@ -2741,6 +2783,7 @@ def iteratively_optimize_weights(
             *expert_subdom_groups,
             clf_demo_cur=demo,
             subdominance_type="sum_abs",
+            alpha_lamda=opt_debias_lamda(exp_info),
         )
         if cur_subdom_groups is expert_subdom_groups:
             # First iteration: nothing has been appended yet, so the augmented
@@ -2752,6 +2795,7 @@ def iteratively_optimize_weights(
                 *cur_subdom_groups,
                 clf_demo_cur=demo,
                 subdominance_type="sum_abs",
+                alpha_lamda=opt_debias_lamda(exp_info),
             )
 
         n_iterations = iteration + 1
@@ -3153,6 +3197,7 @@ def subdominance_of_weights(
         raw_demos_feat_loss,
         demo,
         subdominance_type="sum_abs",
+        alpha_lamda=opt_debias_lamda(exp_info),
     )
     # lp.disable_by_count()
     # lp.print_stats()
@@ -4162,6 +4207,7 @@ def _run_fairirl_trials(
     # expert demonstrated in.
     logging.debug("Fitting `y|x` predictor for clf policy...")
     clf, demo_df = _fit_clf_and_demo_df(
+        exp_info,
         feature_types, bias_demos.X_train, bias_demos.y_train
     )
 

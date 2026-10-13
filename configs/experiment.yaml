@@ -113,7 +113,25 @@ common:
   ##
   # Fair-IRL Policy learning parameters
   ##
-  METHOD: highs  # TODO: Tune this hyperparameter (options: 'highs', 'highs-ds', 'highs-ipm')
+  # The LP solver of every optimal classifier policy (options: 'highs',
+  # 'highs-ds', 'highs-ipm'). Not tuned: the expert's policy (OptClfMDPPol) is
+  # solved with it too, so changing it would also change the demonstrations
+  # every technique is scored against. All three solve the LP exactly, so
+  # they should only differ in which policy they return when several are
+  # equally optimal.
+  METHOD: highs
+  # The random forest that predicts `y` from `x` for the policies FairIRL Bias
+  # Reduction learns. Those policies cannot observe `y`, so it decides which
+  # MDP state each row is in. The defaults are scikit-learn's. The expert's
+  # own random forest is separate, and unaffected by these.
+  FAIRIRL_CLF_N_ESTIMATORS: 100  # TODO: Tune this hyperparameter
+  FAIRIRL_CLF_MAX_DEPTH: null  # TODO: Tune this hyperparameter (null: unlimited)
+  FAIRIRL_CLF_MIN_SAMPLES_LEAF: 1  # TODO: Tune this hyperparameter
+  # The regularization `lamda` of the `alpha` scaling of the subdominance the
+  # `opt_debias` weight search minimizes: the counterpart of the Superhuman
+  # Fairness baselines' SH_*LAMDA. It does not change the subdominance
+  # reported as a result, which always uses lamda = 0.001.
+  OPT_DEBIAS_LAMDA: 0.001  # TODO: Tune this hyperparameter
   # The most iterations the `opt_debias` weight adjustment runs before giving
   # up on finding a better weight set. This is only a safety net -- the loop
   # is expected to stop on its own as soon as an iteration fails to improve.

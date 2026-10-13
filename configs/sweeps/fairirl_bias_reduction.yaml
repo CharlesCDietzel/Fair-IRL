@@ -8,9 +8,7 @@
 # Every value not listed under `parameters` comes from configs/experiment.yaml.
 name: FairIRL Bias Reduction
 project: fair-irl
-# Its whole search space is the 3 x 7 = 21 combinations below, so a grid
-# search tries each exactly once, and then the sweep ends on its own.
-method: grid
+method: bayes
 metric:
   # The mean validation subdominance (sum_abs_subdominance_val) of the
   # technique's runs; see src/fair_irl/sweep.py.
@@ -24,11 +22,10 @@ command:
   - trial
   - --config
   - configs/experiment.yaml
+run_cap: 60
 parameters:
   ALGORITHMS:
     value: [FairIRL Bias Reduction]
-  METHOD:
-    values: [highs, highs-ds, highs-ipm]
   # Swaps the library and optimizer of every `opt_debias` entry of
   # WEIGHT_ADJUST_LIST, keeping its evaluation budget (see src/fair_irl/config.py).
   OPT_DEBIAS_OPTIMIZER:
@@ -40,3 +37,19 @@ parameters:
       - nevergrad/BayesOpt
       - nevergrad/Nelder-Mead
       - nevergrad/Powell
+  # The random forest that predicts `y` from `x` for FairIRL's policies. The
+  # defaults (scikit-learn's) are 100 trees, unlimited depth (null) and 1
+  # sample per leaf.
+  FAIRIRL_CLF_N_ESTIMATORS:
+    values: [50, 100, 200, 400]
+  FAIRIRL_CLF_MAX_DEPTH:
+    values: [null, 5, 10, 20]
+  FAIRIRL_CLF_MIN_SAMPLES_LEAF:
+    values: [1, 2, 5, 10, 20, 50]
+  # The `alpha` regularization of the subdominance `opt_debias` minimizes.
+  # The default is 0.001; the range matches the Superhuman Fairness sweeps'
+  # SH_*LAMDA.
+  OPT_DEBIAS_LAMDA:
+    distribution: log_uniform_values
+    min: 1.0e-5
+    max: 0.1

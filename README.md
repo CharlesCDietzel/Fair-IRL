@@ -89,7 +89,7 @@ setting comes from `configs/experiment.yaml`.
 
 | Technique | Sweep config | Search | Tuned settings |
 | --- | --- | --- | --- |
-| FairIRL Bias Reduction | `fairirl_bias_reduction.yaml` | grid (all 21 combinations) | `METHOD`, `OPT_DEBIAS_OPTIMIZER` |
+| FairIRL Bias Reduction | `fairirl_bias_reduction.yaml` | Bayesian, 60 runs | `OPT_DEBIAS_OPTIMIZER`, `OPT_DEBIAS_LAMDA`, `FAIRIRL_CLF_*` |
 | Superhuman Fairness | `superhuman_fairness.yaml` | Bayesian, 50 runs | `SH_ITERS`, `SH_LR_THETA`, `SH_LAMDA` |
 | Superhuman Fairness Fixed | `superhuman_fairness_fixed.yaml` | Bayesian, 50 runs | `SH_FIXED_ITERS`, `SH_FIXED_LR_THETA`, `SH_FIXED_LAMDA` |
 | Superhuman Fairness Neural Network | `superhuman_fairness_nn.yaml` | Bayesian, 60 runs | `SH_NN_*` (all but `SH_NN_DEVICE`) |
@@ -140,9 +140,11 @@ A few things to keep in mind:
 * Every trial runs `N_TRIALS` trials of the unbiased dataset and of each bias
   type in `DATASET_BIAS_TYPE_LIST` and `DEMO_BIAS_TYPE_LIST`, so a sweep costs
   as much as that many final runs, times the number of sweep runs.
-* The FairIRL grid sweep finishes on its own after its 21 runs. Each Bayesian
-  sweep stops at the run cap in the table above. To change a cap, edit the
-  `run_cap` in the sweep config before creating the sweep.
+* Each sweep stops at the run cap in the table above. To change a cap, edit
+  the `run_cap` in the sweep config before creating the sweep.
+* `METHOD`, the LP solver, is not tuned. The expert's policy is solved with it
+  too, so changing it would also change the demonstrations every technique is
+  scored against.
 
 See `src/fair_irl/sweep.py` for the details of how a trial is run.
 
