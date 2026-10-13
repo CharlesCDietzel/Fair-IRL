@@ -26,7 +26,13 @@ dependencies = [
     "scipy>=1.18.1",
     "seaborn>=0.13.2",
     "tabulate>=0.10.0",
-    "torch>=2.14.0",
+    # The following torch packages are pinned to specific versions for
+    # compatibility with ROCm 10.1.0, which is the version of ROCm that is
+    # currently compatible with the AMD RX 7900XTX GPU. Unpin them when
+    # running on a different GPU or ROCm version.
+    "torch[device-gfx1100]==2.14.0+rocm10.1.0",
+    "torchaudio==2.11.0.3+rocm10.1.0",
+    "torchvision[device-gfx1100]==0.29.0a0+rocm10.1.0",
     "wandb>=0.30.0",
     "xgboost>=3.2.0",
 ]
@@ -40,6 +46,15 @@ fair-irl = "fair_irl.Fair_IRL_Biased_Demonstrations:main"
 # it can be diffed against upstream. Reformatting it would destroy that
 # property.
 extend-exclude = "src/fair_irl/sh/fair_logloss\\.py"
+
+[tool.uv.sources]
+torch = { index = "amd-rocm" }
+torchvision = { index = "amd-rocm" }
+torchaudio = { index = "amd-rocm" }
+
+[[tool.uv.index]]
+name = "amd-rocm"
+url = "https://stable.repo.amd.com/rocm/whl-next/"
 
 [build-system]
 requires = ["uv_build>=0.12.1,<0.13.0"]
