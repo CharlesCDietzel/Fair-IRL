@@ -152,17 +152,57 @@ common:
     # - [opt_debias, nevergrad, Nelder-Mead, 500]
     # - [opt_debias, nevergrad, Powell, 500]
 
-  # The label biases injected into each dataset. All available bias types:
-  # unbalanced_redlining, balanced_redlining, perfectly_balanced_redlining,
-  # corruption_bias. The unbiased run is always performed first, ahead of
-  # every bias type listed here.
+  # The bias types each experiment is run under. The unbiased run is always
+  # performed first, then every dataset bias type, then every demo bias type,
+  # each on its own: a dataset bias type with the expert's demonstrations
+  # otherwise unbiased, a demo bias type on the unbiased dataset.
+  #
+  # Dataset bias types bias the dataset itself before it is split, so the
+  # expert learns from it and everything is scored against it:
+  #   [dataset_unbalanced_redlining, percent]
+  #       Sets the "bad" outcome for `percent` of the redlined group (z = 0).
+  #   [dataset_balanced_redlining, percent]
+  #       As above, and sets the "good" outcome for an equal number of the
+  #       other group.
+  #   [dataset_perfectly_balanced_redlining, percent]
+  #       Flips `percent` of the redlined group's "good" outcomes to "bad",
+  #       and an equal number of the other group's "bad" outcomes to "good".
+  #   [dataset_noise_bias, noise_ratio, label_noise, protected_noise]
+  #       Like `add_noise_new()` of the Superhuman Fairness reference
+  #       implementation: flips the labels (if label_noise) of a random
+  #       noise_ratio of the rows, and the protected attribute z (if
+  #       protected_noise) of another, independent random noise_ratio of them.
+  #   [dataset_corruption_bias, clf_type, percent, noise_type, magnitude]
+  #       Relabels the dataset with a classifier whose learned parameters were
+  #       corrupted.
+  # (Each "percent" defaults to 0.2 if left out.)
   DATASET_BIAS_TYPE_LIST: []
-    # - [unbalanced_redlining, 0.2]
-    # - [balanced_redlining, 0.2]
-    # - [perfectly_balanced_redlining, 0.2]
-    # - [corruption_bias, CatBoost, 0.0001, gaussian, 1.0]
-    # - [corruption_bias, CatBoost, 0.001, gaussian, 1.0]
-    # - [corruption_bias, CatBoost, 0.01, gaussian, 1.0]
+    # - [dataset_unbalanced_redlining, 0.2]
+    # - [dataset_balanced_redlining, 0.2]
+    # - [dataset_perfectly_balanced_redlining, 0.2]
+    # - [dataset_noise_bias, 0.2, true, true]
+    # - [dataset_corruption_bias, CatBoost, 0.0001, gaussian, 1.0]
+    # - [dataset_corruption_bias, CatBoost, 0.001, gaussian, 1.0]
+    # - [dataset_corruption_bias, CatBoost, 0.01, gaussian, 1.0]
+
+  # Demo bias types leave the dataset's labels unchanged and bias the
+  # decisions (yhat) the EXPERT_ALGO's demonstrations make instead. They reuse
+  # the unbiased run's demonstrations (and subdominance groups) rather than
+  # refitting the expert, so each differs from the unbiased run by exactly its
+  # bias:
+  #   [demo_unbalanced_redlining, percent]
+  #   [demo_balanced_redlining, percent]
+  #   [demo_perfectly_balanced_redlining, percent]
+  #       The dataset redlining bias types above, applied to yhat instead of y.
+  #   [demo_noise_bias, noise_ratio]
+  #       Like `add_noise()` of the Superhuman Fairness reference
+  #       implementation: flips the decisions of a random noise_ratio of the
+  #       rows.
+  DEMO_BIAS_TYPE_LIST: []
+    # - [demo_unbalanced_redlining, 0.2]
+    # - [demo_balanced_redlining, 0.2]
+    # - [demo_perfectly_balanced_redlining, 0.2]
+    # - [demo_noise_bias, 0.2]
 
   # The performance and fairness measures the subdominance metric is computed
   # over. FairIRL Bias Reduction optimizes relative to these: its `opt_debias`

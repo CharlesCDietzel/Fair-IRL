@@ -287,74 +287,173 @@ def generate_demo(clf, X_test, y_test, can_observe_y=False, yhat=None):
     return demo
 
 
-def add_redlining_bias(X, y, dataset_bias_type=(), dataset=None):
+##
+# Bias types.
+#
+# Every bias type is a tuple whose first element names it and whose remaining
+# elements are its parameters, e.g. `("dataset_balanced_redlining", 0.2)`.
+# There are two varieties:
+#
+#   Dataset bias types (DATASET_BIAS_TYPE_LIST) bias the dataset itself --
+#       its labels, or for `dataset_noise_bias` optionally its protected
+#       attribute -- before it is split, so the expert is fit on, and everything
+#       is scored against, the biased dataset. See `add_dataset_bias()`.
+#   Demo bias types (DEMO_BIAS_TYPE_LIST) leave the dataset unchanged and bias
+#       the expert's demonstrations instead: the `yhat` decisions the
+#       EXPERT_ALGO makes. See `add_demo_bias()`.
+#
+# The redlining bias types of the two varieties share their implementation,
+# `_apply_redlining()`, applied to the dataset's labels or to the expert's
+# decisions respectively; so do the two noise bias types, `_flip_values()`.
+##
+
+# The three redlining processes, each available as a dataset and a demo bias
+# type: the bias type's name minus its "dataset_" / "demo_" prefix.
+REDLINING_KINDS = (
+    "unbalanced_redlining",
+    "balanced_redlining",
+    "perfectly_balanced_redlining",
+)
+
+DATASET_BIAS_TYPES = (
+    *(f"dataset_{kind}" for kind in REDLINING_KINDS),
+    "dataset_noise_bias",
+    "dataset_corruption_bias",
+)
+
+DEMO_BIAS_TYPES = (
+    *(f"demo_{kind}" for kind in REDLINING_KINDS),
+    "demo_noise_bias",
+)
+
+# The dataset bias types' names before the "dataset_" prefix was introduced,
+# for the error a configuration that still uses them gets.
+RENAMED_BIAS_TYPES = {
+    "unbalanced_redlining": "dataset_unbalanced_redlining",
+    "balanced_redlining": "dataset_balanced_redlining",
+    "perfectly_balanced_redlining": "dataset_perfectly_balanced_redlining",
+    "corruption_bias": "dataset_corruption_bias",
+}
+
+
+def bias_type_kind(bias_type):
     """
-    Apply a redlining bias to a dataset's labels.
+    Which variety a bias type is: "dataset", "demo", or `None` for `()`, the
+    unbiased "bias type".
+    """
+    if not bias_type:
+        return None
+    if bias_type[0] in DATASET_BIAS_TYPES:
+        return "dataset"
+    if bias_type[0] in DEMO_BIAS_TYPES:
+        return "demo"
+    raise ValueError(f"Unrecognized bias type: {bias_type!r}.")
 
-    The bias is applied to the dataset itself, before it is split and before
-    any expert is fit on it, so that every downstream use of the labels -- the
-    expert's training targets, the `y` column of its demonstrations, and every
-    metric computed against them -- sees the same biased labels.
 
-    Parameters
-    ----------
-    X : pandas.DataFrame
-        The dataset's input columns. Only the protected attribute `z` is used.
-    y : pandas.Series
-        The dataset's labels.
-    dataset_bias_type : tuple, default ()
-        The bias to apply, `()` (or any non-redlining bias type) leaving the
-        labels untouched. The first element names the bias; the second, if
-        given, is the percent of the redlined group whose label is flipped.
-    dataset : str
-        Name of the dataset, which decides which `z` group is redlined and
-        which `y` outcome counts as the "bad" one.
+def validate_bias_types(dataset_bias_type_list, demo_bias_type_list):
+    """
+    Check that every entry of DATASET_BIAS_TYPE_LIST and DEMO_BIAS_TYPE_LIST
+    names a bias type of its own variety, with the right parameters, so that a
+    misconfigured run fails before anything expensive is done.
+    """
+    expected_params = {
+        "dataset_noise_bias": "[dataset_noise_bias, noise_ratio, label_noise, protected_noise]",
+        "dataset_corruption_bias": "[dataset_corruption_bias, clf_type, percent, noise_type, magnitude]",
+        "demo_noise_bias": "[demo_noise_bias, noise_ratio]",
+    }
+    n_params = {
+        "dataset_noise_bias": 3,
+        "dataset_corruption_bias": 4,
+        "demo_noise_bias": 1,
+    }
+    for list_name, bias_types, valid in (
+        ("DATASET_BIAS_TYPE_LIST", dataset_bias_type_list, DATASET_BIAS_TYPES),
+        ("DEMO_BIAS_TYPE_LIST", demo_bias_type_list, DEMO_BIAS_TYPES),
+    ):
+        for bias_type in bias_types:
+            name = bias_type[0] if bias_type else None
+            if name in RENAMED_BIAS_TYPES:
+                raise ValueError(
+                    f"{list_name} entry {bias_type!r}: the bias type {name!r} has"
+                    f" been renamed to {RENAMED_BIAS_TYPES[name]!r}."
+                )
+            if name not in valid:
+                raise ValueError(
+                    f"{list_name} entry {bias_type!r} is not one of its bias"
+                    f" types: {list(valid)}."
+                )
+            params = len(bias_type) - 1
+            if name in n_params and params != n_params[name]:
+                raise ValueError(
+                    f"{list_name} entry {bias_type!r} should look like"
+                    f" {expected_params[name]}."
+                )
+            if name.endswith("_redlining") and params > 1:
+                raise ValueError(
+                    f"{list_name} entry {bias_type!r} should look like"
+                    f" [{name}, percent] or [{name}]."
+                )
+
+
+def _redlining_outcomes(dataset):
+    """
+    Which group a redlining bias discriminates against, and which outcome is
+    the "bad" one, for a dataset.
+
+    Z = 0 is discriminated against, Y = 0 is "bad" outcome (except for COMPAS
+    where Y=1 is "bad" outcome)
 
     Returns
     -------
-    y_biased : pandas.Series
-        A copy of `y` with the bias applied, indexed and named like `y`.
+    rz, ry, nrz, nry : int
+        The redlined Z value, the redline Y outcome, the non-redlined Z value
+        and the non-redline Y outcome.
     """
-    # Z = 0 is discriminated against, Y = 0 is "bad" outcome (except for COMPAS where Y=1 is "bad" outcome)
-    # rz - redlined Z value
-    # ry - redline Y outcome
-    # nrz - non-redlined Z value
-    # nry - non-redline Y outcome
     if dataset in ("Adult", "Adult_SH"):
-        rz = 0
-        ry = 0
-        nrz = 1
-        nry = 1
+        return 0, 0, 1, 1
     elif dataset == "Boston":
-        rz = 0
-        ry = 0
-        nrz = 1
-        nry = 1
+        return 0, 0, 1, 1
     elif "ACSIncome__" in dataset:  # All ACSIncome datasets have same strtucture
-        rz = 0
-        ry = 0
-        nrz = 1
-        nry = 1
+        return 0, 0, 1, 1
     elif dataset in ("COMPAS", "COMPAS_SH"):  # COMPAS Y redlining is reversed
-        rz = 0
-        ry = 1
-        nrz = 1
-        nry = 0
+        return 0, 1, 1, 0
+    raise ValueError(f"Redlining bias is not defined for dataset {dataset!r}.")
 
-    percent = 0.2
-    if len(dataset_bias_type) > 0:
-        dataset_bias_type_name = dataset_bias_type[0]
-    else:
-        dataset_bias_type_name = None
-    if len(dataset_bias_type) > 1:
-        percent = dataset_bias_type[1]
+
+def _apply_redlining(z, values, kind, percent, dataset):
+    """
+    Apply one redlining process to a vector of outcomes.
+
+    The implementation every redlining bias type shares: the dataset bias
+    types apply it to the dataset's labels `y`, and the demo bias types to the
+    expert's decisions `yhat`.
+
+    Parameters
+    ----------
+    z : array-like
+        The protected attribute of each row.
+    values : array-like
+        The outcome of each row, `y` or `yhat`, aligned with `z`.
+    kind : str
+        One of `REDLINING_KINDS`.
+    percent : float
+        The fraction of the redlined rows whose outcome is changed.
+    dataset : str
+        Name of the dataset; see `_redlining_outcomes()`.
+
+    Returns
+    -------
+    values_biased : numpy.ndarray
+        A copy of `values` with the bias applied, in the same row order.
+    """
+    rz, ry, nrz, nry = _redlining_outcomes(dataset)
 
     # Work on a positionally indexed frame of just the columns the bias needs,
-    # so that the dataset's own index (which needn't be unique or ordered)
+    # so that the caller's own index (which needn't be unique or ordered)
     # can't interfere with the sampling below.
-    df = pd.DataFrame({"z": np.asarray(X["z"]), "y": np.asarray(y)})
+    df = pd.DataFrame({"z": np.asarray(z), "y": np.asarray(values)})
 
-    match dataset_bias_type_name:
+    match kind:
         case "unbalanced_redlining":
             # wherever Z==rz, set y = ry with 20% probability. Otherwise, keep y the same
             # Count how many rows have z == rz
@@ -399,8 +498,206 @@ def add_redlining_bias(X, y, dataset_bias_type=(), dataset=None):
             df.loc[rz_indices, "y"] = ry
             # Set y to nry for sampled rows
             df.loc[nrz_indices, "y"] = nry
+        case _:
+            raise ValueError(f"Unrecognized redlining kind: {kind!r}.")
 
-    return pd.Series(df["y"].to_numpy(), index=y.index, name=y.name)
+    return df["y"].to_numpy()
+
+
+def _redlining_params(bias_type, prefix):
+    """The redlining kind and percent of a `<prefix>*_redlining` bias type."""
+    kind = bias_type[0][len(prefix) :]
+    percent = bias_type[1] if len(bias_type) > 1 else 0.2
+    return kind, percent
+
+
+def _random_fraction_positions(n, ratio):
+    """
+    `int(ratio * n)` distinct random positions among `n`, drawn as the
+    Superhuman Fairness reference implementation's `add_noise()` and
+    `add_noise_new()` draw the rows they flip.
+    """
+    return np.random.permutation(range(n))[: int(ratio * n)]
+
+
+def _flip_values(values, positions):
+    """
+    A copy of a binary vector with the entries at `positions` flipped, 0 <-> 1.
+
+    The implementation both noise bias types share.
+    """
+    values = np.asarray(values).copy()
+    values[positions] = 1 - values[positions]
+    return values
+
+
+def add_redlining_bias(X, y, dataset_bias_type=(), dataset=None):
+    """
+    Apply a redlining dataset bias type to a dataset's labels.
+
+    The bias is applied to the dataset itself, before it is split and before
+    any expert is fit on it, so that every downstream use of the labels -- the
+    expert's training targets, the `y` column of its demonstrations, and every
+    metric computed against them -- sees the same biased labels.
+
+    Parameters
+    ----------
+    X : pandas.DataFrame
+        The dataset's input columns. Only the protected attribute `z` is used.
+    y : pandas.Series
+        The dataset's labels.
+    dataset_bias_type : tuple, default ()
+        The bias to apply, `()` (or any non-redlining bias type) leaving the
+        labels untouched. The first element names the bias (one of the
+        "dataset_*_redlining" bias types); the second, if given, is the
+        percent of the redlined group whose label is flipped.
+    dataset : str
+        Name of the dataset, which decides which `z` group is redlined and
+        which `y` outcome counts as the "bad" one.
+
+    Returns
+    -------
+    y_biased : pandas.Series
+        A copy of `y` with the bias applied, indexed and named like `y`.
+    """
+    name = dataset_bias_type[0] if dataset_bias_type else None
+    if name not in (f"dataset_{kind}" for kind in REDLINING_KINDS):
+        return y.copy()
+
+    kind, percent = _redlining_params(dataset_bias_type, "dataset_")
+    y_biased = _apply_redlining(X["z"], y, kind, percent, dataset)
+    return pd.Series(y_biased, index=y.index, name=y.name)
+
+
+def add_noise_bias(X, y, dataset_bias_type=()):
+    """
+    Apply the `dataset_noise_bias` dataset bias type to a dataset.
+
+    Works like `add_noise_new()` of the Superhuman Fairness reference
+    implementation: two independent random subsets of `noise_ratio` of the
+    rows are drawn, and the labels of the first and the protected attribute
+    `z` of the second are flipped. Unlike `add_noise_new()`, each of the two
+    is optional, and -- as for every dataset bias type -- the noise lands on
+    the dataset itself rather than on one demonstrator's training labels and
+    test groups, so the expert is fit on, and everything is scored against,
+    the noisy dataset.
+
+    Only `z` is flipped, not any column of the dataset the protected attribute
+    came from (e.g. Adult_SH's `gender`), just as `add_noise_new()` flips the
+    protected attribute without touching the model inputs.
+
+    Parameters
+    ----------
+    dataset_bias_type : tuple
+        `("dataset_noise_bias", noise_ratio, label_noise, protected_noise)`:
+        the fraction of rows to flip, and whether to flip their labels and
+        whether to flip their protected attribute. Anything else leaves the
+        dataset untouched.
+
+    Returns
+    -------
+    X_biased : pandas.DataFrame
+        `X`, or a copy of it with `z` flipped on the selected rows.
+    y_biased : pandas.Series
+        A copy of `y`, flipped on the selected rows if `label_noise`.
+    """
+    name = dataset_bias_type[0] if dataset_bias_type else None
+    if name != "dataset_noise_bias":
+        return X, y.copy()
+
+    noise_ratio, label_noise, protected_noise = dataset_bias_type[1:]
+    n = len(y)
+    # Both subsets are always drawn, in `add_noise_new()`'s order, so that
+    # turning either noise on or off leaves the other's rows unchanged.
+    label_positions = _random_fraction_positions(n, noise_ratio)
+    protected_positions = _random_fraction_positions(n, noise_ratio)
+
+    y_biased = pd.Series(
+        _flip_values(y, label_positions) if label_noise else np.asarray(y),
+        index=y.index,
+        name=y.name,
+    )
+    X_biased = X
+    if protected_noise:
+        X_biased = X.copy()
+        X_biased["z"] = _flip_values(X["z"], protected_positions)
+    return X_biased, y_biased
+
+
+def add_dataset_bias(X, y, feature_types, dataset_bias_type=(), dataset=None):
+    """
+    Apply one dataset bias type to a dataset.
+
+    Demo bias types, and `()`, leave the dataset unchanged: they bias the
+    expert's demonstrations instead (see `add_demo_bias()`).
+
+    Returns
+    -------
+    X_biased : pandas.DataFrame
+        `X`, or for `dataset_noise_bias` with protected attribute noise, a
+        copy of it with `z` biased.
+    y_biased : pandas.Series
+        A copy of `y` with the bias applied, indexed and named like `y`.
+    """
+    name = dataset_bias_type[0] if dataset_bias_type else None
+    if name == "dataset_corruption_bias":
+        return X, add_corruption_bias(X, y, feature_types, dataset_bias_type)
+    if name == "dataset_noise_bias":
+        return add_noise_bias(X, y, dataset_bias_type)
+    return X, add_redlining_bias(X, y, dataset_bias_type, dataset)
+
+
+def add_demo_bias(demos, demo_bias_type=(), dataset=None):
+    """
+    Apply one demo bias type to an expert's demonstrations.
+
+    The dataset is left unchanged; only the decisions the expert made, the
+    demonstrations' `yhat`, are biased:
+
+    `demo_unbalanced_redlining`, `demo_balanced_redlining`,
+    `demo_perfectly_balanced_redlining`
+        The dataset bias types of the same names minus "dataset_", applied to
+        `yhat` in place of `y` (`[name, percent]`, percent defaulting to 0.2).
+    `demo_noise_bias`
+        `[demo_noise_bias, noise_ratio]`: flips the decisions of a random
+        `noise_ratio` of the rows, like `add_noise()` of the Superhuman
+        Fairness reference implementation does to its demonstrator's
+        predictions, but keeping the demonstrations' own index rather than
+        resetting it to 0..n-1.
+
+    Dataset bias types, and `()`, leave the demonstrations unchanged.
+
+    Parameters
+    ----------
+    demos : pandas.DataFrame
+        The demonstrations, with at least `z` and `yhat` columns.
+    demo_bias_type : tuple, default ()
+    dataset : str
+        Name of the dataset, for the redlining bias types.
+
+    Returns
+    -------
+    demos_biased : pandas.DataFrame
+        A copy of `demos` with `yhat` biased, indexed like `demos`.
+    """
+    name = demo_bias_type[0] if demo_bias_type else None
+    if name not in DEMO_BIAS_TYPES:
+        return demos
+
+    demos = demos.copy()
+    if name == "demo_noise_bias":
+        (noise_ratio,) = demo_bias_type[1:]
+        yhat = _flip_values(
+            demos["yhat"], _random_fraction_positions(len(demos), noise_ratio)
+        )
+    else:
+        kind, percent = _redlining_params(demo_bias_type, "demo_")
+        yhat = _apply_redlining(demos["z"], demos["yhat"], kind, percent, dataset)
+    pct_unchanged = (np.asarray(yhat) == demos["yhat"].to_numpy()).mean() * 100.0
+    logging.info(f"Demo bias type added: {demo_bias_type}")
+    logging.info(f"Percent of yhat unchanged with added bias: {pct_unchanged}%")
+    demos["yhat"] = np.asarray(yhat).astype(np.int64)
+    return demos
 
 
 def _make_corruption_clf(clf_type, feature_types):
@@ -559,7 +856,7 @@ def _apply_corruption(params, percent, noise_type, magnitude):
 
 def add_corruption_bias(X, y, feature_types, dataset_bias_type=()):
     """
-    Apply a corruption bias to a dataset's labels.
+    Apply the `dataset_corruption_bias` dataset bias type to a dataset's labels.
 
     A classifier is fit on the dataset, its learned parameters are corrupted,
     and its predictions on the dataset become the biased labels. As with
@@ -571,7 +868,7 @@ def add_corruption_bias(X, y, feature_types, dataset_bias_type=()):
     -------
     y_biased : pandas.Series or None
         A copy of `y` with the bias applied, indexed and named like `y`, or
-        `None` if `dataset_bias_type` is not a corruption bias.
+        `None` if `dataset_bias_type` is not `dataset_corruption_bias`.
     """
     if len(dataset_bias_type) > 0:
         dataset_bias_type_name = dataset_bias_type[0]
@@ -580,7 +877,7 @@ def add_corruption_bias(X, y, feature_types, dataset_bias_type=()):
     if len(dataset_bias_type) > 1:
         parameters = dataset_bias_type[1:]
     match dataset_bias_type_name:
-        case "corruption_bias":
+        case "dataset_corruption_bias":
             clf_type, percent, noise_type, magnitude = parameters
             clf = _make_corruption_clf(clf_type, feature_types)
             clf.fit(X, y)
@@ -673,10 +970,10 @@ def generate_mu_and_demos(
     Returns demos as the combined demonstrations from all folds, and mu as the feature
     expectations of all demos.
 
-    Any bias has already been applied to `y` by the caller (see
-    `add_corruption_bias()` and `add_redlining_bias()`), so the demonstrations
-    generated here carry the bias of the dataset they were generated from and
-    no bias is added to them afterwards.
+    Any dataset bias has already been applied to `X` and `y` by the caller
+    (see `add_dataset_bias()`), so the demonstrations generated here carry the
+    bias of the dataset they were generated from. Demo bias types are applied
+    to these demonstrations afterwards, by the caller (see `add_demo_bias()`).
 
     Parameters
     ----------

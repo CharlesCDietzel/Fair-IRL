@@ -137,9 +137,9 @@ A few things to keep in mind:
 * Each trial runs whatever `configs/experiment.yaml` says when the trial
   starts. Don't edit the file while a sweep is running, or later trials will be
   scored under different conditions than earlier ones.
-* Every trial runs `N_TRIALS` trials of each dataset bias type in
-  `DATASET_BIAS_TYPE_LIST`, so a sweep costs as much as that many final runs,
-  times the number of sweep runs.
+* Every trial runs `N_TRIALS` trials of the unbiased dataset and of each bias
+  type in `DATASET_BIAS_TYPE_LIST` and `DEMO_BIAS_TYPE_LIST`, so a sweep costs
+  as much as that many final runs, times the number of sweep runs.
 * The FairIRL grid sweep finishes on its own after its 21 runs. Each Bayesian
   sweep stops at the run cap in the table above. To change a cap, edit the
   `run_cap` in the sweep config before creating the sweep.
