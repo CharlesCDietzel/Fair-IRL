@@ -124,14 +124,14 @@ common:
   # Reduction learns. Those policies cannot observe `y`, so it decides which
   # MDP state each row is in. The defaults are scikit-learn's. The expert's
   # own random forest is separate, and unaffected by these.
-  FAIRIRL_CLF_N_ESTIMATORS: 100  # TODO: Tune this hyperparameter
-  FAIRIRL_CLF_MAX_DEPTH: null  # TODO: Tune this hyperparameter (null: unlimited)
-  FAIRIRL_CLF_MIN_SAMPLES_LEAF: 1  # TODO: Tune this hyperparameter
+  FAIRIRL_CLF_N_ESTIMATORS: 100  # Tuned per dataset in `experiments`
+  FAIRIRL_CLF_MAX_DEPTH: null  # Tuned per dataset in `experiments` (null: unlimited)
+  FAIRIRL_CLF_MIN_SAMPLES_LEAF: 1  # Tuned per dataset in `experiments`
   # The regularization `lamda` of the `alpha` scaling of the subdominance the
   # `opt_debias` weight search minimizes: the counterpart of the Superhuman
   # Fairness baselines' SH_*LAMDA. It does not change the subdominance
   # reported as a result, which always uses lamda = 0.001.
-  OPT_DEBIAS_LAMDA: 0.001  # TODO: Tune this hyperparameter
+  OPT_DEBIAS_LAMDA: 0.001  # Tuned per dataset in `experiments`
   # The most iterations the `opt_debias` weight adjustment runs before giving
   # up on finding a better weight set. This is only a safety net -- the loop
   # is expected to stop on its own as soon as an iteration fails to improve.
@@ -158,8 +158,8 @@ common:
     # - [mul_negative_weights, 0.8]
     # - [mul_negative_weights, 0.9]
     # Optimization-based weight debiasing for Fair-IRL Bias Reduction
-    # TODO: Tune this hyperparameter (which optimizer is best?)
-    # A sweep tunes it through the OPT_DEBIAS_OPTIMIZER override (e.g.
+    # Which optimizer is best is tuned per dataset in `experiments`. A sweep
+    # tunes it through the OPT_DEBIAS_OPTIMIZER override (e.g.
     # `--set OPT_DEBIAS_OPTIMIZER=optuna/TPE`), which swaps the library and
     # optimizer of every `opt_debias` entry here and keeps its budget.
     # - [opt_debias, optuna, CMA-ES, 500]
@@ -328,46 +328,46 @@ common:
   # ("expert_demos") or the paper's 50 ("pp_baseline").
   SH_NUM_DEMOS: null
   # The original's `iters`, `lr_theta` and `lamda`.
-  SH_ITERS: 30  # TODO: Tune this hyperparameter
-  SH_LR_THETA: 0.01  # TODO: Tune this hyperparameter
-  SH_LAMDA: 0.001  # TODO: Tune this hyperparameter
+  SH_ITERS: 30  # Tuned per dataset in `experiments`
+  SH_LR_THETA: 0.01  # Tuned per dataset in `experiments`
+  SH_LAMDA: 0.001  # Tuned per dataset in `experiments`
   # Superhuman Fairness Fixed's own `iters`, `lr_theta` and `lamda`, in place
   # of the three above, so that it can be tuned separately.
-  SH_FIXED_ITERS: 30  # TODO: Tune this hyperparameter
-  SH_FIXED_LR_THETA: 0.01  # TODO: Tune this hyperparameter
-  SH_FIXED_LAMDA: 0.001  # TODO: Tune this hyperparameter
+  SH_FIXED_ITERS: 30  # Tuned per dataset in `experiments`
+  SH_FIXED_LR_THETA: 0.01  # Tuned per dataset in `experiments`
+  SH_FIXED_LAMDA: 0.001  # Tuned per dataset in `experiments`
   # Superhuman Fairness Neural Network's own `iters`, `lr_theta` and `lamda`,
   # in place of SH_ITERS/SH_LR_THETA/SH_LAMDA. Its `lr_theta` is the network's
   # Adam learning rate: the reference implementation's network ignores
   # `lr_theta` and steps with Adam at 1e-5, which is the value here. (Its own
   # config trains for 40 iterations.)
-  SH_NN_ITERS: 30  # TODO: Tune this hyperparameter
-  SH_NN_LR_THETA: 1.0e-5  # TODO: Tune this hyperparameter
-  SH_NN_LAMDA: 0.001  # TODO: Tune this hyperparameter
+  SH_NN_ITERS: 30  # Tuned per dataset in `experiments`
+  SH_NN_LR_THETA: 1.0e-5  # Tuned per dataset in `experiments`
+  SH_NN_LAMDA: 0.001  # Tuned per dataset in `experiments`
   # Its network: two ReLU hidden layers, of SH_NN_HIDDEN_NODES and half as
   # many units, first fit with SH_NN_BASE_FIT_EPOCHS full-batch Adam steps.
   # Both are the reference implementation's.
-  SH_NN_HIDDEN_NODES: 512  # TODO: Tune this hyperparameter
-  SH_NN_BASE_FIT_EPOCHS: 15000  # TODO: Tune this hyperparameter
+  SH_NN_HIDDEN_NODES: 512  # Tuned per dataset in `experiments`
+  SH_NN_BASE_FIT_EPOCHS: 15000  # Tuned per dataset in `experiments`
   # Its learning-rate schedule, the reference implementation's: the rate is
   # multiplied by SH_NN_LR_BOOST_FACTOR after the first iteration, and divided
   # by it again the first time the gamma-superhuman sum reaches
   # SH_NN_LR_DECAY_GAMMA_FRAC of the number of features.
-  SH_NN_LR_BOOST_FACTOR: 10  # TODO: Tune this hyperparameter
-  SH_NN_LR_DECAY_GAMMA_FRAC: 0.9  # TODO: Tune this hyperparameter
+  SH_NN_LR_BOOST_FACTOR: 10  # Tuned per dataset in `experiments`
+  SH_NN_LR_DECAY_GAMMA_FRAC: 0.9  # Tuned per dataset in `experiments`
   # The torch device it trains on, e.g. "cpu" or "cuda". null uses a GPU if
   # PyTorch can see one (AMD GPUs included, with a ROCm build of PyTorch), and
   # the CPU otherwise.
   SH_NN_DEVICE: null
   # Superhuman Fairness Neural Network Fixed's own counterparts of every
   # SH_NN_* setting above, so that it can be tuned separately.
-  SH_NN_FIXED_ITERS: 30  # TODO: Tune this hyperparameter
-  SH_NN_FIXED_LR_THETA: 1.0e-5  # TODO: Tune this hyperparameter
-  SH_NN_FIXED_LAMDA: 0.001  # TODO: Tune this hyperparameter
-  SH_NN_FIXED_HIDDEN_NODES: 512  # TODO: Tune this hyperparameter
-  SH_NN_FIXED_BASE_FIT_EPOCHS: 15000  # TODO: Tune this hyperparameter
-  SH_NN_FIXED_LR_BOOST_FACTOR: 10  # TODO: Tune this hyperparameter
-  SH_NN_FIXED_LR_DECAY_GAMMA_FRAC: 0.9  # TODO: Tune this hyperparameter
+  SH_NN_FIXED_ITERS: 30  # Tuned per dataset in `experiments`
+  SH_NN_FIXED_LR_THETA: 1.0e-5  # Tuned per dataset in `experiments`
+  SH_NN_FIXED_LAMDA: 0.001  # Tuned per dataset in `experiments`
+  SH_NN_FIXED_HIDDEN_NODES: 512  # Tuned per dataset in `experiments`
+  SH_NN_FIXED_BASE_FIT_EPOCHS: 15000  # Tuned per dataset in `experiments`
+  SH_NN_FIXED_LR_BOOST_FACTOR: 10  # Tuned per dataset in `experiments`
+  SH_NN_FIXED_LR_DECAY_GAMMA_FRAC: 0.9  # Tuned per dataset in `experiments`
   SH_NN_FIXED_DEVICE: null
   # The fairness constraint the "pp_baseline" demonstrator satisfies. Unused
   # by the "expert_demos" source.
@@ -381,11 +381,11 @@ common:
   ##
   # Fair LogLoss DP's L2 regularization strength `C`, and whether its
   # optimizer starts from random coefficients.
-  FAIR_LOGLOSS_DP_C: 0.005  # TODO: Tune this hyperparameter
-  FAIR_LOGLOSS_DP_RANDOM_INIT: true  # TODO: Tune this hyperparameter
+  FAIR_LOGLOSS_DP_C: 0.005  # Tuned per dataset in `experiments`
+  FAIR_LOGLOSS_DP_RANDOM_INIT: true  # Tuned per dataset in `experiments`
   # Fair LogLoss EqOdds's own counterparts of the two above.
-  FAIR_LOGLOSS_EQODDS_C: 0.005  # TODO: Tune this hyperparameter
-  FAIR_LOGLOSS_EQODDS_RANDOM_INIT: true  # TODO: Tune this hyperparameter
+  FAIR_LOGLOSS_EQODDS_C: 0.005  # Tuned per dataset in `experiments`
+  FAIR_LOGLOSS_EQODDS_RANDOM_INIT: true  # Tuned per dataset in `experiments`
 
   ##
   # Data split parameters.
@@ -445,6 +445,11 @@ presets:
 #
 # MIN_FREQ_FILL_PCT values (the commented-out ones) have been chosen so that
 # the runtime per learned policy is roughly equal for all datasets.
+#
+# The entries of the datasets the sweeps in configs/sweeps/ were run on also
+# hold each technique's tuned hyperparameters, under a comment naming the W&B
+# sweep (project `fair-irl-tuning`) they come from. Every other dataset uses
+# the defaults in `common`.
 experiments:
   COMPAS:
     # MIN_FREQ_FILL_PCT: 0.08
@@ -453,6 +458,42 @@ experiments:
     # chosen so that none of the feature expectations before or after weight
     # adjustment have zero values.
     # (That would cause issues for the subdominance calculations)
+    # Fair LogLoss DP: tuned by W&B sweep fair-irl-tuning/jna2aoqe (best of 30 runs, objective 0.512439)
+    FAIR_LOGLOSS_DP_C: 0.29535960628520286
+    FAIR_LOGLOSS_DP_RANDOM_INIT: true
+    # Fair LogLoss EqOdds: tuned by W&B sweep fair-irl-tuning/yuu6wfob (best of 30 runs, objective 0.476352)
+    FAIR_LOGLOSS_EQODDS_C: 0.8997814664272019
+    FAIR_LOGLOSS_EQODDS_RANDOM_INIT: true
+    # Superhuman Fairness Neural Network: tuned by W&B sweep fair-irl-tuning/ornqzp2s (best of 60 runs, objective 2.95449)
+    SH_NN_BASE_FIT_EPOCHS: 14767
+    SH_NN_HIDDEN_NODES: 256
+    SH_NN_ITERS: 14
+    SH_NN_LAMDA: 0.014734330986811022
+    SH_NN_LR_BOOST_FACTOR: 2.6061945466025396
+    SH_NN_LR_DECAY_GAMMA_FRAC: 0.9052851110520548
+    SH_NN_LR_THETA: 6.269951040307864e-05
+    # Superhuman Fairness: tuned by W&B sweep fair-irl-tuning/2qezjhab (best of 50 runs, objective 4.08504)
+    SH_ITERS: 47
+    SH_LAMDA: 0.005153861454450089
+    SH_LR_THETA: 5.7230817047265734e-05
+    # Superhuman Fairness Neural Network Fixed: tuned by W&B sweep fair-irl-tuning/yeabz1pu (best of 60 runs, objective 0.514176)
+    SH_NN_FIXED_BASE_FIT_EPOCHS: 2026
+    SH_NN_FIXED_HIDDEN_NODES: 1024
+    SH_NN_FIXED_ITERS: 55
+    SH_NN_FIXED_LAMDA: 2.468730870361931e-05
+    SH_NN_FIXED_LR_BOOST_FACTOR: 2.5779701898853173
+    SH_NN_FIXED_LR_DECAY_GAMMA_FRAC: 0.8753124618647503
+    SH_NN_FIXED_LR_THETA: 1.180470489191134e-06
+    # Superhuman Fairness Fixed: tuned by W&B sweep fair-irl-tuning/6s9dmt8r (best of 50 runs, objective 0.629517)
+    SH_FIXED_ITERS: 56
+    SH_FIXED_LAMDA: 0.00011681497523597792
+    SH_FIXED_LR_THETA: 0.008106452818423438
+    # FairIRL Bias Reduction: tuned by W&B sweep fair-irl-tuning/mczb5v2n (best of 60 runs, objective 0.459849)
+    FAIRIRL_CLF_MAX_DEPTH: null
+    FAIRIRL_CLF_MIN_SAMPLES_LEAF: 1
+    FAIRIRL_CLF_N_ESTIMATORS: 50
+    OPT_DEBIAS_LAMDA: 0.008849685863468949
+    WEIGHT_ADJUST_LIST: [[opt_debias, optuna, CMA-ES, 500]]
 
   # Boston (DISABLED, SINCE NOT ENOUGH DATA FOR GOOD SUBDOMINANCE CALCS)
   # Boston:
@@ -470,6 +511,42 @@ experiments:
   Adult:
     # MIN_FREQ_FILL_PCT: 0.24
     MIN_FREQ_FILL_PCT: 0.0
+    # Fair LogLoss DP: tuned by W&B sweep fair-irl-tuning/eebiwdx7 (best of 30 runs, objective 0.870938)
+    FAIR_LOGLOSS_DP_C: 0.00025779215964813007
+    FAIR_LOGLOSS_DP_RANDOM_INIT: false
+    # Fair LogLoss EqOdds: tuned by W&B sweep fair-irl-tuning/4w4xk9r8 (best of 30 runs, objective 1.00914)
+    FAIR_LOGLOSS_EQODDS_C: 0.0017118169197024406
+    FAIR_LOGLOSS_EQODDS_RANDOM_INIT: true
+    # Superhuman Fairness Neural Network: tuned by W&B sweep fair-irl-tuning/t0tp6ncs (best of 60 runs, objective 1.1662)
+    SH_NN_BASE_FIT_EPOCHS: 5479
+    SH_NN_HIDDEN_NODES: 256
+    SH_NN_ITERS: 15
+    SH_NN_LAMDA: 7.223851822508343e-05
+    SH_NN_LR_BOOST_FACTOR: 2.2371504032364693
+    SH_NN_LR_DECAY_GAMMA_FRAC: 0.7315631564979477
+    SH_NN_LR_THETA: 7.575419919404002e-06
+    # Superhuman Fairness: tuned by W&B sweep fair-irl-tuning/q8v0kv9c (best of 50 runs, objective 3.27389)
+    SH_ITERS: 9
+    SH_LAMDA: 5.425941126543357e-05
+    SH_LR_THETA: 1.4463321746848789e-05
+    # Superhuman Fairness Neural Network Fixed: tuned by W&B sweep fair-irl-tuning/xrzr8f3p (best of 60 runs, objective 0.477783)
+    SH_NN_FIXED_BASE_FIT_EPOCHS: 1045
+    SH_NN_FIXED_HIDDEN_NODES: 64
+    SH_NN_FIXED_ITERS: 21
+    SH_NN_FIXED_LAMDA: 4.396100320546091e-05
+    SH_NN_FIXED_LR_BOOST_FACTOR: 1.8713881895540927
+    SH_NN_FIXED_LR_DECAY_GAMMA_FRAC: 0.5888314169076384
+    SH_NN_FIXED_LR_THETA: 0.0003878840257193307
+    # Superhuman Fairness Fixed: tuned by W&B sweep fair-irl-tuning/676wnhft (best of 50 runs, objective 3.30783)
+    SH_FIXED_ITERS: 55
+    SH_FIXED_LAMDA: 0.005952556278566938
+    SH_FIXED_LR_THETA: 2.986744580427055e-05
+    # FairIRL Bias Reduction: tuned by W&B sweep fair-irl-tuning/wexats00 (best of 58 runs, objective 0.0952414)
+    FAIRIRL_CLF_MAX_DEPTH: null
+    FAIRIRL_CLF_MIN_SAMPLES_LEAF: 5
+    FAIRIRL_CLF_N_ESTIMATORS: 400
+    OPT_DEBIAS_LAMDA: 2.5441577550535265e-05
+    WEIGHT_ADJUST_LIST: [[opt_debias, nevergrad, Powell, 500]]
 
   # Adult_SH: the Adult dataset exactly as the Superhuman Fairness paper uses
   # it (its reference implementation's `dataset_ref.csv`, copied to
@@ -506,10 +583,82 @@ experiments:
   ACSIncome__MA:
     # MIN_FREQ_FILL_PCT: 0.07
     MIN_FREQ_FILL_PCT: 0.0
+    # Fair LogLoss DP: tuned by W&B sweep fair-irl-tuning/itpldajw (best of 30 runs, objective 0.125781)
+    FAIR_LOGLOSS_DP_C: 0.09675252681755916
+    FAIR_LOGLOSS_DP_RANDOM_INIT: true
+    # Fair LogLoss EqOdds: tuned by W&B sweep fair-irl-tuning/fjetn6v9 (best of 30 runs, objective 0.165812)
+    FAIR_LOGLOSS_EQODDS_C: 0.011942805623432425
+    FAIR_LOGLOSS_EQODDS_RANDOM_INIT: false
+    # Superhuman Fairness Neural Network: tuned by W&B sweep fair-irl-tuning/vq8k7yu8 (best of 60 runs, objective 0.369238)
+    SH_NN_BASE_FIT_EPOCHS: 17213
+    SH_NN_HIDDEN_NODES: 512
+    SH_NN_ITERS: 23
+    SH_NN_LAMDA: 0.0015351454829641408
+    SH_NN_LR_BOOST_FACTOR: 6.143070904410438
+    SH_NN_LR_DECAY_GAMMA_FRAC: 0.7174821347023392
+    SH_NN_LR_THETA: 1.4642342764450871e-06
+    # Superhuman Fairness: tuned by W&B sweep fair-irl-tuning/0aj33f6v (best of 50 runs, objective 2.16363)
+    SH_ITERS: 43
+    SH_LAMDA: 0.013420921469362091
+    SH_LR_THETA: 0.00032977376528287337
+    # Superhuman Fairness Neural Network Fixed: tuned by W&B sweep fair-irl-tuning/v2wxu98e (best of 60 runs, objective 0.0982947)
+    SH_NN_FIXED_BASE_FIT_EPOCHS: 3455
+    SH_NN_FIXED_HIDDEN_NODES: 256
+    SH_NN_FIXED_ITERS: 33
+    SH_NN_FIXED_LAMDA: 0.098051538290017
+    SH_NN_FIXED_LR_BOOST_FACTOR: 13.42866548016151
+    SH_NN_FIXED_LR_DECAY_GAMMA_FRAC: 0.689536563875684
+    SH_NN_FIXED_LR_THETA: 2.9496432839458333e-05
+    # Superhuman Fairness Fixed: tuned by W&B sweep fair-irl-tuning/oxyudx01 (best of 50 runs, objective 0.341796)
+    SH_FIXED_ITERS: 49
+    SH_FIXED_LAMDA: 0.0946004859437304
+    SH_FIXED_LR_THETA: 0.08793228266912223
+    # FairIRL Bias Reduction: tuned by W&B sweep fair-irl-tuning/633x3aa3 (best of 58 runs, objective 0.109775)
+    FAIRIRL_CLF_MAX_DEPTH: null
+    FAIRIRL_CLF_MIN_SAMPLES_LEAF: 10
+    FAIRIRL_CLF_N_ESTIMATORS: 200
+    OPT_DEBIAS_LAMDA: 9.971704130911446e-05
+    WEIGHT_ADJUST_LIST: [[opt_debias, optuna, GP, 500]]
 
   ACSIncome__MS:
     # MIN_FREQ_FILL_PCT: 0.05
     MIN_FREQ_FILL_PCT: 0.0
+    # Fair LogLoss DP: tuned by W&B sweep fair-irl-tuning/1s9yswxd (best of 30 runs, objective 0.995517)
+    FAIR_LOGLOSS_DP_C: 0.00021388652230179648
+    FAIR_LOGLOSS_DP_RANDOM_INIT: true
+    # Fair LogLoss EqOdds: tuned by W&B sweep fair-irl-tuning/g46xbdcz (best of 30 runs, objective 1.07137)
+    FAIR_LOGLOSS_EQODDS_C: 0.3365375643723825
+    FAIR_LOGLOSS_EQODDS_RANDOM_INIT: false
+    # Superhuman Fairness Neural Network: tuned by W&B sweep fair-irl-tuning/futl6fxw (best of 60 runs, objective 1.07137)
+    SH_NN_BASE_FIT_EPOCHS: 19934
+    SH_NN_HIDDEN_NODES: 1024
+    SH_NN_ITERS: 45
+    SH_NN_LAMDA: 0.000262284858910708
+    SH_NN_LR_BOOST_FACTOR: 25.1958368971611
+    SH_NN_LR_DECAY_GAMMA_FRAC: 0.9909098256225176
+    SH_NN_LR_THETA: 7.646757742774868e-05
+    # Superhuman Fairness: tuned by W&B sweep fair-irl-tuning/eyuzr2uy (best of 50 runs, objective 1.05662)
+    SH_ITERS: 32
+    SH_LAMDA: 1.4562131072680894e-05
+    SH_LR_THETA: 0.0018544389015707765
+    # Superhuman Fairness Neural Network Fixed: tuned by W&B sweep fair-irl-tuning/8cqegb6d (best of 60 runs, objective 0.61379)
+    SH_NN_FIXED_BASE_FIT_EPOCHS: 14676
+    SH_NN_FIXED_HIDDEN_NODES: 128
+    SH_NN_FIXED_ITERS: 58
+    SH_NN_FIXED_LAMDA: 0.021264489823649087
+    SH_NN_FIXED_LR_BOOST_FACTOR: 4.655744267968096
+    SH_NN_FIXED_LR_DECAY_GAMMA_FRAC: 0.938241328460946
+    SH_NN_FIXED_LR_THETA: 0.0008482932319475179
+    # Superhuman Fairness Fixed: tuned by W&B sweep fair-irl-tuning/iu068cmn (best of 50 runs, objective 1.43965)
+    SH_FIXED_ITERS: 55
+    SH_FIXED_LAMDA: 0.005943298549335738
+    SH_FIXED_LR_THETA: 0.08896458875332224
+    # FairIRL Bias Reduction: tuned by W&B sweep fair-irl-tuning/4i5tejgi (best of 60 runs, objective 0.469538)
+    FAIRIRL_CLF_MAX_DEPTH: 10
+    FAIRIRL_CLF_MIN_SAMPLES_LEAF: 5
+    FAIRIRL_CLF_N_ESTIMATORS: 50
+    OPT_DEBIAS_LAMDA: 0.0055333980259516065
+    WEIGHT_ADJUST_LIST: [[opt_debias, optuna, CMA-ES, 500]]
 
   ACSIncome__CA:
     # MIN_FREQ_FILL_PCT: 0.2

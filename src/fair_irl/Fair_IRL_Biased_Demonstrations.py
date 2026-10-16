@@ -92,6 +92,13 @@ def _run_result_recorder(records):
             "DEMO_BIAS_TYPE": run.config["DEMO_BIAS_TYPE"],
             "WEIGHT_ADJUST": run.config["WEIGHT_ADJUST"],
             "TRIAL": run.config["TRIAL"],
+            # Whether a sweep trial's objective counts this run: every run but
+            # FairIRL Bias Reduction's with the unadjusted weights, which are
+            # only its starting point.
+            "scored": not (
+                run.config["ALGORITHM"] == ALGORITHM_FAIRIRL
+                and not run.config["WEIGHT_ADJUST"]
+            ),
             "converged": summary is not None,
             "subdominance": (
                 {key: float(summary[key]) for key in SUBDOMINANCE_KEYS}

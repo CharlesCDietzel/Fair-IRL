@@ -45,12 +45,10 @@ import wandb
 import yaml
 
 from fair_irl.config import DEFAULT_CONFIG_PATH, build_experiment_plan, load_config
-from fair_irl.experiment_utils import (
-    ALGORITHM_FAIRIRL,
-    SUBDOMINANCE_KEYS,
-    WANDB_ENTITY,
-    WANDB_PROJECT,
-)
+
+# `fair_irl.experiment_utils` is only imported by `create_sweeps()`: it pulls in
+# PyTorch and every model library, close to 1 GB, which a sweep trial -- one
+# per agent, alive for as long as its experiment runs -- does not need.
 
 # The sweep's metric: what `trial` logs, and what the sweep configs minimize.
 OBJECTIVE = "objective"
@@ -70,13 +68,10 @@ def _scored_runs(runs):
     """
     The runs the objective is computed over: every run, except FairIRL Bias
     Reduction's runs with the unadjusted weights. Those are only its starting
-    point; its results are the runs of its weight adjustments.
+    point; its results are the runs of its weight adjustments. The experiment
+    script marks which is which, as each run's `scored`.
     """
-    return [
-        run
-        for run in runs
-        if not (run["ALGORITHM"] == ALGORITHM_FAIRIRL and not run["WEIGHT_ADJUST"])
-    ]
+    return [run for run in runs if run["scored"]]
 
 
 def _summarize(runs, objective_key):
@@ -94,10 +89,18 @@ def _summarize(runs, objective_key):
     if not scored or not all(run["converged"] for run in scored):
         return None
 
+    # Every subdominance measurement the experiment reported, in its order.
+    subdominance_keys = list(scored[0]["subdominance"])
+    if objective_key not in subdominance_keys:
+        raise ValueError(
+            f"Unknown objective key {objective_key!r}; the experiment reported"
+            f" {subdominance_keys}."
+        )
+
     metrics = {
         OBJECTIVE: float(np.mean([run["subdominance"][objective_key] for run in scored]))
     }
-    for key in SUBDOMINANCE_KEYS:
+    for key in subdominance_keys:
         metrics[f"mean/{key}"] = float(
             np.mean([run["subdominance"][key] for run in scored])
         )
@@ -180,6 +183,8 @@ def create_sweeps(args):
     with open(args.sweep_config) as f:
         sweep_config = yaml.safe_load(f)
 
+    from fair_irl.experiment_utils import WANDB_ENTITY, WANDB_PROJECT
+
     datasets = _sweep_datasets(args)
     groups = [datasets] if args.joint else [[dataset] for dataset in datasets]
 
@@ -244,7 +249,10 @@ def parse_args(argv=None):
             " all the datasets, instead of one sweep per dataset."
         ),
     )
-    create.add_argument("--project", help=f"Default: {WANDB_PROJECT}")
+    create.add_argument(
+        "--project",
+        help="Default: the WANDB_PROJECT environment variable, or fair-irl.",
+    )
     create.add_argument("--entity")
     create.add_argument(
         "--dry-run",
@@ -261,7 +269,6 @@ def parse_args(argv=None):
     trial.add_argument(
         "--objective-key",
         default=DEFAULT_OBJECTIVE_KEY,
-        choices=SUBDOMINANCE_KEYS,
         help=(
             "The subdominance measurement whose mean over the trial's runs is"
             " the objective. Default: %(default)s"
