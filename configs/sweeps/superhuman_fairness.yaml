@@ -32,11 +32,15 @@ parameters:
     distribution: int_uniform
     min: 5
     max: 60
+  # Widened from a minimum of 1e-5 after the first sweep's best
+  # value landed near it.
   SH_LR_THETA:
     distribution: log_uniform_values
-    min: 1.0e-5
+    min: 1.0e-7
     max: 0.1
+  # Widened from a minimum of 1e-5 after the first sweep's best
+  # value landed near it.
   SH_LAMDA:
     distribution: log_uniform_values
-    min: 1.0e-5
+    min: 1.0e-7
     max: 0.1

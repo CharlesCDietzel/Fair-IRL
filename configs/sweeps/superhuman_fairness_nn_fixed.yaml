@@ -27,28 +27,36 @@ parameters:
   ALGORITHMS:
     value: [Superhuman Fairness Neural Network Fixed]
   # The reference implementation trains for 30-40 iterations.
+  # Widened from a maximum of 60 after the first sweep's best
+  # value landed near it.
   SH_NN_FIXED_ITERS:
     distribution: int_uniform
     min: 5
-    max: 60
+    max: 120
   # The network's Adam learning rate; the reference implementation's is 1e-5.
+  # Widened from 1e-6 to 1e-3 after the first sweep's best values landed near
+  # both ends (on different datasets).
   SH_NN_FIXED_LR_THETA:
     distribution: log_uniform_values
-    min: 1.0e-6
-    max: 1.0e-3
+    min: 1.0e-7
+    max: 1.0e-2
+  # Widened from a maximum of 0.1 after the first sweep's best
+  # value landed near it.
   SH_NN_FIXED_LAMDA:
     distribution: log_uniform_values
     min: 1.0e-5
-    max: 0.1
+    max: 1.0
   # The first hidden layer's width; the second has half as many units. The
   # reference implementation's is 512.
   SH_NN_FIXED_HIDDEN_NODES:
     values: [64, 128, 256, 512, 1024]
   # Full-batch Adam steps of the initial fit; the reference implementation's
   # is 15000.
+  # Widened from a minimum of 1000 after the first sweep's best
+  # value landed near it.
   SH_NN_FIXED_BASE_FIT_EPOCHS:
     distribution: int_uniform
-    min: 1000
+    min: 100
     max: 20000
   # 1 disables the boost; the reference implementation's is 10.
   SH_NN_FIXED_LR_BOOST_FACTOR:

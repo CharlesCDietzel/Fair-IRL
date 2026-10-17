@@ -46,10 +46,12 @@ parameters:
     values: [64, 128, 256, 512, 1024]
   # Full-batch Adam steps of the initial fit; the reference implementation's
   # is 15000.
+  # Widened from a maximum of 20000 after the first sweep's best
+  # value landed near it.
   SH_NN_BASE_FIT_EPOCHS:
     distribution: int_uniform
     min: 1000
-    max: 20000
+    max: 40000
   # 1 disables the boost; the reference implementation's is 10.
   SH_NN_LR_BOOST_FACTOR:
     distribution: log_uniform_values
@@ -57,7 +59,10 @@ parameters:
     max: 30.0
   # The fraction of the features that must be gamma-superhuman before the
   # boost is undone; the reference implementation's is 0.9.
+  # Widened from a maximum of 1.0 after the first sweep's best value landed near
+  # it. The gamma-superhuman sum can never exceed the number of features, so
+  # every value above 1 means the boost is never undone.
   SH_NN_LR_DECAY_GAMMA_FRAC:
     distribution: uniform
     min: 0.5
-    max: 1.0
+    max: 1.1
