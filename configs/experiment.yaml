@@ -44,7 +44,7 @@ EXPERT_ALGOS:
   # its demonstrations from when SH_DEMO_SOURCE is "pp_baseline", and it takes
   # its fairness constraint from SH_DEMO_CONSTRAINTS below, so selecting it
   # here makes both techniques imitate the same demonstrator.
-  # - PostProcDemo
+  - PostProcDemo
   # - OptAcc
   # - CatBoostOptAcc
   # - XGBoostOptAcc
@@ -200,7 +200,7 @@ common:
     # - [dataset_perfectly_balanced_redlining, 0.2]
     # - [dataset_noise_bias, 0.2, true, true]
     # - [dataset_corruption_bias, CatBoost, 0.0001, gaussian, 1.0]
-    # - [dataset_corruption_bias, CatBoost, 0.001, gaussian, 1.0]
+    - [dataset_corruption_bias, CatBoost, 0.001, gaussian, 1.0]
     # - [dataset_corruption_bias, CatBoost, 0.01, gaussian, 1.0]
 
   # Demo bias types leave the dataset's labels unchanged and bias the
@@ -220,7 +220,7 @@ common:
     # - [demo_unbalanced_redlining, 0.2]
     # - [demo_balanced_redlining, 0.2]
     # - [demo_perfectly_balanced_redlining, 0.2]
-    # - [demo_noise_bias, 0.2]
+    - [demo_noise_bias, 0.2]
 
   # The performance and fairness measures the subdominance metric is computed
   # over. FairIRL Bias Reduction optimizes relative to these: its `opt_debias`

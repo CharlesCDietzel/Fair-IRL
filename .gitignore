@@ -5,6 +5,7 @@ src/fair_irl/resources/*
 experiment_output/**/*.csv
 experiment_output/**/*.json
 experiment_output/**/*.pdf
+experiment_output/**/*.tex
 data/**/*.csv
 data/**/*.zip
 data/**/*.p
