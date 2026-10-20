@@ -134,6 +134,7 @@ def run_trial(args):
             args.config,
             "--results-file",
             results_file,
+            "--no-pause",
             "--annotate",
             f"SWEEP_ID={run.sweep_id}",
             "--annotate",

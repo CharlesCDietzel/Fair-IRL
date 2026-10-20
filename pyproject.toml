@@ -39,6 +39,8 @@ dependencies = [
 
 [project.scripts]
 fair-irl = "fair_irl.Fair_IRL_Biased_Demonstrations:main"
+fair-irl-pause = "fair_irl.pause:pause_main"
+fair-irl-resume = "fair_irl.Fair_IRL_Biased_Demonstrations:resume_main"
 
 [tool.black]
 # `src/fair_irl/sh/fair_logloss.py` is a verbatim vendored copy of the

@@ -40,6 +40,15 @@ TUPLE_KEYS = (
     "SUBDOMINANCE_FAIR_METRICS_LIST",
 )
 
+# List-valued keys that may be left empty. With every entry commented out, YAML
+# reads such a key as null rather than as an empty list, so null is read as
+# empty.
+EMPTYABLE_LIST_KEYS = (
+    "DATASET_BIAS_TYPE_LIST",
+    "DEMO_BIAS_TYPE_LIST",
+    "WEIGHT_ADJUST_LIST",
+)
+
 # An override that is not itself an `exp_info` key: `"<library>/<optimizer>"`,
 # e.g. `"optuna/TPE"`, swaps the library and optimizer of every `opt_debias`
 # entry of WEIGHT_ADJUST_LIST while keeping the rest of the entry (its
@@ -187,6 +196,9 @@ def build_experiment_plan(config, overrides=None, annotations=None):
         exp_info["RANDOM_SEED"] = top_level["RANDOM_SEED"]
         exp_info |= copy.deepcopy(overrides)
 
+        for key in EMPTYABLE_LIST_KEYS:
+            if key in exp_info and exp_info[key] is None:
+                exp_info[key] = []
         for key in TUPLE_KEYS:
             if key in exp_info:
                 exp_info[key] = _to_tuple(exp_info[key])

@@ -4347,6 +4347,8 @@ def run_bias_experiment(
     source_y=None,
     source_feature_types=None,
     session_id=None,
+    first_trial=0,
+    after_trial=None,
 ):
     """
     Runs experiment for source domain based on the parameters in `exp_info`.
@@ -4368,6 +4370,12 @@ def run_bias_experiment(
         passing the same id to each call is what marks their runs as one set of
         results. Defaults to a fresh id, so calling this on its own still
         produces a self-contained session.
+    first_trial : int, default 0
+        Index of the first trial to run. A resumed experiment (see
+        `fair_irl.pause`) skips the trials it ran before it was paused.
+    after_trial : callable, Optional
+        Called with the trial's index after each trial finishes. This is where
+        the experiment script pauses.
 
     Reports
     -------
@@ -4395,7 +4403,7 @@ def run_bias_experiment(
     )
     logging.info(f"W&B run group: {group}")
 
-    for trial_i in range(exp_info["N_TRIALS"]):
+    for trial_i in range(first_trial, exp_info["N_TRIALS"]):
         # Run trials to learn weights on source domain
         run_experiment_trial(
             exp_info,
@@ -4406,3 +4414,5 @@ def run_bias_experiment(
             group=group,
             session_id=session_id,
         )
+        if after_trial is not None:
+            after_trial(trial_i)

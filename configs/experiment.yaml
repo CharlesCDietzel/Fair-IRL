@@ -194,7 +194,10 @@ common:
   #       Relabels the dataset with a classifier whose learned parameters were
   #       corrupted.
   # (Each "percent" defaults to 0.2 if left out.)
-  DATASET_BIAS_TYPE_LIST: []
+  #
+  # To run no bias types of a variety, comment out all of its entries (or
+  # write `[]` with no entries below it).
+  DATASET_BIAS_TYPE_LIST:
     # - [dataset_unbalanced_redlining, 0.2]
     # - [dataset_balanced_redlining, 0.2]
     # - [dataset_perfectly_balanced_redlining, 0.2]
@@ -216,7 +219,7 @@ common:
   #       Like `add_noise()` of the Superhuman Fairness reference
   #       implementation: flips the decisions of a random noise_ratio of the
   #       rows.
-  DEMO_BIAS_TYPE_LIST: []
+  DEMO_BIAS_TYPE_LIST:
     # - [demo_unbalanced_redlining, 0.2]
     # - [demo_balanced_redlining, 0.2]
     # - [demo_perfectly_balanced_redlining, 0.2]

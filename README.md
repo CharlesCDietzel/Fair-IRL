@@ -192,6 +192,52 @@ starts and again when it finishes. To plot that session, set `WANDB_SESSION` in
 the plotting notebook to that id; the default is the most recent session in
 the project.
 
+### Pausing and resuming
+
+A full run takes a long time. To pause it, run this from the repository root
+in another terminal:
+
+```sh
+uv run fair-irl-pause
+```
+
+The experiment finishes the trial it is running, saves its progress and exits.
+You can then close the terminal or restart the computer. To pick up where it
+left off, run:
+
+```sh
+uv run fair-irl-resume
+```
+
+The experiment continues with the next trial, or the next experiment if the
+paused one had finished its trials.
+
+Pausing and resuming doesn't change the results. The experiment saves its
+random number generators' states when it pauses and restores them when it
+resumes. A paused-and-resumed run's results are identical to an uninterrupted
+run's, apart from timestamps and runtimes. The resumed runs also join the same
+W&B session, so the plotting notebook sees one set of results. The experiment
+uses the config as it was when the run started, so editing
+`configs/experiment.yaml` while it is paused has no effect until the next new
+run. It also reuses the original `--set` and `--annotate` values.
+
+Some details:
+
+* `uv run fair-irl-pause --cancel` withdraws a pause request, as long as the
+  current trial hasn't finished yet.
+* `uv run fair-irl-resume --discard` deletes the saved experiment instead of
+  resuming it.
+* Only one experiment can be paused at a time. A run started while another
+  experiment is paused prints a warning and can't be paused itself. Neither
+  can a second run started while a pausable one is already running.
+* A resumed experiment keeps its saved progress until it finishes. If it
+  crashes, `uv run fair-irl-resume` starts again from the same pause point.
+  The runs it reported to W&B before crashing aren't removed, so delete them
+  in the W&B UI to avoid counting those trials twice.
+* W&B sweep trials can't be paused. `fair_irl.sweep` passes `--no-pause`,
+  because a trial has to run to completion to be scored.
+* The saved state lives in `.experiment_state/` at the repository root.
+
 ## Techniques
 
 Nine techniques can be trained and evaluated:
