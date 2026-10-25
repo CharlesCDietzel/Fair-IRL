@@ -141,11 +141,8 @@ A few things to keep in mind:
 * Every trial runs `N_TRIALS` trials of the unbiased dataset and of each bias
   type in `DATASET_BIAS_TYPE_LIST` and `DEMO_BIAS_TYPE_LIST`, so a sweep costs
   as much as that many final runs, times the number of sweep runs.
-* Each sweep stops after 60 runs, its `run_cap`. To change a cap, edit the
+* Each sweep stops after a number of runs equal to its `run_cap`. To change a cap, edit the
   `run_cap` in the sweep config before creating the sweep.
-* `METHOD`, the LP solver, is not tuned. The expert's policy is solved with it
-  too, so changing it would also change the demonstrations every technique is
-  scored against.
 
 See `src/fair_irl/sweep.py` for the details of how a trial is run.
 
