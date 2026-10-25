@@ -1374,6 +1374,12 @@ class BiasedDatasetDemos:
         `compute_expert_subdominance()`, which documents what these values mean.
         Computed here, once per bias type, since every run of this bias type is
         compared against the same experts.
+    data_split_imbalance : float
+        How unevenly the data split divides this bias type's dataset, as
+        `_data_split_imbalance()` measures it.
+    muE_split_cosine_dist : float
+        How far apart the experts' feature expectations of the data splits
+        are, as `_muE_split_cosine_dist()` measures it.
     """
 
     bias_type: tuple
@@ -1390,6 +1396,8 @@ class BiasedDatasetDemos:
     subdom_groups_val: tuple
     subdom_groups_test: tuple
     expert_subdominance: dict
+    data_split_imbalance: float
+    muE_split_cosine_dist: float
 
 
 class PolicyResults:
@@ -1603,6 +1611,10 @@ def _build_trial_summary(
         for i, obj in enumerate(feat_obj_set.objectives):
             summary[f"{prefix}_{obj.name}_mean"] = np.mean(muE[:, i])
             summary[f"{prefix}_{obj.name}_std"] = np.std(muE[:, i])
+
+    # How alike the data splits are (see `_draw_data_split()`).
+    summary["data_split_imbalance"] = bias_demos.data_split_imbalance
+    summary["muE_split_cosine_dist"] = bias_demos.muE_split_cosine_dist
 
     for i, obj in enumerate(feat_obj_set.objectives):
         summary[f"wL_{obj.name}"] = results.weights[i]
@@ -2047,13 +2059,21 @@ def _bias_expert_demonstrations(
     )
 
 
-def _is_split_acceptable(muE_train, muE_val, muE_test, max_muE_cosine_dist_split):
-    for demo_i in range(len(muE_train)):
-        if cosine(muE_train[demo_i], muE_val[0]) > max_muE_cosine_dist_split:
-            return False
-        if cosine(muE_train[demo_i], muE_test[0]) > max_muE_cosine_dist_split:
-            return False
-    return True
+def _muE_split_cosine_dist(muE_train, muE_val, muE_test):
+    """The largest cosine distance between the training split's expert feature
+    expectations and the validation or test split's.
+
+    Only reported, never used to choose the split: these feature expectations
+    are those of experts fit on each split, so their distance also reflects
+    how each expert's fit happened to turn out, which re-splitting cannot fix
+    and should not select for. See `_draw_data_split()` for what the split is
+    chosen by instead.
+    """
+    return max(
+        cosine(muE_train[demo_i], muE_other[0])
+        for demo_i in range(len(muE_train))
+        for muE_other in (muE_val, muE_test)
+    )
 
 
 def _bias_dataset(exp_info, X, y, feature_types, bias_type):
@@ -2092,6 +2112,198 @@ def _bias_dataset(exp_info, X, y, feature_types, bias_type):
 DEFAULT_DATA_SPLIT_FRACTIONS = (0.60, 0.20, 0.20)
 
 
+def _data_split_seed(exp_info, trial_i):
+    """
+    Derive the seed of a trial's data split from what makes the trial unique.
+
+    Like `_baseline_seed()`, this keeps the split off the global numpy random
+    state, so however many candidate splits `_draw_data_split()` draws, no
+    later random draw shifts. The expert is deliberately left out of the key:
+    every expert of a trial is split along the same indices, so the experts
+    are compared on the same data.
+    """
+    key = "|".join(
+        [
+            str(exp_info.get("RANDOM_SEED")),
+            str(exp_info.get("EXPERIMENT_NAME")),
+            str(exp_info.get("DATASET")),
+            "data_split",
+            str(trial_i),
+        ]
+    )
+    # `np.random.RandomState` takes 32-bit seeds.
+    return int.from_bytes(hashlib.blake2b(key.encode(), digest_size=4).digest(), "big")
+
+
+def _data_split_stratify_labels(exp_info, X, y):
+    """
+    The labels `exp_info["DATA_SPLIT_STRATIFY"]` stratifies the split by.
+
+    `False` (the default) doesn't stratify, `True` or `"y"` stratifies by the
+    unbiased label, and `"zy"` by each combination of the protected attribute
+    and the unbiased label.
+
+    Returns
+    -------
+    labels : numpy.ndarray or None
+        One label per row of `X`, or None to not stratify.
+    """
+    stratify = exp_info.get("DATA_SPLIT_STRATIFY", False)
+    if stratify is False or stratify is None:
+        return None
+    if stratify is True or stratify == "y":
+        return np.asarray(y)
+    if stratify == "zy":
+        _, labels = np.unique(
+            np.column_stack([np.asarray(X["z"]), np.asarray(y)]),
+            axis=0,
+            return_inverse=True,
+        )
+        return labels.ravel()
+    raise ValueError(
+        "exp_info['DATA_SPLIT_STRATIFY'] must be false, true, 'y' or 'zy', got"
+        f" {stratify!r}."
+    )
+
+
+def _split_group_rates(z, y, idxs, z_values):
+    """
+    `P(z = v)` and `P(y = 1 | z = v)` of the rows `idxs`, for every value `v`
+    of the protected attribute: the rates the feature expectations of a
+    split's demonstrations depend on.
+
+    Returns
+    -------
+    rates : numpy.ndarray or None
+        The rates, or None if some group has no rows among `idxs`.
+    """
+    zs, ys = z[idxs], y[idxs]
+    rates = []
+    for z_value in z_values:
+        in_group = zs == z_value
+        if not in_group.any():
+            return None
+        rates += [in_group.mean(), ys[in_group].mean()]
+    return np.array(rates)
+
+
+def _data_split_imbalance(datasets, split_idxs):
+    """
+    How differently the data is distributed across the splits.
+
+    Parameters
+    ----------
+    datasets : iterable<tuple>
+        `(X, y)` pairs of the datasets split along `split_idxs`.
+    split_idxs : tuple<numpy.ndarray>
+        The row indices of each split.
+
+    Returns
+    -------
+    imbalance : float
+        The largest spread across the splits (max - min) of any
+        `_split_group_rates()` rate, over every dataset. Infinite if some
+        split lacks one of the groups altogether.
+    """
+    imbalance = 0.0
+    for X_biased, y_biased in datasets:
+        z, y_values = np.asarray(X_biased["z"]), np.asarray(y_biased)
+        z_values = np.unique(z)
+        rates = [_split_group_rates(z, y_values, idxs, z_values) for idxs in split_idxs]
+        if any(split_rates is None for split_rates in rates):
+            return np.inf
+        imbalance = max(imbalance, np.ptp(rates, axis=0).max())
+    return float(imbalance)
+
+
+def _draw_data_split(exp_info, X, y, datasets, trial_i):
+    """
+    Draw the train/validation/test split every bias type of a trial shares.
+
+    So that a policy scoring worse on the test split than on the training
+    split reflects the policy rather than a difference between the splits,
+    the split is chosen for how evenly the protected groups and their labels
+    are distributed across it, in every dataset it splits (see
+    `_data_split_imbalance()`). Up to `exp_info["DATA_SPLIT_MAX_TRIES"]`
+    candidate splits are drawn, and the first whose imbalance is at most
+    `exp_info["DATA_SPLIT_MAX_IMBALANCE"]` is taken -- or, if none is, the
+    most balanced one. This only needs the data, so no expert is fit for a
+    rejected split.
+
+    The candidates are drawn from a generator seeded by `_data_split_seed()`,
+    so the split is reproducible and leaves the global random state alone.
+
+    Parameters
+    ----------
+    X : pandas.DataFrame
+        The unbiased dataset's inputs.
+    y : pandas.Series
+        The unbiased dataset's labels.
+    datasets : iterable<tuple>
+        The `(X, y)` pairs whose imbalance the split is chosen by.
+    trial_i : int
+        Index of this trial within the experiment.
+
+    Returns
+    -------
+    split_idxs : tuple<numpy.ndarray>
+        The `(train_idxs, val_idxs, test_idxs)` row indices of the split.
+    imbalance : float
+        Its `_data_split_imbalance()`.
+    """
+    train_frac, val_frac, test_frac = exp_info.get(
+        "DATA_SPLIT_FRACTIONS", DEFAULT_DATA_SPLIT_FRACTIONS
+    )
+    if not np.isclose(train_frac + val_frac + test_frac, 1.0):
+        raise ValueError(
+            "exp_info['DATA_SPLIT_FRACTIONS'] must sum to 1, got"
+            f" {(train_frac, val_frac, test_frac)}."
+        )
+    max_tries = exp_info.get("DATA_SPLIT_MAX_TRIES", 1)
+    if max_tries < 1:
+        raise ValueError(
+            f"exp_info['DATA_SPLIT_MAX_TRIES'] must be at least 1, got {max_tries}."
+        )
+    max_imbalance = exp_info.get("DATA_SPLIT_MAX_IMBALANCE", np.inf)
+    stratify_labels = _data_split_stratify_labels(exp_info, X, y)
+    random_state = np.random.RandomState(_data_split_seed(exp_info, trial_i))
+
+    idxs = np.arange(len(X))
+    best_split_idxs, best_imbalance = None, np.inf
+    for try_i in range(max_tries):
+        train_idxs, val_test_idxs = train_test_split(
+            idxs,
+            train_size=train_frac,
+            stratify=stratify_labels,
+            random_state=random_state,
+        )
+        val_idxs, test_idxs = train_test_split(
+            val_test_idxs,
+            test_size=test_frac / (val_frac + test_frac),
+            stratify=(
+                None if stratify_labels is None else stratify_labels[val_test_idxs]
+            ),
+            random_state=random_state,
+        )
+        split_idxs = (train_idxs, val_idxs, test_idxs)
+        imbalance = _data_split_imbalance(datasets, split_idxs)
+        if best_split_idxs is None or imbalance < best_imbalance:
+            best_split_idxs, best_imbalance = split_idxs, imbalance
+        if imbalance <= max_imbalance:
+            logging.info(
+                f"Data split {try_i + 1} of at most {max_tries} accepted, with"
+                f" group rate imbalance {imbalance:.4f}."
+            )
+            break
+    else:
+        logging.info(
+            f"No data split of {max_tries} had a group rate imbalance of at most"
+            f" {max_imbalance}; using the most balanced one, with imbalance"
+            f" {best_imbalance:.4f}."
+        )
+    return best_split_idxs, best_imbalance
+
+
 def _split_dataset_and_generate_expert_demos(
     exp_info,
     expert_algo_lookup,
@@ -2101,6 +2313,7 @@ def _split_dataset_and_generate_expert_demos(
     y,
     feature_types,
     bias_type_list,
+    trial_i=0,
 ):
     """Bias the dataset once per bias type, then split each biased dataset and
     generate expert demonstrations from its splits.
@@ -2121,7 +2334,8 @@ def _split_dataset_and_generate_expert_demos(
 
     Every dataset is split along the same randomized indices, so the bias
     types differ from each other only by their bias and their results stay
-    comparable.
+    comparable. Those indices are chosen by `_draw_data_split()`, for how
+    evenly every dataset is distributed across them.
 
     Returns
     -------
@@ -2141,33 +2355,25 @@ def _split_dataset_and_generate_expert_demos(
 
     # One randomized split, shared by every bias type: the biased datasets
     # differ from each other only by their bias, so splitting them all along
-    # the same indices keeps their results comparable.
+    # the same indices keeps their results comparable. It is chosen for how
+    # evenly it splits the unbiased dataset and every dataset bias type's
+    # biased copy; the demo bias types' datasets are the unbiased one.
     #
-    # DATA_SPLIT_FRACTIONS sets the (train, val, test) fractions, and
-    # DATA_SPLIT_STRATIFY stratifies both splits by the unbiased labels, as the
-    # Superhuman Fairness paper's split does. The defaults reproduce this
-    # project's usual unstratified 60/20/20 split exactly.
-    train_frac, val_frac, test_frac = exp_info.get(
-        "DATA_SPLIT_FRACTIONS", DEFAULT_DATA_SPLIT_FRACTIONS
-    )
-    if not np.isclose(train_frac + val_frac + test_frac, 1.0):
-        raise ValueError(
-            "exp_info['DATA_SPLIT_FRACTIONS'] must sum to 1, got"
-            f" {(train_frac, val_frac, test_frac)}."
-        )
-    stratify = exp_info.get("DATA_SPLIT_STRATIFY", False)
-    y_values = np.asarray(y)
-
-    idxs = np.arange(len(X))
-    train_idxs, val_test_idxs = train_test_split(
-        idxs,
-        train_size=train_frac,
-        stratify=y_values if stratify else None,
-    )
-    val_idxs, test_idxs = train_test_split(
-        val_test_idxs,
-        test_size=test_frac / (val_frac + test_frac),
-        stratify=y_values[val_test_idxs] if stratify else None,
+    # DATA_SPLIT_FRACTIONS sets the (train, val, test) fractions,
+    # DATA_SPLIT_STRATIFY what both splits are stratified by, and
+    # DATA_SPLIT_MAX_TRIES and DATA_SPLIT_MAX_IMBALANCE how hard
+    # _draw_data_split() looks for an even split.
+    logging.info("Drawing the train/validation/test split...")
+    (train_idxs, val_idxs, test_idxs), _ = _draw_data_split(
+        exp_info,
+        X,
+        y,
+        [
+            dataset
+            for bias_type, dataset in zip(bias_type_list, biased_datasets)
+            if bias_type_kind(bias_type) != "demo"
+        ],
+        trial_i,
     )
 
     # The demo bias types reuse the unbiased run's demonstrations, so it must
@@ -2244,21 +2450,19 @@ def _split_dataset_and_generate_expert_demos(
             )
             group_idxs_train = group_idxs_val = group_idxs_test = None
 
-        # TODO: Reimplement the split check. It used to retry the split until
-        # the feature expectations of the three splits were close enough to
-        # each other, which no longer works as-is now that the split is shared
-        # by every bias type (and is what the biased datasets are compared
-        # along).
-        # max_muE_cosine_dist_split = 0.002
-        # if not _is_split_acceptable(
-        #     expert_train.mu,
-        #     expert_val.mu,
-        #     expert_test.mu,
-        #     max_muE_cosine_dist_split,
-        # ):
-        #     logging.info(
-        #         "INFO: Split check failed; retrying train/validation/test split..."
-        #     )
+        # How evenly the split divides this bias type's dataset, and how close
+        # its experts' feature expectations came out, for every run of this
+        # bias type to report.
+        data_split_imbalance = _data_split_imbalance(
+            [(X_biased, y_biased)], (train_idxs, val_idxs, test_idxs)
+        )
+        muE_split_cosine_dist = _muE_split_cosine_dist(
+            expert_train.mu, expert_val.mu, expert_test.mu
+        )
+        logging.info(
+            f"Data split group rate imbalance: {data_split_imbalance:.4f};"
+            f" muE cosine distance across splits: {muE_split_cosine_dist:.6f}"
+        )
 
         # Sample the subdominance groups (and compute the expert feature losses
         # on them) once per split and bias type, so that every
@@ -2304,6 +2508,8 @@ def _split_dataset_and_generate_expert_demos(
                 subdom_groups_val=subdom_groups_val,
                 subdom_groups_test=subdom_groups_test,
                 expert_subdominance=expert_subdominance,
+                data_split_imbalance=data_split_imbalance,
+                muE_split_cosine_dist=muE_split_cosine_dist,
             )
         )
 
@@ -4072,6 +4278,7 @@ def run_experiment_trial(
         y,
         feature_types,
         bias_type_list,
+        trial_i,
     )
 
     # `bias_type_list` starts with `()`, so the first entry is the unbiased

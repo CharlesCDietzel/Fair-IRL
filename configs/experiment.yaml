@@ -393,11 +393,21 @@ common:
   ##
   # Data split parameters.
   ##
-  # The (train, val, test) fractions of each dataset, and whether both splits
-  # are stratified by the label. The Superhuman Fairness baseline trains on
-  # (and builds its demonstrations from) the train split.
+  # The (train, val, test) fractions of each dataset, and what both splits
+  # are stratified by: false (nothing), true or 'y' (the label), or 'zy'
+  # (each combination of the protected attribute and the label). The
+  # Superhuman Fairness baseline trains on (and builds its demonstrations
+  # from) the train split.
   DATA_SPLIT_FRACTIONS: [0.6, 0.2, 0.2]
-  DATA_SPLIT_STRATIFY: false
+  DATA_SPLIT_STRATIFY: zy
+  # The split check. Up to DATA_SPLIT_MAX_TRIES candidate splits are drawn,
+  # and the first whose P(z) and P(y=1|z) differ by at most
+  # DATA_SPLIT_MAX_IMBALANCE between any two splits, in the unbiased dataset
+  # and every dataset bias type's dataset, is used; if none does, the most
+  # balanced one is. 1 try disables the check. Drawing all 50 takes under a
+  # second per trial on this project's datasets.
+  DATA_SPLIT_MAX_TRIES: 50
+  DATA_SPLIT_MAX_IMBALANCE: 0.005
 
 presets:
   # The Superhuman Fairness paper's experimental conditions. They are applied
