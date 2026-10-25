@@ -87,20 +87,21 @@ Each technique with hyperparameters has a W&B sweep config in
 `configs/sweeps/`. Each sweep tunes only that technique's settings. Every other
 setting comes from `configs/experiment.yaml`.
 
-| Technique | Sweep config | Search | Tuned settings |
-| --- | --- | --- | --- |
-| FairIRL Bias Reduction | `fairirl_bias_reduction.yaml` | Bayesian, 60 runs | `OPT_DEBIAS_OPTIMIZER`, `OPT_DEBIAS_LAMDA`, `FAIRIRL_CLF_*` |
-| Superhuman Fairness | `superhuman_fairness.yaml` | Bayesian, 50 runs | `SH_ITERS`, `SH_LR_THETA`, `SH_LAMDA` |
-| Superhuman Fairness Fixed | `superhuman_fairness_fixed.yaml` | Bayesian, 50 runs | `SH_FIXED_ITERS`, `SH_FIXED_LR_THETA`, `SH_FIXED_LAMDA` |
-| Superhuman Fairness Neural Network | `superhuman_fairness_nn.yaml` | Bayesian, 60 runs | `SH_NN_*` (all but `SH_NN_DEVICE`) |
-| Superhuman Fairness Neural Network Fixed | `superhuman_fairness_nn_fixed.yaml` | Bayesian, 60 runs | `SH_NN_FIXED_*` (all but `SH_NN_FIXED_DEVICE`) |
-| Fair LogLoss DP | `fair_logloss_dp.yaml` | Bayesian, 30 runs | `FAIR_LOGLOSS_DP_C`, `FAIR_LOGLOSS_DP_RANDOM_INIT` |
-| Fair LogLoss EqOdds | `fair_logloss_eqodds.yaml` | Bayesian, 30 runs | `FAIR_LOGLOSS_EQODDS_C`, `FAIR_LOGLOSS_EQODDS_RANDOM_INIT` |
+| Technique | Sweep config | Tuned settings |
+| --- | --- | --- |
+| FairIRL Bias Reduction | `fairirl_bias_reduction.yaml` | `OPT_DEBIAS_OPTIMIZER`, `OPT_DEBIAS_LAMDA`, `FAIRIRL_CLF_*` |
+| Superhuman Fairness | `superhuman_fairness.yaml` | `SH_ITERS`, `SH_LR_THETA`, `SH_LAMDA` |
+| Superhuman Fairness Fixed | `superhuman_fairness_fixed.yaml` | `SH_FIXED_ITERS`, `SH_FIXED_LR_THETA`, `SH_FIXED_LAMDA` |
+| Superhuman Fairness Neural Network | `superhuman_fairness_nn.yaml` | `SH_NN_*` (all but `SH_NN_DEVICE`) |
+| Superhuman Fairness Neural Network Fixed | `superhuman_fairness_nn_fixed.yaml` | `SH_NN_FIXED_*` (all but `SH_NN_FIXED_DEVICE`) |
+| Fair LogLoss DP | `fair_logloss_dp.yaml` | `FAIR_LOGLOSS_DP_C`, `FAIR_LOGLOSS_DP_RANDOM_INIT` |
+| Fair LogLoss EqOdds | `fair_logloss_eqodds.yaml` | `FAIR_LOGLOSS_EQODDS_C`, `FAIR_LOGLOSS_EQODDS_RANDOM_INIT` |
 
 `Post Proc DP` and `Post Proc EqOdds` have no hyperparameters.
 
-Every sweep minimizes the same objective, the technique's mean validation
-subdominance (`sum_abs_subdominance_val`). The test split is never used for
+Every sweep is a Bayesian search of 60 runs, and every sweep minimizes the
+same objective, the technique's mean validation subdominance
+(`sum_abs_subdominance_val`). The test split is never used for
 tuning. FairIRL Bias Reduction is scored on its weight-adjusted runs only, not
 on the unadjusted weights it starts from. If any of a trial's runs fail, the
 trial is left out of the search, so hyperparameters that make a technique fail
@@ -140,8 +141,8 @@ A few things to keep in mind:
 * Every trial runs `N_TRIALS` trials of the unbiased dataset and of each bias
   type in `DATASET_BIAS_TYPE_LIST` and `DEMO_BIAS_TYPE_LIST`, so a sweep costs
   as much as that many final runs, times the number of sweep runs.
-* Each sweep stops at the run cap in the table above. To change a cap, edit
-  the `run_cap` in the sweep config before creating the sweep.
+* Each sweep stops after 60 runs, its `run_cap`. To change a cap, edit the
+  `run_cap` in the sweep config before creating the sweep.
 * `METHOD`, the LP solver, is not tuned. The expert's policy is solved with it
   too, so changing it would also change the demonstrations every technique is
   scored against.

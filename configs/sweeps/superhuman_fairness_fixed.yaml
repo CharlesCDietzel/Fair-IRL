@@ -22,7 +22,7 @@ command:
   - trial
   - --config
   - configs/experiment.yaml
-run_cap: 50
+run_cap: 60
 parameters:
   ALGORITHMS:
     value: [Superhuman Fairness Fixed]

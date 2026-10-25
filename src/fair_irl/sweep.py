@@ -4,9 +4,8 @@ sweeps.
 
 Each technique is tuned by its own sweep, configured by one of the files in
 configs/sweeps/: a search over that technique's hyperparameters that
-minimizes its mean validation subdominance -- a grid search for FairIRL Bias
-Reduction, whose search space is small enough to try in full, and a Bayesian
-one for every baseline. Two commands:
+minimizes its mean validation subdominance, by a Bayesian search of 60 runs.
+Two commands:
 
     # Create the sweeps for one technique -- by default one per selected
     # dataset, so that each dataset gets its own hyperparameters:
