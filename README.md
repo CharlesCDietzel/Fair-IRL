@@ -32,9 +32,9 @@ Generating the results from scratch takes three steps, all run from the reposito
 with the W&B server running:
 
 1. [Tune](#1-tuning-hyperparameters) the hyperparameters of FairIRL Bias
-   Reduction and of each baseline with W&B sweeps.
-2. [Record](#2-recording-the-tuned-hyperparameters) the best values found in
-   `configs/experiment.yaml`.
+   Reduction and of each baseline with `uv run fair-irl-tune`.
+2. [Review](#2-reviewing-and-keeping-the-tuned-hyperparameters) the best values
+   found and keep them.
 3. [Run](#3-running-the-final-experiments) the final experiments with
    `uv run fair-irl`.
 
@@ -83,9 +83,42 @@ key is an error rather than being silently ignored.
 
 ## 1. Tuning hyperparameters
 
-Each technique with hyperparameters has a W&B sweep config in
-`configs/sweeps/`. Each sweep tunes only that technique's settings. Every other
-setting comes from `configs/experiment.yaml`.
+One command does all of the tuning:
+
+```sh
+uv run fair-irl-tune
+```
+
+It takes these steps on its own:
+
+1. It creates a W&B sweep for each algorithm on each dataset, so each dataset
+   gets its own hyperparameters.
+2. It runs W&B agents until every sweep has finished.
+3. It writes the best hyperparameters each sweep found to
+   `configs/experiment.yaml.new`, ready for you to
+   [review](#2-reviewing-and-keeping-the-tuned-hyperparameters).
+
+By default, it tunes every algorithm in `ALGORITHMS` on every dataset in
+`SELECTED_DATASETS`. Two options narrow that down, and you can use them
+together:
+
+```sh
+# One algorithm, on every selected dataset
+uv run fair-irl-tune --algorithm "Superhuman Fairness"
+
+# Every selected algorithm, on one dataset
+uv run fair-irl-tune --dataset COMPAS
+
+# One algorithm on one dataset
+uv run fair-irl-tune --algorithm "Superhuman Fairness" --dataset COMPAS
+```
+
+The named algorithm or dataset doesn't have to be selected in
+`configs/experiment.yaml`.
+
+Each algorithm's search is set up by its W&B sweep config in `configs/sweeps/`.
+A sweep tunes only that algorithm's settings. Every other setting comes from
+`configs/experiment.yaml`.
 
 | Technique | Sweep config | Tuned settings |
 | --- | --- | --- |
@@ -97,7 +130,8 @@ setting comes from `configs/experiment.yaml`.
 | Fair LogLoss DP | `fair_logloss_dp.yaml` | `FAIR_LOGLOSS_DP_C`, `FAIR_LOGLOSS_DP_RANDOM_INIT` |
 | Fair LogLoss EqOdds | `fair_logloss_eqodds.yaml` | `FAIR_LOGLOSS_EQODDS_C`, `FAIR_LOGLOSS_EQODDS_RANDOM_INIT` |
 
-`Post Proc DP` and `Post Proc EqOdds` have no hyperparameters.
+`Post Proc DP` and `Post Proc EqOdds` have no hyperparameters, so they are
+skipped.
 
 Every sweep is a Bayesian search of 60 runs, and every sweep minimizes the
 same objective, the technique's mean validation subdominance
@@ -107,71 +141,80 @@ on the unadjusted weights it starts from. If any of a trial's runs fail, the
 trial is left out of the search, so hyperparameters that make a technique fail
 on its hard cases are never chosen.
 
-To tune a technique, create its sweeps, then start a W&B agent for each sweep
-id that `create` prints:
+### While it runs
 
-```sh
-uv run python -m fair_irl.sweep create configs/sweeps/<file>.yaml --project fair-irl-tuning
-uv run wandb agent <entity>/fair-irl-tuning/<sweep id>
-```
+Tuning everything is 28 sweeps of 60 runs each, and can take days. The command
+prints each sweep's progress and stays running until the last sweep finishes.
+It keeps to one agent per 4 CPU cores, because a FairIRL Bias Reduction trial
+uses about 4 cores. Use `--max-agents <n>` to change that.
 
-By default, `create` makes one sweep per dataset in `SELECTED_DATASETS`, so
-each dataset gets its own hyperparameters. Other options:
-
-* `--joint` creates one sweep that tunes a single set of hyperparameters
-  across all the datasets.
-* `--dataset <name>` (repeatable) picks the datasets yourself.
-* `--dry-run` prints the sweep configs without creating them.
-
-Several agents can work on the same sweep at once. Run the agents from the
-repository root, because the datasets are loaded from relative paths.
-
-Use `--project` to give the sweeps their own W&B project. Each sweep trial is a
-W&B run of its own, and the per-technique runs it reports go to the same
-project. Each of those runs records which trial launched it in its `SWEEP_ID`
-and `SWEEP_RUN_ID` config. Keeping all of this out of the main project matters
-because the plotting notebook loads the most recent session in its project by
-default, and a sweep trial's runs form a session too.
+Everything goes to the W&B project `fair-irl-tuning`. That keeps the sweeps out
+of the main project, because the plotting notebook loads the most recent
+session in its project by default, and a sweep trial's runs form a session too.
+You can follow the sweeps there in the W&B UI. Each sweep trial is a W&B run of
+its own, and the per-technique runs it reports record which trial launched them
+in their `SWEEP_ID` and `SWEEP_RUN_ID` config. The agents' output goes to
+`.tuning_state/logs/`.
 
 A few things to keep in mind:
 
 * Each trial runs whatever `configs/experiment.yaml` says when the trial
-  starts. Don't edit the file while a sweep is running, or later trials will be
+  starts. Don't edit the file while tuning is running, or later trials will be
   scored under different conditions than earlier ones.
 * Every trial runs `N_TRIALS` trials of the unbiased dataset and of each bias
   type in `DATASET_BIAS_TYPE_LIST` and `DEMO_BIAS_TYPE_LIST`, so a sweep costs
   as much as that many final runs, times the number of sweep runs.
-* Each sweep stops after a number of runs equal to its `run_cap`. To change a cap, edit the
-  `run_cap` in the sweep config before creating the sweep.
+* Each sweep stops after a number of runs equal to its `run_cap`. To change a
+  cap, edit the `run_cap` in the sweep config before tuning.
+
+### Stopping and continuing
+
+Press Ctrl-C to stop tuning. That stops the agents and the trials they are
+running. To continue, run the same command again:
+
+* Sweeps that had finished are not run again, and their results are kept.
+* Sweeps that hadn't finished carry on from where they were. The trials that
+  were stopped still count toward the sweep's 60 runs, but the search ignores
+  them.
+
+The same goes if the computer restarts: start the W&B server, then run the same
+command again. If you've changed a sweep config in the meantime, that sweep
+starts over with the new settings.
+
+Closing the terminal also stops tuning, so use something like `tmux` for a long
+run. What's in progress is recorded in `.tuning_state/`, and is cleared when
+tuning finishes.
+
+If a sweep's agents keep exiting, for example because of an error in the code,
+the command gives up on that sweep and carries on with the others. It writes
+the results it has, then exits with an error. The cause will be in that sweep's
+log in `.tuning_state/logs/`. Run the same command again to continue the sweep
+once it's fixed. Its failed trials still count toward its 60 runs.
 
 See `src/fair_irl/sweep.py` for the details of how a trial is run.
 
-## 2. Recording the tuned hyperparameters
+## 2. Reviewing and keeping the tuned hyperparameters
 
-In the W&B UI, open a sweep and sort its runs by `objective` (lower is
-better). The best run's config holds the values to use. Each run also logs
-`objective/<dataset>`, the objective broken down by dataset, which is useful
-for `--joint` sweeps.
+`configs/experiment.yaml.new` has exactly the same contents as
+`configs/experiment.yaml`, comments included, except for the hyperparameters
+that were tuned. Each of those is set to the best value its sweep found, in its
+dataset's entry under `experiments`, where it overrides `common` and any preset.
+If the entry doesn't have that setting yet, it's added at the end of the entry.
+FairIRL Bias Reduction's best optimizer is written as the entry's
+`WEIGHT_ADJUST_LIST`, keeping its evaluation budget.
 
-Record those values in `configs/experiment.yaml`.
+Compare the two files, and if you're happy with the new values, replace the old
+config with the new one:
 
-* Values from a per-dataset sweep go in that dataset's entry under
-  `experiments`, where they override `common` and any preset:
+```sh
+diff configs/experiment.yaml configs/experiment.yaml.new
+mv configs/experiment.yaml.new configs/experiment.yaml
+```
 
-  ```yaml
-  experiments:
-    COMPAS:
-      MIN_FREQ_FILL_PCT: 0.0
-      SH_ITERS: 12
-      SH_LR_THETA: 0.0034
-      FAIR_LOGLOSS_DP_C: 0.021
-  ```
-
-* Values from a `--joint` sweep replace the defaults in `common`.
-* FairIRL Bias Reduction's `OPT_DEBIAS_OPTIMIZER` is a sweep-only shorthand,
-  not a config setting. Record its value by editing the `opt_debias` entry of
-  `WEIGHT_ADJUST_LIST` instead. For example, `nevergrad/Powell` becomes
-  `[opt_debias, nevergrad, Powell, 500]`.
+Git ignores `configs/experiment.yaml.new`. It is overwritten the next time
+tuning finishes, and is always built from the current
+`configs/experiment.yaml`. So if you tune in stages, for example one algorithm
+at a time, keep each result before starting the next.
 
 ## 3. Running the final experiments
 

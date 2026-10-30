@@ -15,3 +15,5 @@ dist/
 *.json
 wandb/
 .experiment_state/
+.tuning_state/
+configs/*.new
