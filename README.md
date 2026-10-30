@@ -153,8 +153,7 @@ better). The best run's config holds the values to use. Each run also logs
 `objective/<dataset>`, the objective broken down by dataset, which is useful
 for `--joint` sweeps.
 
-Record those values in `configs/experiment.yaml` and remove their
-`TODO: Tune this hyperparameter` comments as you go:
+Record those values in `configs/experiment.yaml`.
 
 * Values from a per-dataset sweep go in that dataset's entry under
   `experiments`, where they override `common` and any preset:

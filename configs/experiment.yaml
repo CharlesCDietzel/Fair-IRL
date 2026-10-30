@@ -203,7 +203,7 @@ common:
     # - [dataset_perfectly_balanced_redlining, 0.2]
     # - [dataset_noise_bias, 0.2, true, true]
     # - [dataset_corruption_bias, CatBoost, 0.0001, gaussian, 1.0]
-    - [dataset_corruption_bias, CatBoost, 0.001, gaussian, 1.0]
+    # - [dataset_corruption_bias, CatBoost, 0.001, gaussian, 1.0]
     # - [dataset_corruption_bias, CatBoost, 0.01, gaussian, 1.0]
 
   # Demo bias types leave the dataset's labels unchanged and bias the
@@ -223,7 +223,7 @@ common:
     # - [demo_unbalanced_redlining, 0.2]
     # - [demo_balanced_redlining, 0.2]
     # - [demo_perfectly_balanced_redlining, 0.2]
-    - [demo_noise_bias, 0.2]
+    # - [demo_noise_bias, 0.2]
 
   # The performance and fairness measures the subdominance metric is computed
   # over. FairIRL Bias Reduction optimizes relative to these: its `opt_debias`
@@ -485,7 +485,7 @@ experiments:
     FAIRIRL_CLF_MIN_SAMPLES_LEAF: 1
     FAIRIRL_CLF_N_ESTIMATORS: 50
     OPT_DEBIAS_LAMDA: 0.008849685863468949
-    WEIGHT_ADJUST_LIST: [[opt_debias, optuna, CMA-ES, 500]]
+    WEIGHT_ADJUST_LIST: [[opt_debias, optuna, GP, 500]]
     # Fair LogLoss EqOdds Config Params
     FAIR_LOGLOSS_EQODDS_C: 0.8997814664272019
     FAIR_LOGLOSS_EQODDS_RANDOM_INIT: true
@@ -535,7 +535,7 @@ experiments:
     FAIRIRL_CLF_MIN_SAMPLES_LEAF: 5
     FAIRIRL_CLF_N_ESTIMATORS: 400
     OPT_DEBIAS_LAMDA: 2.5441577550535265e-05
-    WEIGHT_ADJUST_LIST: [[opt_debias, nevergrad, Powell, 500]]
+    WEIGHT_ADJUST_LIST: [[opt_debias, optuna, GP, 500]]
     # Superhuman Fairness Config Params
     SH_ITERS: 56
     SH_LAMDA: 1.1045749945189429e-07
@@ -633,7 +633,7 @@ experiments:
     FAIRIRL_CLF_MIN_SAMPLES_LEAF: 5
     FAIRIRL_CLF_N_ESTIMATORS: 50
     OPT_DEBIAS_LAMDA: 0.0055333980259516065
-    WEIGHT_ADJUST_LIST: [[opt_debias, optuna, CMA-ES, 500]]
+    WEIGHT_ADJUST_LIST: [[opt_debias, optuna, GP, 500]]
     # Superhuman Fairness Config Params
     SH_ITERS: 25
     SH_LAMDA: 0.000785268156473473
