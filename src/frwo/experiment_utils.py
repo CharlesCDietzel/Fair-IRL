@@ -3,6 +3,7 @@ import datetime
 import hashlib
 import logging
 import os
+import tempfile
 import uuid
 from dataclasses import dataclass
 from functools import partial
@@ -11,10 +12,11 @@ import numpy as np
 import pandas as pd
 import sklearn.base
 import optuna
+import optunahub
 import wandb
 import pybobyqa
-import nevergrad as ng
 from catboost import CatBoostClassifier
+from ConfigSpace import Configuration
 from fairlearn.metrics import (
     MetricFrame,
     demographic_parity_difference,
@@ -76,6 +78,10 @@ from .sh.superhuman_fairness_nn import (
     SH_NN_DEFAULT_LR_THETA,
     SuperhumanFairnessNN,
 )
+
+# The commit of the OptunaHub registry to load the SMAC sampler from.
+# `optunahub.load_module()` otherwise downloads and runs whatever is on `main`.
+SMAC_SAMPLER_REF = "9be3365fb8167dbd3fd927f560a5682059dda818"
 
 # `OBJ_LOOKUP_BY_NAME` now lives in `frwo.rl.objectives`, next to the
 # objectives it names, so that modules which cannot import this one (e.g.
@@ -1122,7 +1128,7 @@ def weight_adjusts_name(weight_adjust):
     Returns
     -------
     name : str
-        E.g. `"unadjusted"` or `"opt_debias_optuna_CMA-ES"`.
+        E.g. `"unadjusted"` or `"opt_debias_optuna_GP"`.
     """
     if not weight_adjust:
         return "unadjusted"
@@ -2628,7 +2634,7 @@ def _apply_weight_adjustments(
     elif weight_adjust[0] == "opt_debias":
         library = weight_adjust[1]
         optimizer = weight_adjust[2]
-        n_steps = weight_adjust[3] if 3 < len(weight_adjust) else 400
+        n_steps = weight_adjust[3] if 3 < len(weight_adjust) else 200
         wi = iteratively_optimize_weights(
             wi,
             feat_obj_set,
@@ -3061,12 +3067,8 @@ def optimize_weights(
         )
         n_weights = len(feat_obj_set.objectives)
         x0 = np.clip(np.asarray(wi, dtype=float), -1.0, 1.0)
-        if optimizer == "CMA-ES":
-            sampler = optuna.samplers.CmaEsSampler(
-                x0={f"unnormalized_w{j}": float(x0[j]) for j in range(n_weights)},
-                seed=exp_info["RANDOM_SEED"],
-            )
-        elif optimizer == "GP":
+        x0_params = {f"unnormalized_w{j}": float(x0[j]) for j in range(n_weights)}
+        if optimizer == "GP":
             sampler = optuna.samplers.GPSampler(
                 seed=exp_info["RANDOM_SEED"],
                 # subdominance_of_weights() always returns the same loss for the
@@ -3075,6 +3077,8 @@ def optimize_weights(
             )
         elif optimizer == "TPE":
             sampler = optuna.samplers.TPESampler(seed=exp_info["RANDOM_SEED"])
+        elif optimizer == "SMAC":
+            sampler = make_smac_sampler(x0_params, n_steps, exp_info["RANDOM_SEED"])
         study = optuna.create_study(
             direction="minimize",
             sampler=sampler,
@@ -3087,9 +3091,7 @@ def optimize_weights(
             # GPSampler and TPESampler have no x0 parameter; evaluating
             # the initial weights as the first trial gives them the same
             # starting point the other optimizers get.
-            study.enqueue_trial(
-                {f"unnormalized_w{j}": float(x0[j]) for j in range(n_weights)}
-            )
+            study.enqueue_trial(x0_params)
         study.optimize(objective, n_trials=n_steps)
         unnormalized_wi = np.array(
             [study.best_params[f"unnormalized_w{j}"] for j in range(n_weights)]
@@ -3125,42 +3127,59 @@ def optimize_weights(
             )
         unnormalized_wi = np.array(soln.x)
         logging.info(f"unnormalized_wi: {unnormalized_wi}")
-    elif library == "nevergrad":
-        objective = partial(
-            nevergrad_objective,
-            feat_obj_set=feat_obj_set,
-            demo_df=demo_df,
-            clf=clf,
-            x_cols=x_cols,
-            exp_info=exp_info,
-            X=X,
-            y=y,
-            can_observe_y=can_observe_y,
-            subdom_groups=subdom_groups,
-            prepared=prepared,
-            step_logger=step_logger,
-        )
-        n_weights = len(feat_obj_set.objectives)
-        # parametrization = ng.p.Array(shape=(n_weights,)).set_bounds(-1.0, 1.0)
-        parametrization = ng.p.Array(init=np.asarray(wi, dtype=float)).set_bounds(
-            -1.0, 1.0
-        )
-        parametrization.random_state = np.random.RandomState(exp_info["RANDOM_SEED"])
-        if optimizer == "BayesOpt":
-            ng_optimizer = ng.optimizers.BO(
-                parametrization=parametrization, budget=n_steps
-            )
-        elif optimizer == "Nelder-Mead":
-            ng_optimizer = ng.optimizers.NelderMead(
-                parametrization=parametrization, budget=n_steps
-            )
-        elif optimizer == "Powell":
-            ng_optimizer = ng.optimizers.Powell(
-                parametrization=parametrization, budget=n_steps
-            )
-        recommendation = ng_optimizer.minimize(objective)
-        unnormalized_wi = np.array(recommendation.value)
     return normalize(unnormalized_wi.reshape(1, -1), norm="l1").flatten()
+
+
+def make_smac_sampler(x0_params, n_steps, seed):
+    """Makes the OptunaHub SMAC sampler for `optimize_weights()`.
+
+    Parameters
+    ----------
+    x0_params : dict
+        The initial value of each parameter of the study, by name. The search
+        space is these parameters, each in [-1, 1].
+    n_steps : int
+        The number of trials of the study.
+    seed : int
+
+    Returns
+    -------
+    sampler : optuna.samplers.BaseSampler
+    """
+    # Configuration.__hash__ otherwise hashes a string, which differs between
+    # processes unless PYTHONHASHSEED is set, and SMAC's results depend on it.
+    Configuration.__hash__ = lambda self: int(
+        hashlib.sha1(repr(self).encode()).hexdigest()[:16], 16
+    )
+    module = optunahub.load_module("samplers/smac_sampler", ref=SMAC_SAMPLER_REF)
+    search_space = {
+        name: optuna.distributions.FloatDistribution(-1.0, 1.0) for name in x0_params
+    }
+    # Constructing the sampler replaces the root logger's handlers and level
+    # with SMAC's own, and there is no argument to turn that off.
+    root_logger = logging.getLogger()
+    root_handlers, root_level = root_logger.handlers[:], root_logger.level
+    with tempfile.TemporaryDirectory() as output_directory:
+        sampler = module.SMACSampler(
+            search_space,
+            n_trials=n_steps,
+            # The sampler treats a seed of 0 as no seed at all
+            seed=seed or 1,
+            output_directory=output_directory,
+        )
+    root_logger.handlers[:] = root_handlers
+    root_logger.setLevel(root_level)
+    # The random forest otherwise starts a thread pool on every prediction,
+    # which only makes it slower. This doesn't change its results.
+    sampler.smac._model._rf_opts["n_jobs"] = 1
+    # study.enqueue_trial() doesn't work here: the sampler can only be told the
+    # result of a trial it was asked for. So this makes the initial weights the
+    # first trial SMAC asks for, the same starting point the other optimizers
+    # get.
+    sampler.smac._config_selector._initial_design_configs.insert(
+        0, Configuration(sampler._cs, values=x0_params)
+    )
+    return sampler
 
 
 def optuna_objective(
@@ -3215,40 +3234,6 @@ def pybobyqa_objective(
     step_logger=None,
 ):
     """Objective function for Py-BOBYQA optimization of weights."""
-    unnormalized_weights = np.array(unnormalized_weights)
-    # Evaluate the weights using the provided evaluation function
-    subdominance_loss = subdominance_of_weights(
-        unnormalized_weights,
-        feat_obj_set,
-        demo_df,
-        clf,
-        x_cols,
-        exp_info,
-        X,
-        y,
-        can_observe_y,
-        subdom_groups,
-        prepared=prepared,
-        step_logger=step_logger,
-    )
-    return subdominance_loss
-
-
-def nevergrad_objective(
-    unnormalized_weights,
-    feat_obj_set,
-    demo_df,
-    clf,
-    x_cols,
-    exp_info,
-    X,
-    y,
-    can_observe_y,
-    subdom_groups,
-    prepared=None,
-    step_logger=None,
-):
-    """Objective function for Nevergrad optimization of weights."""
     unnormalized_weights = np.array(unnormalized_weights)
     # Evaluate the weights using the provided evaluation function
     subdominance_loss = subdominance_of_weights(

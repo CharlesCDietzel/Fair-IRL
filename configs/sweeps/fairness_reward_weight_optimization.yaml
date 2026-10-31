@@ -21,7 +21,7 @@ command:
   - trial
   - --config
   - configs/experiment.yaml
-run_cap: 60
+run_cap: 40
 # How many of this algorithm's trials `frwo-tune` runs at once, across its
 # sweeps. If fewer sweeps are left, the spare trials go to the ones that are.
 # Each trial's search ignores the results of the `parallel_sweeps - 1` trials
@@ -34,13 +34,10 @@ parameters:
   # WEIGHT_ADJUST_LIST, keeping its evaluation budget (see src/frwo/config.py).
   OPT_DEBIAS_OPTIMIZER:
     values:
-      - optuna/CMA-ES
       - optuna/GP
+      - optuna/SMAC
       - optuna/TPE
       - pybobyqa/Multi-Start BOBYQA
-      - nevergrad/BayesOpt
-      - nevergrad/Nelder-Mead
-      - nevergrad/Powell
   # The random forest that predicts `y` from `x` for FRWO's policies. The
   # defaults (scikit-learn's) are 100 trees, unlimited depth (null) and 1
   # sample per leaf.

@@ -35,7 +35,7 @@ EXPERT_ALGOS:
   # A logistic regression post-processed by a fairlearn ThresholdOptimizer,
   # fit on a class-balanced subsample. It takes its fairness constraint from
   # SH_DEMO_CONSTRAINTS below.
-  - PostProcDemo
+  # - PostProcDemo
   # - OptAcc
   # - CatBoostOptAcc
   # - XGBoostOptAcc
@@ -129,7 +129,7 @@ common:
   # Setting this to 1 for now because the Iteration loop does not appear to
   # improve performance versus the initial weight set.
   OPT_DEBIAS_MAX_ITERATIONS: 1
-  N_TRIALS: 1  # TODO: CHANGE THIS BACK TO 3 FOR FINAL PAPER RESULTS
+  N_TRIALS: 3
   N_SUBDOMINANCE_GROUPS: 50
   DOT_WEIGHTS_FEAT_EXP: true
   N_DATASET_SAMPLES: null
@@ -154,13 +154,10 @@ common:
     # tunes it through the OPT_DEBIAS_OPTIMIZER override (e.g.
     # `--set OPT_DEBIAS_OPTIMIZER=optuna/TPE`), which swaps the library and
     # optimizer of every `opt_debias` entry here and keeps its budget.
-    # - [opt_debias, optuna, CMA-ES, 500]
-    - [opt_debias, optuna, GP, 500]
-    # - [opt_debias, optuna, TPE, 500]
-    # - [opt_debias, pybobyqa, Multi-Start BOBYQA, 500]
-    # - [opt_debias, nevergrad, BayesOpt, 500]
-    # - [opt_debias, nevergrad, Nelder-Mead, 500]
-    # - [opt_debias, nevergrad, Powell, 500]
+    - [opt_debias, optuna, GP, 200]
+    # - [opt_debias, optuna, SMAC, 200]
+    # - [opt_debias, optuna, TPE, 200]
+    # - [opt_debias, pybobyqa, Multi-Start BOBYQA, 200]
 
   # The bias types each experiment is run under. The unbiased run is always
   # performed first, then every dataset bias type, then every demo bias type,
@@ -413,7 +410,7 @@ experiments:
     FRWO_CLF_MIN_SAMPLES_LEAF: 1
     FRWO_CLF_N_ESTIMATORS: 50
     OPT_DEBIAS_LAMDA: 0.008849685863468949
-    WEIGHT_ADJUST_LIST: [[opt_debias, optuna, GP, 500]]
+    WEIGHT_ADJUST_LIST: [[opt_debias, optuna, GP, 200]]
     # Fair LogLoss EqOdds Config Params
     FAIR_LOGLOSS_EQODDS_C: 0.8997814664272019
     FAIR_LOGLOSS_EQODDS_RANDOM_INIT: true
@@ -463,7 +460,7 @@ experiments:
     FRWO_CLF_MIN_SAMPLES_LEAF: 5
     FRWO_CLF_N_ESTIMATORS: 400
     OPT_DEBIAS_LAMDA: 2.5441577550535265e-05
-    WEIGHT_ADJUST_LIST: [[opt_debias, optuna, GP, 500]]
+    WEIGHT_ADJUST_LIST: [[opt_debias, optuna, GP, 200]]
     # Superhuman Fairness Config Params
     SH_ITERS: 56
     SH_LAMDA: 1.1045749945189429e-07
@@ -502,7 +499,7 @@ experiments:
     FRWO_CLF_MIN_SAMPLES_LEAF: 10
     FRWO_CLF_N_ESTIMATORS: 200
     OPT_DEBIAS_LAMDA: 9.971704130911446e-05
-    WEIGHT_ADJUST_LIST: [[opt_debias, optuna, GP, 500]]
+    WEIGHT_ADJUST_LIST: [[opt_debias, optuna, GP, 200]]
     # Superhuman Fairness Fixed Config Params
     SH_FIXED_ITERS: 49
     SH_FIXED_LAMDA: 0.0946004859437304
@@ -529,7 +526,7 @@ experiments:
     FRWO_CLF_MIN_SAMPLES_LEAF: 5
     FRWO_CLF_N_ESTIMATORS: 50
     OPT_DEBIAS_LAMDA: 0.0055333980259516065
-    WEIGHT_ADJUST_LIST: [[opt_debias, optuna, GP, 500]]
+    WEIGHT_ADJUST_LIST: [[opt_debias, optuna, GP, 200]]
     # Superhuman Fairness Config Params
     SH_ITERS: 25
     SH_LAMDA: 0.000785268156473473

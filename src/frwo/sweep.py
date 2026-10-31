@@ -4,7 +4,7 @@ with W&B sweeps.
 
 Each technique is tuned by its own sweep, configured by one of the files in
 configs/sweeps/: a search over that technique's hyperparameters that
-minimizes its mean validation subdominance, by a Bayesian search of 60 runs.
+minimizes its mean validation subdominance, by a Bayesian search of 40 runs.
 One command does all of it:
 
     uv run frwo-tune [--algorithm NAME] [--dataset NAME]

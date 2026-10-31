@@ -21,7 +21,7 @@ command:
   - trial
   - --config
   - configs/experiment.yaml
-run_cap: 60
+run_cap: 40
 # How many of this algorithm's trials `frwo-tune` runs at once, across its
 # sweeps. If fewer sweeps are left, the spare trials go to the ones that are.
 # Each trial's search ignores the results of the `parallel_sweeps - 1` trials

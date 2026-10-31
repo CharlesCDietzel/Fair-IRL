@@ -129,7 +129,7 @@ A sweep tunes only that algorithm's settings. Every other setting comes from
 `Post Proc DP` and `Post Proc EqOdds` have no hyperparameters, so they are
 skipped.
 
-Every sweep is a Bayesian search of 60 runs, and every sweep minimizes the
+Every sweep is a Bayesian search of 40 runs, and every sweep minimizes the
 same objective, the technique's mean validation subdominance
 (`sum_abs_subdominance_val`). The test split is never used for tuning. Fairness
 Reward Weight Optimization is scored on its weight-adjusted runs only, not on
@@ -147,7 +147,7 @@ usual.
 
 ### While it runs
 
-Tuning everything is 28 sweeps of 60 runs each, and can take days. The command
+Tuning everything is 28 sweeps of 40 runs each, and can take days. The command
 prints each sweep's progress and stays running until the last sweep finishes.
 
 Techniques are tuned one after another. The `parallel_sweeps` value in a
@@ -244,7 +244,7 @@ Closing the terminal also stops tuning, so use something like `tmux` for a long
 run. What's in progress is recorded in `.tuning_state/`, and is cleared when
 tuning finishes.
 
-If a trial fails, the sweep carries on, and the failure counts as one of its 60
+If a trial fails, the sweep carries on, and the failure counts as one of its 40
 runs. The exception is if the W&B server can't be reached: the trial runs again
 until it can. Other failures that have nothing to do with the hyperparameters,
 such as the machine running out of memory, still count, and those can change the
