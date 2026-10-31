@@ -13,7 +13,10 @@ For every selected technique and dataset (or just the ones named) it creates a
 sweep, so that each dataset gets its own hyperparameters, runs W&B agents until
 every sweep has finished, and writes configs/experiment.yaml.new: a copy of
 configs/experiment.yaml with each sweep's best values set in its dataset's
-entry. What it has created is recorded in `.tuning_state/`, so that running the
+entry. The techniques are tuned one after another, each running as many of its
+sweeps at once as the `parallel_sweeps` of its sweep config says, a number
+measured to make that technique's sweeps finish soonest on their own. What it
+has created is recorded in `.tuning_state/`, so that running the
 same command again after an interruption continues the same sweeps.
 
 The agent runs `python -m fair_irl.sweep trial` for every set of
@@ -31,6 +34,7 @@ that launched it as `SWEEP_ID`/`SWEEP_RUN_ID` in its config.
 
 import argparse
 import copy
+import functools
 import json
 import math
 import os
@@ -87,9 +91,6 @@ TUNE_STATE_DIR = REPO_ROOT / ".tuning_state"
 TUNE_STATE_FILE = TUNE_STATE_DIR / "sweeps.json"
 TUNE_LOG_DIR = TUNE_STATE_DIR / "logs"
 
-# Agents at once, by default: a FairIRL Bias Reduction trial uses about 4 cores.
-DEFAULT_MAX_AGENTS = max(1, (os.cpu_count() or 1) // 4)
-
 # How many times in a row a sweep's agents may exit without it having any new
 # finished runs before it is given up on.
 MAX_AGENT_RESTARTS = 3
@@ -99,6 +100,9 @@ POLL_SECONDS = 30
 
 # The seconds a stopped agent gets to end its run before it is killed.
 AGENT_STOP_SECONDS = 30
+
+# The seconds a run left behind by its agent gets to end before it is killed.
+AGENT_TERM_SECONDS = 5
 
 # The states of a W&B sweep that will not start any more runs, and of a W&B run
 # that has ended.
@@ -212,6 +216,8 @@ def run_trial(args):
 def _dataset_sweep_config(sweep_config, dataset):
     """The config of the sweep of `sweep_config` on `dataset`."""
     config = copy.deepcopy(sweep_config)
+    # How `fair-irl-tune` schedules the sweep, which is none of W&B's business.
+    del config["parallel_sweeps"]
     config["name"] = f"{sweep_config['name']} | {dataset}"
     config["project"] = TUNING_PROJECT
     config["parameters"]["SELECTED_DATASETS"] = {"value": [dataset]}
@@ -227,6 +233,10 @@ class TuningSweep:
     ----------
     name : str
         The sweep's name, "<technique> | <dataset>".
+    algorithm : str
+        The technique it tunes.
+    parallel_sweeps : int
+        The `parallel_sweeps` of its sweep config.
     path : str
         The sweep's W&B path, "<entity>/<project>/<id>".
     exp_info : dict
@@ -256,6 +266,8 @@ class TuningSweep:
     """
 
     name: str
+    algorithm: str
+    parallel_sweeps: int
     path: str
     exp_info: dict
     tuned_keys: list
@@ -332,10 +344,19 @@ def _save_tune_state(state):
     temporary.replace(TUNE_STATE_FILE)
 
 
+@functools.cache
+def _api():
+    # Just the one: each `wandb.Api` stays open in wandb's service process, whose
+    # memory would otherwise grow for as long as tuning runs.
+    return wandb.Api(timeout=60)
+
+
 def _fetch_sweep(path):
-    # A new Api for every fetch: `wandb.Api` keeps the sweeps it has fetched for
-    # as long as it lives, and `flush()` does not clear them.
-    return wandb.Api(timeout=60).sweep(path)
+    sweep = _api().sweep(path)
+    # `wandb.Api` keeps the sweeps it has fetched, and `flush()` does not clear
+    # them, so this one may be out of date.
+    sweep.load(force=True)
+    return sweep
 
 
 def _can_continue(saved, config):
@@ -356,7 +377,7 @@ def _open_sweeps(targets, sweep_configs):
     `fair-irl-tune` left, as long as their sweep config hasn't changed since.
     """
     state = _load_tune_state()
-    entity = os.environ.get("WANDB_ENTITY") or wandb.Api(timeout=60).default_entity
+    entity = os.environ.get("WANDB_ENTITY") or _api().default_entity
 
     sweeps = []
     for algorithm, exp_info in targets:
@@ -376,6 +397,8 @@ def _open_sweeps(targets, sweep_configs):
         sweeps.append(
             TuningSweep(
                 name=config["name"],
+                algorithm=algorithm,
+                parallel_sweeps=sweep_config["parallel_sweeps"],
                 path=path,
                 exp_info=exp_info,
                 # A fixed `value` is set by the sweep, not chosen by its search.
@@ -456,13 +479,16 @@ def _start_agent(sweep):
     _log(f"{sweep.name}: started an agent, logging to {log_path}")
 
 
-def _start_agents(sweeps, max_agents):
+def _start_agents(sweeps, parallel_sweeps):
     """
-    Start agents until `max_agents` are running. Every sweep gets one before
-    any gets a second, and a sweep doesn't get more than it has runs left.
+    Start agents until `parallel_sweeps` are running. Every sweep gets one
+    before any gets a second, so that many sweeps run at once if that many are
+    left. With fewer left, the spare agents join the ones that are, rather than
+    leaving the slowest sweep to finish alone. A sweep doesn't get more agents
+    than it has runs left.
     """
     n_agents = sum(len(sweep.agents) for sweep in sweeps)
-    while n_agents < max_agents:
+    while n_agents < parallel_sweeps:
         candidates = [
             sweep
             for sweep in sweeps
@@ -480,14 +506,14 @@ def _start_agents(sweeps, max_agents):
         n_agents += 1
 
 
-def _run_agents(sweeps, max_agents):
+def _run_agents(sweeps, parallel_sweeps):
     """Run agents until every sweep has either finished or been given up on."""
     while not all(sweep.settled for sweep in sweeps):
         for sweep in sweeps:
             sweep.agents = [agent for agent in sweep.agents if agent.poll() is None]
             if not sweep.settled:
                 _check_sweep(sweep)
-        _start_agents(sweeps, max_agents)
+        _start_agents(sweeps, parallel_sweeps)
         if not all(sweep.settled for sweep in sweeps):
             time.sleep(POLL_SECONDS)
 
@@ -495,9 +521,14 @@ def _run_agents(sweeps, max_agents):
 def _stop_agents(sweeps):
     """
     Stop every agent and its run. An agent takes a first SIGINT as asking it to
-    wait for its run to end, and a second one as asking it to terminate it.
+    wait for its run to end, and a second one as asking it to terminate it. A
+    busy agent can fail to do that, so whatever is left is signaled directly:
+    each agent leads a session, which its run stays in after the agent is gone.
     """
     agents = [agent for sweep in sweeps for agent in sweep.agents]
+    if not agents:
+        return
+
     for _ in range(2):
         for agent in agents:
             if agent.poll() is None:
@@ -510,6 +541,13 @@ def _stop_agents(sweeps):
             agent.wait(timeout=max(0, deadline - time.monotonic()))
         except subprocess.TimeoutExpired:
             agent.kill()
+
+    sessions = ",".join(str(agent.pid) for agent in agents)
+    for signal_name in ("TERM", "KILL"):
+        # pkill fails if there was nothing left to signal.
+        if subprocess.run(["pkill", f"-{signal_name}", "-s", sessions]).returncode:
+            break
+        time.sleep(AGENT_TERM_SECONDS)
 
 
 def _best_run(sweep):
@@ -582,12 +620,6 @@ def parse_tune_args(argv=None):
         "--dataset",
         help="Only tune on this dataset. Default: every one selected in the config.",
     )
-    parser.add_argument(
-        "--max-agents",
-        type=int,
-        default=DEFAULT_MAX_AGENTS,
-        help="How many agents to run at once. Default: %(default)s",
-    )
     return parser.parse_args(argv)
 
 
@@ -613,7 +645,13 @@ def tune_main(argv=None):
     for signum in (signal.SIGINT, signal.SIGTERM, signal.SIGHUP):
         signal.signal(signum, _interrupt)
     try:
-        _run_agents(sweeps, args.max_agents)
+        # One technique at a time, because each one's `parallel_sweeps` is the
+        # number that suits it with the machine to itself.
+        for algorithm in dict.fromkeys(sweep.algorithm for sweep in sweeps):
+            algorithm_sweeps = [s for s in sweeps if s.algorithm == algorithm]
+            parallel_sweeps = algorithm_sweeps[0].parallel_sweeps
+            _log(f"Tuning {algorithm}, up to {parallel_sweeps} sweeps at once")
+            _run_agents(algorithm_sweeps, parallel_sweeps)
     except KeyboardInterrupt:
         _log("Stopping the agents. Run the same command again to continue.")
         _stop_agents(sweeps)

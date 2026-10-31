@@ -145,8 +145,16 @@ on its hard cases are never chosen.
 
 Tuning everything is 28 sweeps of 60 runs each, and can take days. The command
 prints each sweep's progress and stays running until the last sweep finishes.
-It keeps to one agent per 4 CPU cores, because a FairIRL Bias Reduction trial
-uses about 4 cores. Use `--max-agents <n>` to change that.
+
+Techniques are tuned one after another. The `parallel_sweeps` value in a
+technique's sweep config sets how many agents it runs at once. Every sweep gets
+one agent before any gets a second, so a value above the number of datasets
+gives some sweeps several agents, and when a sweep finishes its agent's place
+goes to a sweep that still has runs left. The values in the sweep configs were
+measured on a machine with 16 CPU cores and 15 GB of RAM. Each is the most
+agents that use no more than 5 GB between them, which leaves about 4 GB free
+for other programs, so measure again on a different machine. More agents than
+that run a little faster, but can run the machine out of memory.
 
 Everything goes to the W&B project `fair-irl-tuning`. That keeps the sweeps out
 of the main project, because the plotting notebook loads the most recent

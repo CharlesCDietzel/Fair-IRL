@@ -22,6 +22,9 @@ command:
   - --config
   - configs/experiment.yaml
 run_cap: 60
+# How many of this algorithm's sweeps `fair-irl-tune` runs at once. If fewer
+# are left, the spare agents join the ones that are.
+parallel_sweeps: 6
 parameters:
   ALGORITHMS:
     value: [Superhuman Fairness]
