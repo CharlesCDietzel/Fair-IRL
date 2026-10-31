@@ -1672,8 +1672,12 @@ def compute_subdominance(
     beta = 1.0
     num_perf_metrics = len(exp_info["SUBDOMINANCE_PERF_METRICS_LIST"])
     num_fair_metrics = len(exp_info["SUBDOMINANCE_FAIR_METRICS_LIST"])
-    perf_metric_weight = 0.5 / num_perf_metrics
-    fair_metric_weight = 0.5 / num_fair_metrics
+    if exp_info["REWEIGHT_SUBDOMINANCE_OBJECTIVES"]:
+        perf_metric_weight = 0.5 / num_perf_metrics
+        fair_metric_weight = 0.5 / num_fair_metrics
+    else:
+        perf_metric_weight = 1.0 / (num_perf_metrics + num_fair_metrics)
+        fair_metric_weight = 1.0 / (num_perf_metrics + num_fair_metrics)
     # compute the average across subdom for each demo
     total_subdom_list = []
     for demo_idx in range(raw_demos_feat_loss.shape[0]):
@@ -1696,7 +1700,8 @@ def compute_subdominance(
         if sum_agg:
             # CUSTOM MODIFICATION FOR OUR USE CASE:
             # If we are aggregating by sum, reweight the performance measure (accuracy) subdominance
-            # and the fairness measure subdominance equally
+            # and the fairness measure subdominance equally (or, with
+            # REWEIGHT_SUBDOMINANCE_OBJECTIVES false, every individual objective equally)
             for i, subdom in enumerate(subdom_list):
                 if i < num_perf_metrics:
                     subdom_list[i] = subdom * perf_metric_weight

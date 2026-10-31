@@ -229,10 +229,15 @@ common:
   # Several of the two overlap exactly -- "inacc" is "Acc", "dp" is "DemPar",
   # "fpr" is "TNRPar", "eqopp" and "fnr" are "EqOpp" -- while "prp" and
   # "error_rate_diff" have no objective equivalent. The split between the two
-  # lists only sets the weighting: sum-aggregated subdominance gives the perf
-  # metrics half the weight and the fair metrics the other half.
+  # lists only sets the weighting of sum-aggregated subdominance, per
+  # REWEIGHT_SUBDOMINANCE_OBJECTIVES below.
   SUBDOMINANCE_PERF_METRICS_LIST: [Acc]
   SUBDOMINANCE_FAIR_METRICS_LIST: [AccPar, DemPar, EqOpp, TNRPar]
+  # How sum-aggregated subdominance weights the measures above. True gives the
+  # perf metrics half the weight and the fair metrics the other half, however
+  # many of each there are. False gives every individual metric equal weight,
+  # whichever list it is in.
+  REWEIGHT_SUBDOMINANCE_OBJECTIVES: false
 
   # Which techniques to train and evaluate. List any combination of the names
   # below. Each listed technique gets its own W&B run per dataset bias type,
