@@ -5,10 +5,10 @@ import numpy as np
 import os
 import tempfile
 import pandas as pd
-from fair_irl.rl.clf_mdp import *
-from fair_irl.rl.clf_mdp_policy import *
-from fair_irl.rl.objectives import *
-from fair_irl.utils import *
+from frwo.rl.clf_mdp import *
+from frwo.rl.clf_mdp_policy import *
+from frwo.rl.objectives import *
+from frwo.utils import *
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.model_selection import train_test_split, KFold
 from sklearn.neural_network import MLPClassifier
@@ -73,7 +73,7 @@ def compute_optimal_policy(
 
     Returns
     -------
-    opt_pol : fair_irl.rl.clf_mdp.ClassificationMDPPolicy
+    opt_pol : frwo.rl.clf_mdp.ClassificationMDPPolicy
         The optimal policy. If there are multiple, it randomly selects one.
     """
     clf_mdp = ClassificationMDP(
@@ -113,7 +113,7 @@ def fit_state_mdp(
 
     Returns
     -------
-    state_mdp : fair_irl.rl.clf_mdp.ClassificationMDP
+    state_mdp : frwo.rl.clf_mdp.ClassificationMDP
         MDP fit with `fit_states()`, whose objectives are fit to it.
     """
     state_mdp = ClassificationMDP(
@@ -143,14 +143,14 @@ def compute_optimal_policy_of_state_mdp(
 
     Parameters
     ----------
-    state_mdp : fair_irl.rl.clf_mdp.ClassificationMDP
+    state_mdp : frwo.rl.clf_mdp.ClassificationMDP
         The MDP returned by `fit_state_mdp()`. It is not modified.
     clf, reward_weights, skip_error_terms, method
         See `compute_optimal_policy()`.
 
     Returns
     -------
-    opt_pol : fair_irl.rl.clf_mdp.ClassificationMDPPolicy
+    opt_pol : frwo.rl.clf_mdp.ClassificationMDPPolicy
         The optimal policy. If there are multiple, it randomly selects one.
     """
     clf_mdp = state_mdp.with_reward_weights(reward_weights)

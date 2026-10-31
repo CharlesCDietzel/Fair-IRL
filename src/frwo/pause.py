@@ -1,10 +1,10 @@
 """
 Pausing and resuming the experiment script between trials.
 
-`uv run fair-irl-pause` asks the running experiment (`uv run fair-irl`) to
+`uv run frwo-pause` asks the running experiment (`uv run frwo`) to
 pause. The experiment checks for the request each time it finishes a trial.
-When it finds one, it writes a checkpoint and exits. `uv run fair-irl-resume`
-(see `fair_irl.Fair_IRL_Biased_Demonstrations.resume_main`) then continues
+When it finds one, it writes a checkpoint and exits. `uv run frwo-resume`
+(see `frwo.FRWO_Biased_Demonstrations.resume_main`) then continues
 from that checkpoint with the next trial.
 
 Resuming gives exactly the results an uninterrupted run would have. The
@@ -30,7 +30,7 @@ Everything lives in `STATE_DIR`:
 * `checkpoint.json`: the paused experiment.
 
 Only one experiment can be paused at a time. This module imports nothing heavy,
-so `fair-irl-pause` starts instantly.
+so `frwo-pause` starts instantly.
 """
 
 import argparse
@@ -44,7 +44,7 @@ from pathlib import Path
 
 STATE_DIR = Path(
     os.environ.get(
-        "FAIR_IRL_STATE_DIR",
+        "FRWO_STATE_DIR",
         Path(__file__).resolve().parents[2] / ".experiment_state",
     )
 )
@@ -177,8 +177,8 @@ class PauseListener:
             logging.warning(
                 f"An experiment (W&B session {paused['session_id']}) is"
                 " already paused, so this one cannot be. Resume it with `uv"
-                " run fair-irl-resume`, or discard it with `uv run"
-                " fair-irl-resume --discard`."
+                " run frwo-resume`, or discard it with `uv run"
+                " frwo-resume --discard`."
             )
             return self
         # A request left over from a process that died is not for this one.
@@ -208,11 +208,11 @@ class PauseListener:
 
 
 def pause_main(argv=None):
-    """The `fair-irl-pause` command."""
+    """The `frwo-pause` command."""
     parser = argparse.ArgumentParser(
         description=(
             "Pause the running experiment once its current trial finishes."
-            " Resume it with `uv run fair-irl-resume`."
+            " Resume it with `uv run frwo-resume`."
         )
     )
     parser.add_argument(
@@ -254,7 +254,7 @@ def pause_main(argv=None):
     )
     print(
         f"The {description} will pause once its current trial finishes."
-        " Resume it with `uv run fair-irl-resume`."
+        " Resume it with `uv run frwo-resume`."
     )
 
 

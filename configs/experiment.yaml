@@ -1,4 +1,4 @@
-# Experiment configuration for `fair-irl` (src/fair_irl/Fair_IRL_Biased_Demonstrations.py).
+# Experiment configuration for `frwo` (src/frwo/FRWO_Biased_Demonstrations.py).
 #
 # Every UPPERCASE key is a config value. Each experiment's `exp_info` -- the
 # dict the experiment code reads, and that every W&B run records as its config
@@ -99,10 +99,10 @@ common:
   USE_HIDDEN_FEATURES_SOURCE: true
   N_EXPERT_DEMOS: 2
   RESTRICT_Y_ACTION: true
-  IRL_METHOD: FairIRL
+  IRL_METHOD: FRWO
 
   ##
-  # Fair-IRL Policy learning parameters
+  # FRWO Policy learning parameters
   ##
   # The LP solver of every optimal classifier policy (options: 'highs',
   # 'highs-ds', 'highs-ipm'). Not tuned: the expert's policy (OptClfMDPPol) is
@@ -111,13 +111,13 @@ common:
   # they should only differ in which policy they return when several are
   # equally optimal.
   METHOD: highs
-  # The random forest that predicts `y` from `x` for the policies FairIRL Bias
-  # Reduction learns. Those policies cannot observe `y`, so it decides which
-  # MDP state each row is in. The defaults are scikit-learn's. The expert's
-  # own random forest is separate, and unaffected by these.
-  FAIRIRL_CLF_N_ESTIMATORS: 100
-  FAIRIRL_CLF_MAX_DEPTH: null  # (null: unlimited)
-  FAIRIRL_CLF_MIN_SAMPLES_LEAF: 1
+  # The random forest that predicts `y` from `x` for the policies Fairness
+  # Reward Weight Optimization learns. Those policies cannot observe `y`, so it
+  # decides which MDP state each row is in. The defaults are scikit-learn's.
+  # The expert's own random forest is separate, and unaffected by these.
+  FRWO_CLF_N_ESTIMATORS: 100
+  FRWO_CLF_MAX_DEPTH: null  # (null: unlimited)
+  FRWO_CLF_MIN_SAMPLES_LEAF: 1
   # The regularization `lamda` of the `alpha` scaling of the subdominance the
   # `opt_debias` weight search minimizes: the counterpart of the Superhuman
   # Fairness baselines' SH_*LAMDA. It does not change the subdominance
@@ -134,9 +134,9 @@ common:
   DOT_WEIGHTS_FEAT_EXP: true
   N_DATASET_SAMPLES: null
 
-  # The weight adjustments FairIRL Bias Reduction learns a policy for, each
-  # in its own W&B run. A run with the unadjusted weights is always performed
-  # first, ahead of every adjustment listed here.
+  # The weight adjustments Fairness Reward Weight Optimization learns a policy
+  # for, each in its own W&B run. A run with the unadjusted weights is always
+  # performed first, ahead of every adjustment listed here.
   WEIGHT_ADJUST_LIST:
     # - [mul_negative_weights, 0.0]
     # - [mul_negative_weights, 0.1]
@@ -148,7 +148,8 @@ common:
     # - [mul_negative_weights, 0.7]
     # - [mul_negative_weights, 0.8]
     # - [mul_negative_weights, 0.9]
-    # Optimization-based weight debiasing for Fair-IRL Bias Reduction
+    # Optimization-based weight debiasing for Fairness Reward Weight
+    # Optimization
     # Which optimizer is best is tuned per dataset in `experiments`. A sweep
     # tunes it through the OPT_DEBIAS_OPTIMIZER override (e.g.
     # `--set OPT_DEBIAS_OPTIMIZER=optuna/TPE`), which swaps the library and
@@ -217,11 +218,11 @@ common:
     # - [demo_noise_bias, 0.2]
 
   # The performance and fairness measures the subdominance metric is computed
-  # over. FairIRL Bias Reduction optimizes relative to these: its `opt_debias`
-  # weight search minimizes the subdominance of the policies the candidate
-  # weights produce, scored on exactly these measures. They are also what the
-  # Superhuman Fairness baseline optimizes by default (see SH_FEATURES below),
-  # and what every technique's figures are plotted on.
+  # over. Fairness Reward Weight Optimization optimizes relative to these: its
+  # `opt_debias` weight search minimizes the subdominance of the policies the
+  # candidate weights produce, scored on exactly these measures. They are also
+  # what the Superhuman Fairness baseline optimizes by default (see SH_FEATURES
+  # below), and what every technique's figures are plotted on.
   #
   # Entries may be named in either vocabulary, and the two may be mixed:
   #   This project's objectives -- "Acc", "AccPar", "DemPar", "EqOpp",
@@ -247,7 +248,7 @@ common:
   # produced by the same evaluation code on the same data split, so that their
   # metrics are directly comparable.
   #
-  # The eight after FairIRL are the Superhuman Fairness technique, three
+  # The eight after FRWO are the Superhuman Fairness technique, three
   # variants of it, and the fair-classification baselines that paper compares
   # itself against:
   #   "Superhuman Fairness Fixed"
@@ -275,7 +276,7 @@ common:
   #       The robust fair-log-loss model of Rezaei et al. (2020), with
   #       demographic parity / equalized odds as the fairness constraint.
   ALGORITHMS:
-    - FairIRL Bias Reduction
+    - Fairness Reward Weight Optimization
     - Superhuman Fairness
     - Superhuman Fairness Fixed
     - Superhuman Fairness Neural Network
@@ -407,10 +408,10 @@ experiments:
     SH_FIXED_ITERS: 56
     SH_FIXED_LAMDA: 0.00011681497523597792
     SH_FIXED_LR_THETA: 0.008106452818423438
-    # FairIRL Bias Reduction Config Params
-    FAIRIRL_CLF_MAX_DEPTH: null
-    FAIRIRL_CLF_MIN_SAMPLES_LEAF: 1
-    FAIRIRL_CLF_N_ESTIMATORS: 50
+    # Fairness Reward Weight Optimization Config Params
+    FRWO_CLF_MAX_DEPTH: null
+    FRWO_CLF_MIN_SAMPLES_LEAF: 1
+    FRWO_CLF_N_ESTIMATORS: 50
     OPT_DEBIAS_LAMDA: 0.008849685863468949
     WEIGHT_ADJUST_LIST: [[opt_debias, optuna, GP, 500]]
     # Fair LogLoss EqOdds Config Params
@@ -457,10 +458,10 @@ experiments:
     SH_FIXED_ITERS: 55
     SH_FIXED_LAMDA: 0.005952556278566938
     SH_FIXED_LR_THETA: 2.986744580427055e-05
-    # FairIRL Bias Reduction Config Params
-    FAIRIRL_CLF_MAX_DEPTH: null
-    FAIRIRL_CLF_MIN_SAMPLES_LEAF: 5
-    FAIRIRL_CLF_N_ESTIMATORS: 400
+    # Fairness Reward Weight Optimization Config Params
+    FRWO_CLF_MAX_DEPTH: null
+    FRWO_CLF_MIN_SAMPLES_LEAF: 5
+    FRWO_CLF_N_ESTIMATORS: 400
     OPT_DEBIAS_LAMDA: 2.5441577550535265e-05
     WEIGHT_ADJUST_LIST: [[opt_debias, optuna, GP, 500]]
     # Superhuman Fairness Config Params
@@ -496,10 +497,10 @@ experiments:
     SH_ITERS: 43
     SH_LAMDA: 0.013420921469362091
     SH_LR_THETA: 0.00032977376528287337
-    # FairIRL Bias Reduction Config Params
-    FAIRIRL_CLF_MAX_DEPTH: null
-    FAIRIRL_CLF_MIN_SAMPLES_LEAF: 10
-    FAIRIRL_CLF_N_ESTIMATORS: 200
+    # Fairness Reward Weight Optimization Config Params
+    FRWO_CLF_MAX_DEPTH: null
+    FRWO_CLF_MIN_SAMPLES_LEAF: 10
+    FRWO_CLF_N_ESTIMATORS: 200
     OPT_DEBIAS_LAMDA: 9.971704130911446e-05
     WEIGHT_ADJUST_LIST: [[opt_debias, optuna, GP, 500]]
     # Superhuman Fairness Fixed Config Params
@@ -523,10 +524,10 @@ experiments:
     # Fair LogLoss EqOdds Config Params
     FAIR_LOGLOSS_EQODDS_C: 0.3365375643723825
     FAIR_LOGLOSS_EQODDS_RANDOM_INIT: false
-    # FairIRL Bias Reduction Config Params
-    FAIRIRL_CLF_MAX_DEPTH: 10
-    FAIRIRL_CLF_MIN_SAMPLES_LEAF: 5
-    FAIRIRL_CLF_N_ESTIMATORS: 50
+    # Fairness Reward Weight Optimization Config Params
+    FRWO_CLF_MAX_DEPTH: 10
+    FRWO_CLF_MIN_SAMPLES_LEAF: 5
+    FRWO_CLF_N_ESTIMATORS: 50
     OPT_DEBIAS_LAMDA: 0.0055333980259516065
     WEIGHT_ADJUST_LIST: [[opt_debias, optuna, GP, 500]]
     # Superhuman Fairness Config Params

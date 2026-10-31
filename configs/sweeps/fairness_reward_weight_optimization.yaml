@@ -1,37 +1,37 @@
-# W&B sweep: tunes FairIRL Bias Reduction.
+# W&B sweep: tunes Fairness Reward Weight Optimization.
 #
 # Run this sweep for every selected dataset, and write its best values to
 # configs/experiment.yaml.new, with:
-#   uv run fair-irl-tune --algorithm "FairIRL Bias Reduction"
+#   uv run frwo-tune --algorithm "Fairness Reward Weight Optimization"
 #
 # Every value not listed under `parameters` comes from configs/experiment.yaml.
-name: FairIRL Bias Reduction
-project: fair-irl
+name: Fairness Reward Weight Optimization
+project: frwo
 method: bayes
 metric:
   # The mean validation subdominance (sum_abs_subdominance_val) of the
-  # technique's runs; see src/fair_irl/sweep.py.
+  # technique's runs; see src/frwo/sweep.py.
   name: objective
   goal: minimize
 command:
   - ${env}
   - ${interpreter}
   - -m
-  - fair_irl.sweep
+  - frwo.sweep
   - trial
   - --config
   - configs/experiment.yaml
 run_cap: 60
-# How many of this algorithm's trials `fair-irl-tune` runs at once, across its
+# How many of this algorithm's trials `frwo-tune` runs at once, across its
 # sweeps. If fewer sweeps are left, the spare trials go to the ones that are.
 # Each trial's search ignores the results of the `parallel_sweeps - 1` trials
 # before it, so changing this changes the results.
 parallel_sweeps: 5
 parameters:
   ALGORITHMS:
-    value: [FairIRL Bias Reduction]
+    value: [Fairness Reward Weight Optimization]
   # Swaps the library and optimizer of every `opt_debias` entry of
-  # WEIGHT_ADJUST_LIST, keeping its evaluation budget (see src/fair_irl/config.py).
+  # WEIGHT_ADJUST_LIST, keeping its evaluation budget (see src/frwo/config.py).
   OPT_DEBIAS_OPTIMIZER:
     values:
       - optuna/CMA-ES
@@ -41,14 +41,14 @@ parameters:
       - nevergrad/BayesOpt
       - nevergrad/Nelder-Mead
       - nevergrad/Powell
-  # The random forest that predicts `y` from `x` for FairIRL's policies. The
+  # The random forest that predicts `y` from `x` for FRWO's policies. The
   # defaults (scikit-learn's) are 100 trees, unlimited depth (null) and 1
   # sample per leaf.
-  FAIRIRL_CLF_N_ESTIMATORS:
+  FRWO_CLF_N_ESTIMATORS:
     values: [50, 100, 200, 400]
-  FAIRIRL_CLF_MAX_DEPTH:
+  FRWO_CLF_MAX_DEPTH:
     values: [null, 5, 10, 20]
-  FAIRIRL_CLF_MIN_SAMPLES_LEAF:
+  FRWO_CLF_MIN_SAMPLES_LEAF:
     values: [1, 2, 5, 10, 20, 50]
   # The `alpha` regularization of the subdominance `opt_debias` minimizes.
   # The default is 0.001; the range matches the Superhuman Fairness sweeps'

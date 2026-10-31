@@ -2045,7 +2045,7 @@ class ObjectiveSet:
 
 # Objective lookup. Defined here, alongside the objectives themselves, so that
 # any module can resolve an objective name without having to import
-# `fair_irl.experiment_utils` (which imports this module).
+# `frwo.experiment_utils` (which imports this module).
 OBJ_LOOKUP_BY_NAME = {
     "Acc": AccuracyObjective,
     "AccPar": AccuracyParityObjective,

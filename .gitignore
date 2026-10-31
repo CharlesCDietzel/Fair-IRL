@@ -1,7 +1,7 @@
 .ipynb_checkpoints/
 *.pyc
-src/fair_irl/logs/*
-src/fair_irl/resources/*
+src/frwo/logs/*
+src/frwo/resources/*
 experiment_output/**/*.csv
 experiment_output/**/*.json
 experiment_output/**/*.pdf

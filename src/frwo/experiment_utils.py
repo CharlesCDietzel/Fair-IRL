@@ -43,11 +43,11 @@ from sklearn.model_selection import train_test_split
 from sklearn.metrics import accuracy_score, precision_score
 from sklearn.preprocessing import normalize
 
-from fair_irl.irl.fair_irl import *
-from fair_irl.rl.clf_mdp import *
-from fair_irl.rl.clf_mdp_policy import *
-from fair_irl.rl.objectives import *
-from fair_irl.utils import *
+from frwo.irl.frwo import *
+from frwo.rl.clf_mdp import *
+from frwo.rl.clf_mdp_policy import *
+from frwo.rl.objectives import *
+from frwo.utils import *
 
 from .datasets import *
 from .sh.baselines import (
@@ -77,9 +77,9 @@ from .sh.superhuman_fairness_nn import (
     SuperhumanFairnessNN,
 )
 
-# `OBJ_LOOKUP_BY_NAME` now lives in `fair_irl.rl.objectives`, next to the
+# `OBJ_LOOKUP_BY_NAME` now lives in `frwo.rl.objectives`, next to the
 # objectives it names, so that modules which cannot import this one (e.g.
-# `fair_irl.sh.superhuman_fairness`) can still resolve objective names. It is
+# `frwo.sh.superhuman_fairness`) can still resolve objective names. It is
 # star-imported above and so is still available as
 # `experiment_utils.OBJ_LOOKUP_BY_NAME`.
 
@@ -747,7 +747,7 @@ def generate_expert_algo_lookup(feature_types, exp_info=None):
     )
 
     # OptClfMDPPol: optimal classifier policy (see compute_optimal_policy() in
-    # fair_irl.py), with reward weights split equally (and positively) across
+    # frwo.py), with reward weights split equally (and positively) across
     # every feature-expectation objective. Its ClassificationMDPPolicy is
     # actually built per-fold in generate_non_overfit_demos() since it depends
     # on the objective set and training fold, neither of which is available
@@ -806,7 +806,7 @@ def generate_expert_algo_lookup(feature_types, exp_info=None):
 # `~/.config/wandb/settings`), so pointing the experiments at a different
 # server needs no code change here.
 
-WANDB_PROJECT = os.environ.get("WANDB_PROJECT", "fair-irl")
+WANDB_PROJECT = os.environ.get("WANDB_PROJECT", "frwo")
 WANDB_ENTITY = os.environ.get("WANDB_ENTITY") or None
 
 # The four aggregations of the subdominance metric, in the order
@@ -841,8 +841,8 @@ SUBDOMINANCE_KEYS = tuple(
 #
 # The four names after them are the fair-classification baselines the
 # Superhuman Fairness paper compares itself against, ported in
-# `fair_irl.sh.baselines`.
-ALGORITHM_FAIRIRL = "FairIRL Bias Reduction"
+# `frwo.sh.baselines`.
+ALGORITHM_FRWO = "Fairness Reward Weight Optimization"
 ALGORITHM_SUPERHUMAN = "Superhuman Fairness"
 ALGORITHM_SUPERHUMAN_FIXED = "Superhuman Fairness Fixed"
 ALGORITHM_SUPERHUMAN_NN = "Superhuman Fairness Neural Network"
@@ -852,7 +852,7 @@ ALGORITHM_POST_PROC_EQODDS = "Post Proc EqOdds"
 ALGORITHM_FAIR_LOGLOSS_DP = "Fair LogLoss DP"
 ALGORITHM_FAIR_LOGLOSS_EQODDS = "Fair LogLoss EqOdds"
 ALGORITHMS = (
-    ALGORITHM_FAIRIRL,
+    ALGORITHM_FRWO,
     ALGORITHM_SUPERHUMAN,
     ALGORITHM_SUPERHUMAN_FIXED,
     ALGORITHM_SUPERHUMAN_NN,
@@ -1029,18 +1029,18 @@ def selected_algorithms(exp_info):
     """
     The algorithms one experiment covers, validated and in a fixed order.
 
-    Defaults to just the FairIRL Bias Reduction technique, so that an
-    `exp_info` written before this baseline existed behaves exactly as it did
-    then.
+    Defaults to just the Fairness Reward Weight Optimization technique, so that
+    an `exp_info` written before this baseline existed behaves exactly as it
+    did then.
 
     Returns
     -------
     algorithms : list<str>
         The selected entries of `ALGORITHMS`, always in `ALGORITHMS` order so
-        that the FairIRL technique runs first regardless of how the config
+        that the FRWO technique runs first regardless of how the config
         lists them.
     """
-    selected = exp_info.get("ALGORITHMS") or [ALGORITHM_FAIRIRL]
+    selected = exp_info.get("ALGORITHMS") or [ALGORITHM_FRWO]
 
     unknown = [name for name in selected if name not in ALGORITHMS]
     if unknown:
@@ -1066,9 +1066,9 @@ def _baseline_seed(exp_info, algorithm, bias_type, trial_i):
 
     Every baseline gets its own deterministic seed rather than drawing from the
     global numpy random state. That way enabling a baseline cannot shift a
-    single random draw the FairIRL technique makes, so a session that runs
-    several techniques produces exactly the FairIRL results a session that runs
-    only FairIRL would -- and each baseline is itself reproducible.
+    single random draw the FRWO technique makes, so a session that runs
+    several techniques produces exactly the FRWO results a session that runs
+    only FRWO would -- and each baseline is itself reproducible.
     """
     key = "|".join(
         [
@@ -1167,7 +1167,7 @@ def bias_type_name(bias_type):
 # `summary` is the dict `_finalize_trial()` stored in the run summary, or `None`
 # when `_report_run_failure()` marked the run as not converged. The experiment
 # script registers one to hand its runs' results to a W&B sweep trial, which
-# cannot otherwise see them (see `fair_irl.sweep`).
+# cannot otherwise see them (see `frwo.sweep`).
 RUN_RESULT_LISTENERS = []
 
 
@@ -1204,9 +1204,9 @@ def start_wandb_run(
     and one weight adjustment.
 
     Every algorithm reports through this same function, so that the runs of the
-    FairIRL Bias Reduction technique and of the Superhuman Fairness baseline
-    carry the same config keys, the same metric names and the same summary
-    keys, and differ only by their `ALGORITHM`.
+    Fairness Reward Weight Optimization technique and of the Superhuman
+    Fairness baseline carry the same config keys, the same metric names and the
+    same summary keys, and differ only by their `ALGORITHM`.
 
     Parameters
     ----------
@@ -1545,9 +1545,9 @@ def _build_trial_summary(
 
     Parameters
     ----------
-    feat_obj_set : fair_irl.irl.fair_irl.ObjectiveSet
+    feat_obj_set : frwo.irl.frwo.ObjectiveSet
         The set of objectives for the feature expectations.
-    perf_obj_set : fair_irl.irl.fair_irl.ObjectiveSet
+    perf_obj_set : frwo.irl.frwo.ObjectiveSet
         The set of objectives for the performance measures.
     bias_demos : BiasedDatasetDemos
         The dataset, expert demonstrations and bias type this trial's policy
@@ -1811,8 +1811,8 @@ def compute_iteration_subdominance(
 
     `alpha_lamda` is the regularization of the per-measure `alpha` scaling (see
     `compute_alphas()`). Every subdominance reported as a result uses the
-    default; only FairIRL Bias Reduction's `opt_debias` weight search passes its
-    own, `OPT_DEBIAS_LAMDA`, for the objective it minimizes.
+    default; only Fairness Reward Weight Optimization's `opt_debias` weight
+    search passes its own, `OPT_DEBIAS_LAMDA`, for the objective it minimizes.
 
     `group_idxs`, `raw_demos` and `raw_demos_feat_loss` come from
     `generate_subdominance_groups()`, which is called once per expert demo set in
@@ -2553,35 +2553,35 @@ def _compute_errors_and_metrics(
     )
 
 
-# Defaults for FairIRL Bias Reduction's own settings, overridable through the
-# correspondingly named `exp_info` keys.
+# Defaults for Fairness Reward Weight Optimization's own settings, overridable
+# through the correspondingly named `exp_info` keys.
 #
-# The FAIRIRL_CLF_* settings configure the random forest that predicts `y`
-# from `x` for the policies FairIRL Bias Reduction learns. Since those policies
-# cannot observe `y`, it decides which MDP state each row is in. The defaults
-# are scikit-learn's. The expert has its own, separately fit random forest
-# (see `OptClfMDPPolicyExpert`), which these leave untouched.
+# The FRWO_CLF_* settings configure the random forest that predicts `y` from
+# `x` for the policies Fairness Reward Weight Optimization learns. Since those
+# policies cannot observe `y`, it decides which MDP state each row is in. The
+# defaults are scikit-learn's. The expert has its own, separately fit random
+# forest (see `OptClfMDPPolicyExpert`), which these leave untouched.
 #
 # OPT_DEBIAS_LAMDA is the regularization of the `alpha` scaling of the
 # subdominance the `opt_debias` weight search minimizes -- the counterpart of
 # the Superhuman Fairness baselines' SH_*LAMDA. It does not change the
 # subdominance reported as a result, which always uses `SH_DEFAULT_LAMDA`.
-FAIRIRL_DEFAULTS = {
-    "FAIRIRL_CLF_N_ESTIMATORS": 100,
-    "FAIRIRL_CLF_MAX_DEPTH": None,
-    "FAIRIRL_CLF_MIN_SAMPLES_LEAF": 1,
+FRWO_DEFAULTS = {
+    "FRWO_CLF_N_ESTIMATORS": 100,
+    "FRWO_CLF_MAX_DEPTH": None,
+    "FRWO_CLF_MIN_SAMPLES_LEAF": 1,
     "OPT_DEBIAS_LAMDA": SH_DEFAULT_LAMDA,
 }
 
 
-def _fairirl_setting(exp_info, key):
-    """`exp_info[key]`, or its `FAIRIRL_DEFAULTS` value if unset."""
-    return exp_info[key] if key in exp_info else FAIRIRL_DEFAULTS[key]
+def _frwo_setting(exp_info, key):
+    """`exp_info[key]`, or its `FRWO_DEFAULTS` value if unset."""
+    return exp_info[key] if key in exp_info else FRWO_DEFAULTS[key]
 
 
 def opt_debias_lamda(exp_info):
     """The `alpha` regularization of the `opt_debias` objective."""
-    return _fairirl_setting(exp_info, "OPT_DEBIAS_LAMDA")
+    return _frwo_setting(exp_info, "OPT_DEBIAS_LAMDA")
 
 
 def _fit_clf_and_demo_df(exp_info, feature_types, X_train, y_train):
@@ -2589,9 +2589,9 @@ def _fit_clf_and_demo_df(exp_info, feature_types, X_train, y_train):
     clf = sklearn_clf_pipeline(
         feature_types=feature_types,
         clf_inst=RandomForestClassifier(
-            n_estimators=_fairirl_setting(exp_info, "FAIRIRL_CLF_N_ESTIMATORS"),
-            max_depth=_fairirl_setting(exp_info, "FAIRIRL_CLF_MAX_DEPTH"),
-            min_samples_leaf=_fairirl_setting(exp_info, "FAIRIRL_CLF_MIN_SAMPLES_LEAF"),
+            n_estimators=_frwo_setting(exp_info, "FRWO_CLF_N_ESTIMATORS"),
+            max_depth=_frwo_setting(exp_info, "FRWO_CLF_MAX_DEPTH"),
+            min_samples_leaf=_frwo_setting(exp_info, "FRWO_CLF_MIN_SAMPLES_LEAF"),
         ),
     )
     clf.fit(X_train, y_train)
@@ -3637,7 +3637,7 @@ def _build_superhuman_demo_list(sh_config, bias_demos, loss_fn):
     These are this project's own expert demonstrations for the training split,
     grouped exactly the way `generate_subdominance_groups()` grouped them for
     the subdominance metric. The baseline then imitates the same expert, on the
-    same rows, that the FairIRL technique learns from, which is what makes the
+    same rows, that the FRWO technique learns from, which is what makes the
     two directly comparable.
 
     Parameters
@@ -3743,11 +3743,11 @@ def _evaluate_and_finalize(
     """
     Score a trained model and write its results into its W&B run.
 
-    Every technique that is not the FairIRL weight-adjustment loop -- the
+    Every technique that is not the FRWO weight-adjustment loop -- the
     Superhuman Fairness baseline and the four fair-classification baselines it
     is compared against -- finishes its run through this one function, which is
     the same `_evaluate_policy()`/`PolicyResults`/`_finalize_trial()` sequence
-    the FairIRL technique goes through. That is what makes every model's
+    the FRWO technique goes through. That is what makes every model's
     metrics directly comparable: they are produced by the same code, from the
     same splits of the same biased dataset.
 
@@ -3758,7 +3758,7 @@ def _evaluate_and_finalize(
     weights : numpy.ndarray
         The reward weights the weighted metrics are computed with. None of
         these techniques learns reward weights, so they are all scored with the
-        same equal, positive weights the FairIRL technique starts from; that
+        same equal, positive weights the FRWO technique starts from; that
         keeps `t_train`/`t_val`/`t_test` and `wL_*` comparable across all of
         them.
 
@@ -3906,7 +3906,7 @@ def _run_superhuman_trial(
             _log_superhuman_training(run, sh_model)
 
             # Measure and record the error of the learned classifier. This is the
-            # exact same evaluation the FairIRL policies go through.
+            # exact same evaluation the FRWO policies go through.
             _evaluate_and_finalize(
                 exp_info,
                 run,
@@ -4111,12 +4111,12 @@ def run_experiment_trial(
     type with the expert's demonstrations otherwise unbiased, a demo bias type
     on the unbiased dataset.
 
-    The FairIRL Bias Reduction technique reports one run for the unadjusted
-    weights, then one per entry in exp_info["WEIGHT_ADJUST_LIST"] (which is not
-    expected to contain "()" itself either), each derived from the unadjusted
-    weights via `_apply_weight_adjustments()`. The Superhuman Fairness baseline
-    and the four fair-classification baselines have no reward weights to adjust
-    and so each report a single run per bias type.
+    The Fairness Reward Weight Optimization technique reports one run for the
+    unadjusted weights, then one per entry in exp_info["WEIGHT_ADJUST_LIST"]
+    (which is not expected to contain "()" itself either), each derived from
+    the unadjusted weights via `_apply_weight_adjustments()`. The Superhuman
+    Fairness baseline and the four fair-classification baselines have no reward
+    weights to adjust and so each report a single run per bias type.
 
     Every run holds this trial's config, the metrics of the model it learned,
     and a summary of that model, all produced by the same evaluation code, so
@@ -4150,7 +4150,7 @@ def run_experiment_trial(
     weight_adjust_list = ((),) + tuple(exp_info["WEIGHT_ADJUST_LIST"])
 
     # Which techniques this trial trains and evaluates. Always in ALGORITHMS
-    # order, so the FairIRL technique runs first and its random draws are
+    # order, so the FRWO technique runs first and its random draws are
     # unaffected by whether the baseline is enabled.
     algorithms = selected_algorithms(exp_info)
     logging.info(f"ALGORITHMS: {algorithms}")
@@ -4192,7 +4192,7 @@ def run_experiment_trial(
     # The unbiased dataset, then every bias type of this trial, each against
     # the same data split, differing only by its bias. Within a bias type,
     # every selected algorithm is trained and evaluated on that same data: the
-    # FairIRL technique gets one run for the unadjusted weights and then one
+    # FRWO technique gets one run for the unadjusted weights and then one
     # per weight adjustment (weight_adjust_list is not expected to contain
     # "()" itself; the unadjusted weights always get their own W&B run
     # regardless of its contents), and the Superhuman Fairness baseline, which
@@ -4211,9 +4211,9 @@ def run_experiment_trial(
         logging.info(f"muE_perf_val:\n{expert_val.mu_perf}")
         logging.info(f"muE_perf_test:\n{expert_test.mu_perf}")
 
-        if ALGORITHM_FAIRIRL in algorithms:
-            logging.info(f"ALGORITHM: {ALGORITHM_FAIRIRL}")
-            _run_fairirl_trials(
+        if ALGORITHM_FRWO in algorithms:
+            logging.info(f"ALGORITHM: {ALGORITHM_FRWO}")
+            _run_frwo_trials(
                 exp_info,
                 bias_demos,
                 unbiased_demos,
@@ -4269,7 +4269,7 @@ def run_experiment_trial(
             )
 
 
-def _run_fairirl_trials(
+def _run_frwo_trials(
     exp_info,
     bias_demos,
     unbiased_demos,
@@ -4286,7 +4286,8 @@ def _run_fairirl_trials(
     trial_start,
 ):
     """
-    Train and evaluate the FairIRL Bias Reduction technique for one bias type.
+    Train and evaluate the Fairness Reward Weight Optimization technique for
+    one bias type.
 
     One W&B run per entry of `weight_adjust_list`. Lifted verbatim out of
     `run_experiment_trial()` when the Superhuman Fairness baseline was added,
@@ -4313,7 +4314,7 @@ def _run_fairirl_trials(
     for weight_adjust in weight_adjust_list:
         with start_wandb_run(
             exp_info,
-            ALGORITHM_FAIRIRL,
+            ALGORITHM_FRWO,
             bias_demos.bias_type,
             weight_adjust,
             trial_i,
@@ -4471,7 +4472,7 @@ def run_bias_experiment(
         produces a self-contained session.
     first_trial : int, default 0
         Index of the first trial to run. A resumed experiment (see
-        `fair_irl.pause`) skips the trials it ran before it was paused.
+        `frwo.pause`) skips the trials it ran before it was paused.
     after_trial : callable, Optional
         Called with the trial's index after each trial finishes. This is where
         the experiment script pauses.

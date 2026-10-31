@@ -12,15 +12,15 @@ al., ICML 2023):
   equalized odds as the constraint -- that function's `baseline="pp"` branch.
 * **Robust fair log-loss** (Rezaei et al., 2020), with demographic parity or
   equalized odds as the constraint -- its `baseline="fair_logloss"` branch,
-  running the classifiers vendored in `fair_irl.sh.fair_logloss`.
+  running the classifiers vendored in `frwo.sh.fair_logloss`.
 
 Each is unchanged from the reference implementation. What differs is only what
 had to, for them to run here:
 
 * Data plumbing. The original reads its splits from the CSVs it writes itself;
   these are handed the training split in memory, so every baseline sees exactly
-  the dataset, the label bias and the split that the FairIRL Bias Reduction
-  technique sees.
+  the dataset, the label bias and the split that the Fairness Reward Weight
+  Optimization technique sees.
 * Feature encoding. The original operates on an already-numeric
   `dataset_ref.csv`. These run the project's own `sklearn_clf_pipeline()`
   preprocessing, so the columns they see are the columns every other model here
@@ -32,7 +32,7 @@ had to, for them to run here:
   there is nothing to shift.
 
 Every baseline exposes `predict()`, so that `generate_demo()` and
-`_evaluate_policy()` can score it exactly like a learned FairIRL policy.
+`_evaluate_policy()` can score it exactly like a learned FRWO policy.
 """
 
 import logging
@@ -42,15 +42,15 @@ import pandas as pd
 from fairlearn.postprocessing import ThresholdOptimizer
 from sklearn.linear_model import LogisticRegression
 
-from fair_irl.sh.fair_logloss import (
+from frwo.sh.fair_logloss import (
     DP_fair_logloss_classifier,
     EODD_fair_logloss_classifier,
     EOPP_fair_logloss_classifier,
 )
-from fair_irl.utils import sklearn_clf_pipeline
+from frwo.utils import sklearn_clf_pipeline
 
 # The original's `logi_params`. See `SH_DEFAULT_LOGI_PARAMS` in
-# `fair_irl.sh.superhuman_fairness` for why `penalty="l2"` is spelled as
+# `frwo.sh.superhuman_fairness` for why `penalty="l2"` is spelled as
 # `l1_ratio=0.0` here.
 BASELINE_LOGI_PARAMS = {
     "C": 100,
@@ -179,7 +179,7 @@ class PostProcessingBaseline:
         Source of the randomization the `ThresholdOptimizer` applies when it
         predicts. A dedicated generator is used (rather than the global numpy
         random state) so that enabling this baseline cannot shift the random
-        draws of the FairIRL technique running alongside it.
+        draws of the FRWO technique running alongside it.
 
     Attributes
     ----------
@@ -237,7 +237,7 @@ class FairLogLossBaseline:
     The robust fair-log-loss model of Rezaei et al. (2020) as a baseline.
 
     `Super_human.eval_model_baseline()` with `baseline="fair_logloss"`: fit one
-    of the vendored `fair_irl.sh.fair_logloss` classifiers on the training
+    of the vendored `frwo.sh.fair_logloss` classifiers on the training
     split's features, labels and protected attribute, then predict by rounding
     its probabilities, with any NaN prediction taken to be 1 -- exactly the
     `baseline_preds[np.isnan(baseline_preds)] = 1` of the original.
@@ -263,11 +263,11 @@ class FairLogLossBaseline:
         global random state, so `fit()` seeds that state and restores it
         afterwards, leaving the global stream exactly as it found it. This
         keeps the baseline's draws reproducible without shifting a single draw
-        the FairIRL technique makes.
+        the FRWO technique makes.
 
     Attributes
     ----------
-    model_ : fair_irl.sh.fair_logloss.fair_logloss_classifier
+    model_ : frwo.sh.fair_logloss.fair_logloss_classifier
     preprocessor_ : sklearn.compose.ColumnTransformer
         This project's preprocessing, fit on the training split.
     """

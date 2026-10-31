@@ -56,8 +56,9 @@ EMPTYABLE_LIST_KEYS = (
 # An override that is not itself an `exp_info` key: `"<library>/<optimizer>"`,
 # e.g. `"optuna/TPE"`, swaps the library and optimizer of every `opt_debias`
 # entry of WEIGHT_ADJUST_LIST while keeping the rest of the entry (its
-# evaluation budget). This is how a sweep tunes FairIRL Bias Reduction's
-# weight-debiasing optimizer, which is otherwise buried inside a list.
+# evaluation budget). This is how a sweep tunes Fairness Reward Weight
+# Optimization's weight-debiasing optimizer, which is otherwise buried inside a
+# list.
 OPT_DEBIAS_OPTIMIZER = "OPT_DEBIAS_OPTIMIZER"
 
 

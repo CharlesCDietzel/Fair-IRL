@@ -17,9 +17,9 @@ for it to run inside this project are different:
 
 1.  Data plumbing. The original writes its dataset splits, demonstrations and
     models to CSV/pickle files and reads them back. This version is handed the
-    data in memory by `fair_irl.experiment_utils`, so that the baseline sees
+    data in memory by `frwo.experiment_utils`, so that the baseline sees
     exactly the dataset, the label bias and the train/validation/test split
-    that the FairIRL Bias Reduction technique sees.
+    that the Fairness Reward Weight Optimization technique sees.
 
 2.  Feature encoding. The original operates on an already-numeric
     `dataset_ref.csv`. This version runs the project's own
@@ -60,7 +60,7 @@ Fairness Fixed" technique) normalizes `E[phi]` like `phi_j`, which leaves only
 the demonstration-specific signal. See `_compute_feature_matching()`.
 
 The `NN` base model is ported separately, from the reference implementation's
-`reorg_current` branch, in `fair_irl.sh.superhuman_fairness_nn`.
+`reorg_current` branch, in `frwo.sh.superhuman_fairness_nn`.
 
 Not ported: the original's own demonstrators (`-b pp` and `-b fair_logloss`),
 since the demonstrations here are this project's expert's (see
@@ -85,8 +85,8 @@ from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import balanced_accuracy_score, zero_one_loss
 from sklearn.model_selection import train_test_split
 
-from fair_irl.rl.objectives import OBJ_LOOKUP_BY_NAME, ObjectiveSet
-from fair_irl.utils import sklearn_clf_pipeline
+from frwo.rl.objectives import OBJ_LOOKUP_BY_NAME, ObjectiveSet
+from frwo.utils import sklearn_clf_pipeline
 
 # The original's `logi_params` (main.py). `penalty="l2"` is spelled here as
 # `l1_ratio=0.0`, which is the same L2 penalty in every scikit-learn version
@@ -465,7 +465,7 @@ class SuperhumanFairness:
 
     Exposes `predict()` so that the rest of this project's pipeline --
     `generate_demo()`, `_evaluate_policy()`, the subdominance metric -- can
-    treat it exactly like a learned FairIRL policy.
+    treat it exactly like a learned FRWO policy.
 
     Parameters
     ----------
@@ -489,7 +489,7 @@ class SuperhumanFairness:
     rng : numpy.random.Generator, Optional
         Source of randomness for decision sampling. A dedicated generator is
         used (rather than the global numpy random state) so that enabling this
-        baseline cannot shift the random draws of the FairIRL technique running
+        baseline cannot shift the random draws of the FRWO technique running
         alongside it.
     fix_normalization : bool, default False
         Normalize `E[phi(X, Y)]` by each demonstration's size, like
@@ -916,7 +916,8 @@ def build_expert_demo_list(demo_df, group_idxs, loss_fn):
     sampled from the expert's demonstrations -- the same groups the
     subdominance metric scores every learned policy against. Using them here
     means the baseline imitates the same expert, on the same rows, that the
-    FairIRL Bias Reduction technique does, so the two are directly comparable.
+    Fairness Reward Weight Optimization technique does, so the two are directly
+    comparable.
 
     This changes where the demonstrations come from, not what the algorithm
     does with them: they are still a list of held-out decision sets with a loss

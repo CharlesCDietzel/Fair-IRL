@@ -13,16 +13,16 @@ import numpy as np
 import pandas as pd
 from IPython.display import HTML, display
 
-from fair_irl.config import (
+from frwo.config import (
     DEFAULT_CONFIG_PATH,
     build_experiment_plan,
     load_config,
     parse_assignment,
 )
-from fair_irl.datasets import *
-from fair_irl.experiment_utils import *
-from fair_irl.irl.fair_irl import *
-from fair_irl.pause import (
+from frwo.datasets import *
+from frwo.experiment_utils import *
+from frwo.irl.frwo import *
+from frwo.pause import (
     ExperimentPaused,
     PauseListener,
     capture_rng_state,
@@ -32,7 +32,7 @@ from fair_irl.pause import (
     running_experiment,
     save_checkpoint,
 )
-from fair_irl.utils import *
+from frwo.utils import *
 
 
 def play_notification():
@@ -44,9 +44,9 @@ def play_notification():
 def parse_args(argv=None):
     parser = argparse.ArgumentParser(
         description=(
-            "Train and evaluate FairIRL Bias Reduction and its baselines, as"
-            " configured by an experiment config file, and report the results"
-            " to W&B."
+            "Train and evaluate Fairness Reward Weight Optimization and its"
+            " baselines, as configured by an experiment config file, and"
+            " report the results to W&B."
         )
     )
     parser.add_argument(
@@ -80,14 +80,14 @@ def parse_args(argv=None):
         "--results-file",
         help=(
             "Also write every run's outcome and subdominance results to this"
-            " JSON file. Used by W&B sweep trials (see fair_irl.sweep)."
+            " JSON file. Used by W&B sweep trials (see frwo.sweep)."
         ),
     )
     parser.add_argument(
         "--no-pause",
         action="store_true",
         help=(
-            "Don't let `fair-irl-pause` pause this experiment. Used by W&B"
+            "Don't let `frwo-pause` pause this experiment. Used by W&B"
             " sweep trials, which must run to completion."
         ),
     )
@@ -113,10 +113,10 @@ def _run_result_recorder(records):
             "WEIGHT_ADJUST": run.config["WEIGHT_ADJUST"],
             "TRIAL": run.config["TRIAL"],
             # Whether a sweep trial's objective counts this run: every run but
-            # FairIRL Bias Reduction's with the unadjusted weights, which are
-            # only its starting point.
+            # Fairness Reward Weight Optimization's with the unadjusted
+            # weights, which are only its starting point.
             "scored": not (
-                run.config["ALGORITHM"] == ALGORITHM_FAIRIRL
+                run.config["ALGORITHM"] == ALGORITHM_FRWO
                 and not run.config["WEIGHT_ADJUST"]
             ),
             "converged": summary is not None,
@@ -161,10 +161,10 @@ def main(argv=None):
 
 
 def resume_main(argv=None):
-    """The `fair-irl-resume` command. See `fair_irl.pause`."""
+    """The `frwo-resume` command. See `frwo.pause`."""
     parser = argparse.ArgumentParser(
         description=(
-            "Resume the experiment paused with `uv run fair-irl-pause`,"
+            "Resume the experiment paused with `uv run frwo-pause`,"
             " starting with its next trial."
         )
     )
@@ -231,9 +231,9 @@ def run_experiments(
     results_file : str or None
         See `--results-file`.
     pausable : bool
-        Whether `fair-irl-pause` can pause the experiment.
+        Whether `frwo-pause` can pause the experiment.
     resume : dict, Optional
-        The checkpoint to resume from (see `fair_irl.pause`).
+        The checkpoint to resume from (see `frwo.pause`).
     """
     plan = build_experiment_plan(
         config,
@@ -249,7 +249,7 @@ def run_experiments(
         RUN_RESULT_LISTENERS.append(_run_result_recorder(run_records))
 
     # Run experiments. Results are reported to Weights & Biases (project
-    # `WANDB_PROJECT`, default "fair-irl"); the server address and credentials
+    # `WANDB_PROJECT`, default "frwo"); the server address and credentials
     # come from the usual wandb configuration, i.e. the WANDB_BASE_URL
     # environment variable or ~/.config/wandb/settings.
     #
@@ -385,7 +385,7 @@ def run_experiments(
         except ExperimentPaused:
             logging.info(
                 f"EXPERIMENT PAUSED. W&B session: {session_id}. Resume it with"
-                " `uv run fair-irl-resume`."
+                " `uv run frwo-resume`."
             )
             return
 

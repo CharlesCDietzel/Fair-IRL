@@ -14,7 +14,7 @@ network trained by gradient descent. Specifically, it ports
 `compute_alpha()`, `eval_model()` and the `LogisticRegression_pytorch` branch
 of `update_model()` in its `optimize.py`. The branch's demonstrations, its
 performance/fairness measures and `compute_alpha()` are unchanged from the
-published version, so they are shared with `fair_irl.sh.superhuman_fairness`.
+published version, so they are shared with `frwo.sh.superhuman_fairness`.
 
 The branch as committed does not run: its latest commit left debugging
 `print(...)` / `exit()` calls in `sample_superhuman()` and
@@ -88,7 +88,7 @@ from sklearn.linear_model import LogisticRegression
 from sklearn.model_selection import train_test_split
 from torch import nn
 
-from fair_irl.sh.superhuman_fairness import (
+from frwo.sh.superhuman_fairness import (
     SH_BASE_MODEL_TRAIN_FRAC,
     SH_DEFAULT_ITERS,
     SH_DEFAULT_LAMDA,
@@ -96,7 +96,7 @@ from fair_irl.sh.superhuman_fairness import (
     SuperhumanTrainingHistory,
     compute_alphas,
 )
-from fair_irl.utils import sklearn_clf_pipeline
+from frwo.utils import sklearn_clf_pipeline
 
 # The branch's defaults: `n_nodes` (the "large" network) and `fit()`'s
 # `max_iter` in its model.py, the Adam learning rate of its
@@ -163,7 +163,7 @@ class SuperhumanFairnessNN:
     """
     The Superhuman Fairness classifier, with a neural network model.
 
-    Has the interface of `fair_irl.sh.superhuman_fairness.SuperhumanFairness`
+    Has the interface of `frwo.sh.superhuman_fairness.SuperhumanFairness`
     -- `fit(X, y, demo_list)`, `predict()`, `alpha_`, `history_`,
     `demo_losses_`, `selected_iteration_` -- so the experiment runs, scores
     and reports either one the same way.

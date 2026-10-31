@@ -31,12 +31,12 @@ IMPORTANT NOTE: You will need to re-run ```wandb server start``` each time you r
 Generating the results from scratch takes three steps, all run from the repository root
 with the W&B server running:
 
-1. [Tune](#1-tuning-hyperparameters) the hyperparameters of FairIRL Bias
-   Reduction and of each baseline with `uv run fair-irl-tune`.
+1. [Tune](#1-tuning-hyperparameters) the hyperparameters of Fairness Reward
+   Weight Optimization and of each baseline with `uv run frwo-tune`.
 2. [Review](#2-reviewing-and-keeping-the-tuned-hyperparameters) the best values
    found and keep them.
 3. [Run](#3-running-the-final-experiments) the final experiments with
-   `uv run fair-irl`.
+   `uv run frwo`.
 
 In order to reproduce the results from the paper, the tuned hyperparameters are already
 set up correctly, so you only need to [run](#3-running-the-final-experiments) the
@@ -62,8 +62,8 @@ it, so a value set in an experiment's entry applies to that dataset only.
 Run the experiments with either of these commands:
 
 ```sh
-uv run fair-irl
-python3 src/fair_irl/Fair_IRL_Biased_Demonstrations.py  # with .venv activated
+uv run frwo
+python3 src/frwo/FRWO_Biased_Demonstrations.py  # with .venv activated
 ```
 
 Use `--config <file>` to run a different config file, or override single
@@ -71,7 +71,7 @@ values for every experiment with `--set`. `--set` reads each value as JSON, so
 quote lists:
 
 ```sh
-uv run fair-irl --set 'SELECTED_DATASETS=["COMPAS"]' --set SH_ITERS=10
+uv run frwo --set 'SELECTED_DATASETS=["COMPAS"]' --set SH_ITERS=10
 ```
 
 `--set` only accepts keys the config file already contains, so a misspelled
@@ -82,7 +82,7 @@ key is an error rather than being silently ignored.
 One command does all of the tuning:
 
 ```sh
-uv run fair-irl-tune
+uv run frwo-tune
 ```
 
 It takes these steps on its own:
@@ -100,13 +100,13 @@ together:
 
 ```sh
 # One algorithm, on every selected dataset
-uv run fair-irl-tune --algorithm "Superhuman Fairness"
+uv run frwo-tune --algorithm "Superhuman Fairness"
 
 # Every selected algorithm, on one dataset
-uv run fair-irl-tune --dataset COMPAS
+uv run frwo-tune --dataset COMPAS
 
 # One algorithm on one dataset
-uv run fair-irl-tune --algorithm "Superhuman Fairness" --dataset COMPAS
+uv run frwo-tune --algorithm "Superhuman Fairness" --dataset COMPAS
 ```
 
 The named algorithm or dataset doesn't have to be selected in
@@ -118,7 +118,7 @@ A sweep tunes only that algorithm's settings. Every other setting comes from
 
 | Technique | Sweep config | Tuned settings |
 | --- | --- | --- |
-| FairIRL Bias Reduction | `fairirl_bias_reduction.yaml` | `OPT_DEBIAS_OPTIMIZER`, `OPT_DEBIAS_LAMDA`, `FAIRIRL_CLF_*` |
+| Fairness Reward Weight Optimization | `fairness_reward_weight_optimization.yaml` | `OPT_DEBIAS_OPTIMIZER`, `OPT_DEBIAS_LAMDA`, `FRWO_CLF_*` |
 | Superhuman Fairness | `superhuman_fairness.yaml` | `SH_ITERS`, `SH_LR_THETA`, `SH_LAMDA` |
 | Superhuman Fairness Fixed | `superhuman_fairness_fixed.yaml` | `SH_FIXED_ITERS`, `SH_FIXED_LR_THETA`, `SH_FIXED_LAMDA` |
 | Superhuman Fairness Neural Network | `superhuman_fairness_nn.yaml` | `SH_NN_*` (all but `SH_NN_DEVICE`) |
@@ -131,16 +131,16 @@ skipped.
 
 Every sweep is a Bayesian search of 60 runs, and every sweep minimizes the
 same objective, the technique's mean validation subdominance
-(`sum_abs_subdominance_val`). The test split is never used for
-tuning. FairIRL Bias Reduction is scored on its weight-adjusted runs only, not
-on the unadjusted weights it starts from. If any of a trial's runs fail, the
+(`sum_abs_subdominance_val`). The test split is never used for tuning. Fairness
+Reward Weight Optimization is scored on its weight-adjusted runs only, not on
+the unadjusted weights it starts from. If any of a trial's runs fail, the
 trial can't be the best one, and the search treats it as the worst result so
 far, so hyperparameters that make a technique fail on its hard cases are never
 chosen.
 
 Tuning is repeatable: running it twice on the same configs gives the same
 trials and the same best hyperparameters, however the trials happen to be timed.
-To allow that, `fair-irl-tune` runs W&B's Bayesian search itself, from the
+To allow that, `frwo-tune` runs W&B's Bayesian search itself, from the
 `sweeps` package, instead of leaving it to the W&B server, which picks its
 suggestions differently every time. The sweeps still appear in the W&B UI as
 usual.
@@ -166,7 +166,7 @@ trial's hyperparameters are chosen without the results of the `parallel_sweeps -
 results repeatable. It also means that changing `parallel_sweeps` changes the
 results.
 
-Everything goes to the W&B project `fair-irl-tuning`. That keeps the sweeps out
+Everything goes to the W&B project `frwo-tuning`. That keeps the sweeps out
 of the main project, because the plotting notebook loads the most recent
 session in its project by default, and a sweep trial's runs form a session too.
 You can follow the sweeps there in the W&B UI. Each sweep trial is a W&B run of
@@ -191,22 +191,22 @@ A few things to keep in mind:
 To pause tuning, run this from the repository root in another terminal:
 
 ```sh
-uv run fair-irl-tune-pause
+uv run frwo-tune-pause
 ```
 
 No new trials start, the trials that are running finish, and the command that
 was tuning saves its progress and exits. That can take as long as the slowest
 running trial. Nothing is lost, and you can then close the terminal or restart
-the computer. If you're running more than one `fair-irl-tune`, this pauses all
+the computer. If you're running more than one `frwo-tune`, this pauses all
 of them. To continue, start the W&B server if it isn't running, then run:
 
 ```sh
-uv run fair-irl-tune-resume
+uv run frwo-tune-resume
 ```
 
 Tuning carries on with the next trial, or the next sweep if the paused one had
 finished its trials, and writes `configs/experiment.yaml.new` when the last sweep
-finishes, as usual. It picks up every paused sweep, whichever `fair-irl-tune` it
+finishes, as usual. It picks up every paused sweep, whichever `frwo-tune` it
 came from, and runs them all from that one command.
 
 Pausing and resuming doesn't change the results: you get the same trials and the
@@ -216,14 +216,14 @@ paused has no effect on them.
 
 Some details:
 
-* `uv run fair-irl-tune-pause --cancel` withdraws a pause that hasn't happened
+* `uv run frwo-tune-pause --cancel` withdraws a pause that hasn't happened
   yet.
-* `uv run fair-irl-tune-resume --discard` deletes the paused sweeps' progress
+* `uv run frwo-tune-resume --discard` deletes the paused sweeps' progress
   instead of resuming them. Their runs stay in W&B.
-* `fair-irl-tune` won't start a sweep that's paused or that another
-  `fair-irl-tune` is running. Resume it or discard it first.
+* `frwo-tune` won't start a sweep that's paused or that another
+  `frwo-tune` is running. Resume it or discard it first.
 * A resumed sweep stays resumable until it finishes. If tuning crashes or you
-  press Ctrl-C, `uv run fair-irl-tune-resume` carries on from where it got to.
+  press Ctrl-C, `uv run frwo-tune-resume` carries on from where it got to.
 
 ### Stopping and continuing
 
@@ -254,7 +254,7 @@ the others. It writes the results it has, then exits with an error. The cause wi
 be in that sweep's log in `.tuning_state/logs/`. Once it's fixed, run the same
 command again, and the sweep starts over.
 
-See `src/fair_irl/sweep.py` for the details of how a trial is run.
+See `src/frwo/sweep.py` for the details of how a trial is run.
 
 ## 2. Reviewing and keeping the tuned hyperparameters
 
@@ -263,7 +263,7 @@ See `src/fair_irl/sweep.py` for the details of how a trial is run.
 that were tuned. Each of those is set to the best value its sweep found, in its
 dataset's entry under `experiments`, where it overrides `common`.
 If the entry doesn't have that setting yet, it's added at the end of the entry.
-FairIRL Bias Reduction's best optimizer is written as the entry's
+Fairness Reward Weight Optimization's best optimizer is written as the entry's
 `WEIGHT_ADJUST_LIST`, keeping its evaluation budget.
 
 Compare the two files, and if you're happy with the new values, replace the old
@@ -286,10 +286,10 @@ number used for the paper results. Check that `SELECTED_DATASETS` lists every
 dataset to report on, then run:
 
 ```sh
-uv run fair-irl
+uv run frwo
 ```
 
-The results go to the W&B project `fair-irl`, or to the project named by the
+The results go to the W&B project `frwo`, or to the project named by the
 `WANDB_PROJECT` environment variable. The script logs a W&B session id when it
 starts and again when it finishes. To plot that session, set `WANDB_SESSION` in
 the plotting notebook to that id; the default is the most recent session in
@@ -301,7 +301,7 @@ A full run takes a long time. To pause it, run this from the repository root
 in another terminal:
 
 ```sh
-uv run fair-irl-pause
+uv run frwo-pause
 ```
 
 The experiment finishes the trial it is running, saves its progress and exits.
@@ -309,7 +309,7 @@ You can then close the terminal or restart the computer. To pick up where it
 left off, run:
 
 ```sh
-uv run fair-irl-resume
+uv run frwo-resume
 ```
 
 The experiment continues with the next trial, or the next experiment if the
@@ -326,18 +326,18 @@ run. It also reuses the original `--set` and `--annotate` values.
 
 Some details:
 
-* `uv run fair-irl-pause --cancel` withdraws a pause request, as long as the
+* `uv run frwo-pause --cancel` withdraws a pause request, as long as the
   current trial hasn't finished yet.
-* `uv run fair-irl-resume --discard` deletes the saved experiment instead of
+* `uv run frwo-resume --discard` deletes the saved experiment instead of
   resuming it.
 * Only one experiment can be paused at a time. A run started while another
   experiment is paused prints a warning and can't be paused itself. Neither
   can a second run started while a pausable one is already running.
 * A resumed experiment keeps its saved progress until it finishes. If it
-  crashes, `uv run fair-irl-resume` starts again from the same pause point.
+  crashes, `uv run frwo-resume` starts again from the same pause point.
   The runs it reported to W&B before crashing aren't removed, so delete them
   in the W&B UI to avoid counting those trials twice.
-* `fair-irl-pause` doesn't pause hyperparameter tuning. Tuning passes
+* `frwo-pause` doesn't pause hyperparameter tuning. Tuning passes
   `--no-pause` to its experiments, because a trial has to run to completion to be
   scored. See [Pausing and resuming](#pausing-and-resuming) under tuning for its
   own commands.
@@ -347,11 +347,11 @@ Some details:
 
 Nine techniques can be trained and evaluated:
 
-* **FairIRL Bias Reduction** -- this project's own technique.
+* **Fairness Reward Weight Optimization** -- this project's own technique.
 * **Superhuman Fairness** -- the ICML 2023 technique of Memarrast et al.
   ([paper](https://proceedings.mlr.press/v202/memarrast23a/memarrast23a.pdf),
   [reference implementation](https://github.com/omidMemari/superhumn-fairness)),
-  ported in `src/fair_irl/sh/superhuman_fairness.py`.
+  ported in `src/frwo/sh/superhuman_fairness.py`.
 * **Superhuman Fairness Fixed** -- Superhuman Fairness with the normalization
   of its gradient's feature-matching term fixed. Upstream normalizes the
   expected feature vector by the whole training pool's size but each
@@ -365,7 +365,7 @@ Nine techniques can be trained and evaluated:
 * **Superhuman Fairness Neural Network** -- the neural network version of
   Superhuman Fairness from the reference implementation's
   [`reorg_current` branch](https://github.com/omidMemari/superhumn-fairness/tree/reorg_current),
-  ported in `src/fair_irl/sh/superhuman_fairness_nn.py`. It shares the
+  ported in `src/frwo/sh/superhuman_fairness_nn.py`. It shares the
   `SH_*` settings except its own `SH_NN_*` ones (including `SH_NN_LR_THETA`,
   which here is the network's Adam learning rate), and imitates the same
   demonstrations as Superhuman Fairness. It trains with PyTorch, on a GPU when
@@ -388,15 +388,15 @@ Nine techniques can be trained and evaluated:
 
 The last four are the fair-classification baselines the Superhuman Fairness
 paper compares itself against, ported from the same repository into
-`src/fair_irl/sh/baselines.py` (with the Rezaei et al. classifiers vendored
-verbatim in `src/fair_irl/sh/fair_logloss.py`).
+`src/frwo/sh/baselines.py` (with the Rezaei et al. classifiers vendored
+verbatim in `src/frwo/sh/fair_logloss.py`).
 
 Which techniques a run covers is the `ALGORITHMS` list in
 `configs/experiment.yaml`; list any combination:
 
 ```yaml
 ALGORITHMS:
-  - FairIRL Bias Reduction
+  - Fairness Reward Weight Optimization
   - Superhuman Fairness
   - Superhuman Fairness Fixed
   - Superhuman Fairness Neural Network
@@ -414,8 +414,8 @@ configured with its `ALGORITHM`; the plotting notebook selects one with its
 `selected_algorithm` variable.
 
 Each baseline draws from its own deterministically seeded random generator
-rather than the global one, so enabling any of them leaves the FairIRL results
-bit-identical to a FairIRL-only run. A baseline that fails on some split (the
+rather than the global one, so enabling any of them leaves the FRWO results
+bit-identical to a FRWO-only run. A baseline that fails on some split (the
 fair-log-loss optimizer can) is logged, its run marked `converged = False` --
 which is what the plotting notebook filters on -- and the trial carries on with
 the remaining techniques.
@@ -430,7 +430,7 @@ configured separately.
 # Figures
 
 Use VSCode or your IDE of choice to view and run the various python notebooks. 
-All figures and plots found in the paper are generated by [this notebook](notebooks/irl/Fair_IRL_Biased_Demonstrations_Plotting.ipynb).
+All figures and plots found in the paper are generated by [this notebook](notebooks/irl/FRWO_Biased_Demonstrations_Plotting.ipynb).
 
 # Publications
 

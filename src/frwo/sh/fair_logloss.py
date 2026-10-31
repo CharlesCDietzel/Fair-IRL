@@ -23,7 +23,7 @@ The file is deliberately left in the reference implementation's own formatting
 rather than this project's, so that it can be diffed against upstream. Keep it
 that way; do not run a formatter over it.
 
-`fair_irl.sh.baselines` wraps these classifiers so that they run on this
+`frwo.sh.baselines` wraps these classifiers so that they run on this
 project's data pipeline and are evaluated like every other model here.
 """
 

@@ -1,13 +1,13 @@
 """
-Hyperparameter tuning of FairIRL Bias Reduction and its baselines with W&B
-sweeps.
+Hyperparameter tuning of Fairness Reward Weight Optimization and its baselines
+with W&B sweeps.
 
 Each technique is tuned by its own sweep, configured by one of the files in
 configs/sweeps/: a search over that technique's hyperparameters that
 minimizes its mean validation subdominance, by a Bayesian search of 60 runs.
 One command does all of it:
 
-    uv run fair-irl-tune [--algorithm NAME] [--dataset NAME]
+    uv run frwo-tune [--algorithm NAME] [--dataset NAME]
 
 For every selected technique and dataset (or just the ones named) it creates a
 sweep, so that each dataset gets its own hyperparameters, runs trials until
@@ -19,13 +19,13 @@ make that technique's sweeps finish soonest on their own. What it has created
 is recorded in `.tuning_state/`, so that running the same command again after an
 interruption continues the same sweeps.
 
-`uv run fair-irl-tune-pause` lets the running trials finish and then exits, and
-`uv run fair-irl-tune-resume` continues from there.
+`uv run frwo-tune-pause` lets the running trials finish and then exits, and
+`uv run frwo-tune-resume` continues from there.
 
 Tuning is repeatable, so pausing it cannot change its results. A W&B sweep on
 its own is not: the server seeds each suggestion from a random request id, and
 what a suggestion is based on depends on which trials happen to have finished.
-So `fair-irl-tune` runs W&B's Bayesian search itself, from the `sweeps` package
+So `frwo-tune` runs W&B's Bayesian search itself, from the `sweeps` package
 the server uses, and starts the trials without a `wandb agent`:
 
 * Each suggestion has its own seed, made from `RANDOM_SEED`, the sweep's name
@@ -37,7 +37,7 @@ the server uses, and starts the trials without a `wandb agent`:
   any order and at any time without changing what is suggested.
 
 Each trial still is a W&B run of its sweep, so the sweep looks the same in the
-W&B UI. The run comes from `python -m fair_irl.sweep trial`: it runs the
+W&B UI. The run comes from `python -m frwo.sweep trial`: it runs the
 experiment script with the suggested hyperparameters as `--set` overrides, in a
 child process, and logs the objective the search minimizes. It runs on a copy of
 the experiment config made when the sweep was created, so that editing the
@@ -74,16 +74,16 @@ import numpy as np
 import wandb
 import yaml
 
-from fair_irl.config import (
+from frwo.config import (
     DEFAULT_CONFIG_PATH,
     build_experiment_plan,
     load_config,
     resolve_tuned_values,
     set_experiment_values,
 )
-from fair_irl.pause import is_alive, read_json, remove_file, write_json
+from frwo.pause import is_alive, read_json, remove_file, write_json
 
-# This module must not import `fair_irl.experiment_utils`: it pulls in PyTorch
+# This module must not import `frwo.experiment_utils`: it pulls in PyTorch
 # and every model library, close to 1 GB, which a sweep trial -- several at once,
 # alive for as long as its experiment runs -- does not need.
 
@@ -92,8 +92,8 @@ OBJECTIVE = "objective"
 
 # The `run_experiment_trial()` summary key the objective is the mean of, by
 # default. Validation, so that the test split stays untouched by tuning; sum
-# aggregated absolute subdominance, which is what FairIRL Bias Reduction's own
-# `opt_debias` weight search minimizes.
+# aggregated absolute subdominance, which is what Fairness Reward Weight
+# Optimization's own `opt_debias` weight search minimizes.
 DEFAULT_OBJECTIVE_KEY = "sum_abs_subdominance_val"
 
 # Set for each trial, and read by `wandb.init()`. A child process that inherits
@@ -103,16 +103,16 @@ SWEEP_ENV_VARS = ("WANDB_RUN_ID", "WANDB_SWEEP_ID", "WANDB_SWEEP_PARAM_PATH")
 REPO_ROOT = DEFAULT_CONFIG_PATH.parents[1]
 SWEEP_CONFIG_DIR = REPO_ROOT / "configs" / "sweeps"
 
-# What `fair-irl-tune` writes its results to, next to the config file it copies.
+# What `frwo-tune` writes its results to, next to the config file it copies.
 TUNED_CONFIG_PATH = DEFAULT_CONFIG_PATH.with_name(DEFAULT_CONFIG_PATH.name + ".new")
 
-# The W&B project of `fair-irl-tune`'s sweeps. It is not the project the final
+# The W&B project of `frwo-tune`'s sweeps. It is not the project the final
 # experiments report to because the plotting notebook loads the most recent
 # session of its project, and every sweep trial's runs form a session.
-TUNING_PROJECT = "fair-irl-tuning"
+TUNING_PROJECT = "frwo-tuning"
 
-# What `fair-irl-tune` keeps while tuning: a directory per sweep it has yet to
-# finish, a record per `fair-irl-tune` that is running, and its trials' logs.
+# What `frwo-tune` keeps while tuning: a directory per sweep it has yet to
+# finish, a record per `frwo-tune` that is running, and its trials' logs.
 TUNE_STATE_DIR = REPO_ROOT / ".tuning_state"
 TUNE_SWEEP_DIR = TUNE_STATE_DIR / "sweeps"
 TUNE_RUNNING_DIR = TUNE_STATE_DIR / "running"
@@ -123,7 +123,7 @@ TUNE_LOG_DIR = TUNE_STATE_DIR / "logs"
 # this many in a row from the start.
 MAX_INITIAL_FAILURES = 20
 
-# How long `fair-irl-tune` waits between checks of its trials.
+# How long `frwo-tune` waits between checks of its trials.
 POLL_SECONDS = 2
 
 # The seconds a stopped trial gets to end before it is killed.
@@ -139,10 +139,10 @@ TRIAL_FAILED = "failed"
 
 def _scored_runs(runs):
     """
-    The runs the objective is computed over: every run, except FairIRL Bias
-    Reduction's runs with the unadjusted weights. Those are only its starting
-    point; its results are the runs of its weight adjustments. The experiment
-    script marks which is which, as each run's `scored`.
+    The runs the objective is computed over: every run, except Fairness Reward
+    Weight Optimization's runs with the unadjusted weights. Those are only its
+    starting point; its results are the runs of its weight adjustments. The
+    experiment script marks which is which, as each run's `scored`.
     """
     return [run for run in runs if run["scored"]]
 
@@ -194,7 +194,7 @@ def run_trial(args):
         command = [
             sys.executable,
             "-m",
-            "fair_irl.Fair_IRL_Biased_Demonstrations",
+            "frwo.FRWO_Biased_Demonstrations",
             "--config",
             args.config,
             "--results-file",
@@ -248,7 +248,7 @@ def run_trial(args):
 def _dataset_sweep_config(sweep_config, dataset):
     """The config of the sweep of `sweep_config` on `dataset`."""
     config = copy.deepcopy(sweep_config)
-    # How `fair-irl-tune` schedules the sweep, which is none of W&B's business.
+    # How `frwo-tune` schedules the sweep, which is none of W&B's business.
     del config["parallel_sweeps"]
     config["name"] = f"{sweep_config['name']} | {dataset}"
     config["project"] = TUNING_PROJECT
@@ -259,7 +259,7 @@ def _dataset_sweep_config(sweep_config, dataset):
 @dataclass
 class TuningSweep:
     """
-    One sweep of `fair-irl-tune`, and how far it has got.
+    One sweep of `frwo-tune`, and how far it has got.
 
     Attributes
     ----------
@@ -278,7 +278,7 @@ class TuningSweep:
     directory : pathlib.Path
         Where its state is kept, including its copy of the experiment config.
     position : int
-        Its place in the order `fair-irl-tune` was asked to tune.
+        Its place in the order `frwo-tune` was asked to tune.
     exp_info : dict
         The `exp_info` of the experiment the sweep tunes.
     trials : list<dict>
@@ -287,7 +287,7 @@ class TuningSweep:
     processes : dict<int, subprocess.Popen>
         Its trials that are running, by index.
     paused : bool
-        Whether `fair-irl-tune-pause` paused it.
+        Whether `frwo-tune-pause` paused it.
     gave_up : bool
         Whether it kept failing before it could finish.
     """
@@ -376,7 +376,7 @@ def _load_sweep_configs():
 
 def _tune_targets(args, plan, sweep_configs):
     """
-    What `fair-irl-tune` was asked to tune.
+    What `frwo-tune` was asked to tune.
 
     Returns
     -------
@@ -461,7 +461,7 @@ def _fetch_sweep(path):
 
 def _can_continue(saved, config, parallel_sweeps, exp_info):
     """
-    Whether a sweep from an earlier `fair-irl-tune` is the one it would create
+    Whether a sweep from an earlier `frwo-tune` is the one it would create
     now: changing its config, its experiment or what its suggestions are based
     on would mix results from different conditions.
     """
@@ -483,7 +483,7 @@ def _can_continue(saved, config, parallel_sweeps, exp_info):
 def _open_sweeps(targets, sweep_configs):
     """
     Create the sweeps of `targets`, or find the ones an interrupted
-    `fair-irl-tune` left, as long as nothing they depend on has changed since.
+    `frwo-tune` left, as long as nothing they depend on has changed since.
     """
     entity = os.environ.get("WANDB_ENTITY") or _api().default_entity
 
@@ -805,7 +805,7 @@ def _end_wandb_sweep(sweep):
 
 def _running_tuners():
     """
-    The record of every `fair-irl-tune` that is running. One left behind by a
+    The record of every `frwo-tune` that is running. One left behind by a
     process that died without cleaning up is removed, and doesn't count.
     """
     if not TUNE_RUNNING_DIR.exists():
@@ -828,7 +828,7 @@ def _pause_request_path(pid):
 class _TuningRegistration:
     """
     Records this process as tuning `names` for as long as the `with` block lasts,
-    which is how `fair-irl-tune-pause` finds it, and how two of them are kept
+    which is how `frwo-tune-pause` finds it, and how two of them are kept
     from running the same sweep.
     """
 
@@ -842,7 +842,7 @@ class _TuningRegistration:
             taken = sorted(set(other["sweeps"]) & set(self.names))
             if taken:
                 sys.exit(
-                    f"Another fair-irl-tune (pid {other['pid']}) is already running"
+                    f"Another frwo-tune (pid {other['pid']}) is already running"
                     f" these sweeps: {taken}."
                 )
         write_json(self.record_path, {"pid": os.getpid(), "sweeps": self.names})
@@ -874,7 +874,7 @@ def _tune(sweeps, registration):
         for sweep in sweeps:
             sweep.paused = True
             _save_sweep(sweep)
-        _log("Tuning is paused. Resume it with `uv run fair-irl-tune-resume`.")
+        _log("Tuning is paused. Resume it with `uv run frwo-tune-resume`.")
         return
     except KeyboardInterrupt:
         _log("Stopping the trials. Run the same command again to continue.")
@@ -904,7 +904,7 @@ def _tune(sweeps, registration):
 
 def parse_tune_args(argv=None):
     parser = argparse.ArgumentParser(
-        prog="fair-irl-tune",
+        prog="frwo-tune",
         description=(
             "Tune hyperparameters with W&B sweeps: create the sweeps, run their"
             f" trials, and write the best values found to {TUNED_CONFIG_PATH.name}"
@@ -945,8 +945,8 @@ def tune_main(argv=None):
     if paused:
         sys.exit(
             f"These sweeps are paused: {paused}. Resume them with `uv run"
-            " fair-irl-tune-resume`, or discard them with `uv run"
-            " fair-irl-tune-resume --discard`."
+            " frwo-tune-resume`, or discard them with `uv run"
+            " frwo-tune-resume --discard`."
         )
 
     with _TuningRegistration(names) as registration:
@@ -954,12 +954,12 @@ def tune_main(argv=None):
 
 
 def tune_pause_main(argv=None):
-    """The `fair-irl-tune-pause` command."""
+    """The `frwo-tune-pause` command."""
     parser = argparse.ArgumentParser(
-        prog="fair-irl-tune-pause",
+        prog="frwo-tune-pause",
         description=(
             "Pause all running hyperparameter tuning once its current trials"
-            " finish. Resume it with `uv run fair-irl-tune-resume`."
+            " finish. Resume it with `uv run frwo-tune-resume`."
         ),
     )
     parser.add_argument(
@@ -985,18 +985,18 @@ def tune_pause_main(argv=None):
     else:
         print(
             f"Tuning of {n_sweeps} sweeps will pause once its current trials"
-            " finish. Resume it with `uv run fair-irl-tune-resume`."
+            " finish. Resume it with `uv run frwo-tune-resume`."
         )
 
 
 def tune_resume_main(argv=None):
-    """The `fair-irl-tune-resume` command."""
+    """The `frwo-tune-resume` command."""
     parser = argparse.ArgumentParser(
-        prog="fair-irl-tune-resume",
+        prog="frwo-tune-resume",
         description=(
             "Resume the hyperparameter tuning paused with `uv run"
-            " fair-irl-tune-pause`, and write the best values found when it"
-            " finishes, as `fair-irl-tune` does."
+            " frwo-tune-pause`, and write the best values found when it"
+            " finishes, as `frwo-tune` does."
         ),
     )
     parser.add_argument(
@@ -1029,7 +1029,7 @@ def parse_args(argv=None):
 
     trial = subparsers.add_parser(
         "trial",
-        help="Run one sweep trial. Started by `fair-irl-tune`, not by hand.",
+        help="Run one sweep trial. Started by `frwo-tune`, not by hand.",
     )
     trial.add_argument("--config", default=str(DEFAULT_CONFIG_PATH))
     trial.add_argument(
