@@ -147,14 +147,8 @@ def input_columns(feature_types):
     """
     The columns of `X` every model and MDP is built from, `z` included.
 
-    These are the 'boolean', 'categoric' and 'continuous' columns, plus, for
-    the datasets that have any, the 'passthrough' ones (see
-    `sklearn_clf_pipeline()`) and the 'protected' ones. A 'protected' column
-    is kept in `X` as the protected attribute but is never a classifier input:
-    it is for datasets that already carry their sensitive attribute, in their
-    own coding, among their model inputs, so that `z` can be added in this
-    project's {0, 1} coding without changing those inputs.
-    A new list is returned on every call, so callers may modify it.
+    These are the 'boolean', 'categoric' and 'continuous' columns. A new list
+    is returned on every call, so callers may modify it.
 
     Parameters
     ----------
@@ -169,8 +163,6 @@ def input_columns(feature_types):
         feature_types["boolean"]
         + feature_types["categoric"]
         + feature_types["continuous"]
-        + feature_types.get("passthrough", [])
-        + feature_types.get("protected", [])
     )
 
 
@@ -186,12 +178,8 @@ def sklearn_clf_pipeline(feature_types, clf_inst):
     feature_types : dict<str, list>
         Specifies which type of feature each column is; used for feature
         engineering. Keys are feature types ('boolean', 'categoric',
-        'continuous', 'meta', and optionally 'passthrough'). Values are lists
-        of the columns with that feature type. 'passthrough' columns are
-        already numeric model inputs, and reach the classifier unchanged; the
-        Superhuman Fairness paper's datasets, which come pre-encoded, are made
-        of them. Any 'protected' column is left out of the classifier's inputs
-        (see `input_columns()`).
+        'continuous', 'meta'). Values are lists of the columns with that
+        feature type.
     clf_inst : sklearn.base.BaseEstimator, ClassifierMixin
         Sklearn classifier instance. E.g. `RandomForestClassifier()`.
 
@@ -236,9 +224,6 @@ def sklearn_clf_pipeline(feature_types, clf_inst):
 
     if len(feature_types["boolean"]) > 0:
         transformers.append(("bool", categoric_trf, feature_types["boolean"]))
-
-    if len(feature_types.get("passthrough", [])) > 0:
-        transformers.append(("pass", "passthrough", feature_types["passthrough"]))
 
     preprocessor = ColumnTransformer(
         transformers=transformers,

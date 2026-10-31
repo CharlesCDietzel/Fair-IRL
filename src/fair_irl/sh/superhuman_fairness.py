@@ -10,8 +10,7 @@ specifically of `Super_human.update_model()` in that repository's `main.py`
 and of every method it calls (`sample_superhuman()`,
 `get_samples_demo_indexed()`, `get_sample_loss()`, `compute_exp_phi_X_Y()`,
 `feature_matching()`, `compute_grad_theta()`, `compute_alpha()`,
-`eval_model()`) plus `run_demo_baseline()`, which produces its
-demonstrations.
+`eval_model()`).
 
 The algorithm itself is unchanged. Only the three things that have to change
 for it to run inside this project are different:
@@ -60,14 +59,13 @@ learning from the demonstrations. `fix_normalization=True` (the "Superhuman
 Fairness Fixed" technique) normalizes `E[phi]` like `phi_j`, which leaves only
 the demonstration-specific signal. See `_compute_feature_matching()`.
 
-The original's COMPAS-only initialization of `theta` from a fair log-loss
-classifier is available as `base_theta_init="fair_logloss_dp"`, off by
-default; see `SuperhumanFairness._fit_base_model()`.
+The `NN` base model is ported separately, from the reference implementation's
+`reorg_current` branch, in `fair_irl.sh.superhuman_fairness_nn`.
 
-Not ported: the `NN` base model (`-m NN`), which needs PyTorch and is not the
-configuration the paper's main results use, and the `fair_logloss`
-demonstration baseline (`-b fair_logloss`), which is not the demonstrator the
-paper's figures use. Both are called out where they would attach.
+Not ported: the original's own demonstrators (`-b pp` and `-b fair_logloss`),
+since the demonstrations here are this project's expert's (see
+`build_expert_demo_list()`), and its COMPAS-only initialization of `theta`
+from a fair log-loss classifier.
 """
 
 import logging
@@ -88,11 +86,6 @@ from sklearn.metrics import balanced_accuracy_score, zero_one_loss
 from sklearn.model_selection import train_test_split
 
 from fair_irl.rl.objectives import OBJ_LOOKUP_BY_NAME, ObjectiveSet
-from fair_irl.sh.baselines import (
-    FAIR_LOGLOSS_C,
-    FAIR_LOGLOSS_CLASSIFIERS,
-    fit_post_processing_model,
-)
 from fair_irl.utils import sklearn_clf_pipeline
 
 # The original's `logi_params` (main.py). `penalty="l2"` is spelled here as
@@ -111,27 +104,10 @@ SH_DEFAULT_LOGI_PARAMS = {
 SH_DEFAULT_LR_THETA = 0.01
 SH_DEFAULT_ITERS = 30
 SH_DEFAULT_LAMDA = 0.001
-SH_DEFAULT_NUM_OF_DEMOS = 50
-# `alpha`/`beta` in main.py: the fraction of the data the base model is fit on,
-# and the fraction of a demonstration's data its baseline is fit on.
+# `alpha` in main.py: the fraction of the data the base model is fit on.
 SH_BASE_MODEL_TRAIN_FRAC = 0.5
-SH_DEMO_TRAIN_FRAC = 0.5
-# The `random_state` hard-coded in the original's splits. The one it uses for
-# class balancing lives with the post-processing model, in
-# `fair_irl.sh.baselines`.
+# The `random_state` hard-coded in the original's splits.
 SH_SPLIT_RANDOM_STATE = 12345
-
-# The ways `theta` can be initialized, i.e. the valid `base_theta_init`s:
-# "logistic_regression" is the original's general path; the others replace the
-# logistic regression's coefficients with those of the fair log-loss
-# classifier of that fairness constraint, which the original does for COMPAS
-# (with demographic parity).
-SH_BASE_THETA_INITS = {
-    "logistic_regression": None,
-    "fair_logloss_dp": "demographic_parity",
-    "fair_logloss_eqodds": "equalized_odds",
-    "fair_logloss_eqopp": "equalized_opportunity",
-}
 
 
 def compute_alphas(raw_demos_feat_loss, clf_demos_feat_loss, lamda=SH_DEFAULT_LAMDA):
@@ -515,9 +491,6 @@ class SuperhumanFairness:
         used (rather than the global numpy random state) so that enabling this
         baseline cannot shift the random draws of the FairIRL technique running
         alongside it.
-    base_theta_init : str, default "logistic_regression"
-        How the starting `theta` is obtained; one of `SH_BASE_THETA_INITS`.
-        See `_fit_base_model()`.
     fix_normalization : bool, default False
         Normalize `E[phi(X, Y)]` by each demonstration's size, like
         `phi(X, Y)` itself, instead of by the whole pool's size as upstream
@@ -549,14 +522,8 @@ class SuperhumanFairness:
         lamda=SH_DEFAULT_LAMDA,
         logi_params=None,
         rng=None,
-        base_theta_init="logistic_regression",
         fix_normalization=False,
     ):
-        if base_theta_init not in SH_BASE_THETA_INITS:
-            raise ValueError(
-                f"Unrecognized base_theta_init: {base_theta_init!r}."
-                f" Valid values are {list(SH_BASE_THETA_INITS)}."
-            )
         self.feature_types = feature_types
         self.feature_names = list(feature_names)
         self.num_of_features = len(self.feature_names)
@@ -566,7 +533,6 @@ class SuperhumanFairness:
         self.lamda = lamda
         self.logi_params = dict(logi_params or SH_DEFAULT_LOGI_PARAMS)
         self.rng = rng if rng is not None else np.random.default_rng()
-        self.base_theta_init = base_theta_init
         self.fix_normalization = fix_normalization
 
         self.pipeline_ = None
@@ -629,12 +595,6 @@ class SuperhumanFairness:
 
         `Super_human.base_model()`: a logistic regression fit on a stratified
         half of the training pool.
-
-        With `base_theta_init` set to one of the fair log-loss options, the
-        logistic regression's coefficients are then replaced with those of a
-        fair log-loss classifier fit on the same half, as the original does
-        for its COMPAS dataset (with demographic parity). See
-        `_init_theta_from_fair_logloss()`.
         """
         X_base, _, y_base, _ = train_test_split(
             X,
@@ -650,60 +610,8 @@ class SuperhumanFairness:
         )
         self.pipeline_.fit(X_base, y_base)
 
-        fair_logloss_mode = SH_BASE_THETA_INITS[self.base_theta_init]
-        if fair_logloss_mode is not None:
-            self._init_theta_from_fair_logloss(X_base, y_base, fair_logloss_mode)
-
         # `eval_model()` thresholds at the mean of the training labels.
         self.threshold_ = float(np.mean(np.asarray(y)))
-
-    def _init_theta_from_fair_logloss(self, X_base, y_base, mode):
-        """
-        Replace `theta` with a fair log-loss classifier's coefficients.
-
-        The COMPAS branch of `Super_human.base_model()`: fit the fair log-loss
-        classifier of `mode` (with the original's `C=.005` and random start)
-        on the base model's half of the pool, and take its weights, minus its
-        trailing intercept, as `theta`. The logistic regression's own
-        intercept is kept, as upstream, since only `coef_` is replaced.
-
-        Upstream fits it on a copy of the raw features in which every column
-        with values outside [0, 1] is standardized -- twice, with the same
-        mean and standard deviation both times, since the assignment is
-        duplicated. That is reproduced as-is on the design matrix. On the
-        original's COMPAS encoding the only such column is already
-        standardized, which makes both passes all but no-ops.
-
-        The classifier's random start draws from numpy's global random state,
-        which is seeded from this model's own generator and then restored, as
-        `FairLogLossBaseline.fit()` does, so the rest of the experiment's
-        random draws are unaffected.
-        """
-        design = np.array(
-            self.pipeline_.named_steps["preprocessor"].transform(X_base), dtype=float
-        )
-        for c in range(design.shape[1]):
-            if design[:, c].min() < 0 or design[:, c].max() > 1:
-                mu = design[:, c].mean()
-                s = design[:, c].std(ddof=0)
-                design[:, c] = (design[:, c] - mu) / s
-                design[:, c] = (design[:, c] - mu) / s
-
-        h = FAIR_LOGLOSS_CLASSIFIERS[mode](
-            C=FAIR_LOGLOSS_C, random_initialization=True, verbose=False
-        )
-        state = np.random.get_state()
-        try:
-            np.random.seed(int(self.rng.integers(0, 2**32)))
-            h.fit(
-                design,
-                np.asarray(y_base).astype(float),
-                np.asarray(X_base["z"]).astype(float),
-            )
-        finally:
-            np.random.set_state(state)
-
-        self._update_model_theta(h.theta[:-1])
 
     def _get_model_theta(self):
         return self.pipeline_.named_steps["classifier"].coef_[0]
@@ -909,9 +817,6 @@ class SuperhumanFairness:
         The training loop.
 
         `Super_human.update_model()`, restricted to its `LR` base model branch.
-        The `NN` branch is not ported: it needs PyTorch, which this project
-        does not depend on, and the paper's reported results use the logistic
-        regression model.
         """
         gamma_superhuman_arr = []
         gamma_degrade = 0
@@ -1039,109 +944,3 @@ def build_expert_demo_list(demo_df, group_idxs, loss_fn):
         SuperhumanDemo(idx=idx, metric=loss_fn(y[idx], yhat[idx], z[idx]))
         for idx in group_idxs
     ]
-
-
-def build_pp_demo_list(
-    X,
-    y,
-    feature_types,
-    loss_fn,
-    num_of_demos=SH_DEFAULT_NUM_OF_DEMOS,
-    constraints="demographic_parity",
-    logi_params=None,
-    rng=None,
-):
-    """
-    Build the demonstration list the way the original paper does.
-
-    `Super_human.prepare_test_pp()` and `run_demo_baseline()` with
-    `demo_baseline="pp"`: for each demonstration, shuffle the training pool,
-    split it in half, fit a logistic regression on the first half, wrap it in a
-    fairlearn `ThresholdOptimizer` fit on a class-balanced subsample, and score
-    its decisions on the held-out half.
-
-    The original's `demo_baseline="fair_logloss"` alternative is not ported.
-
-    The original's label/protected-attribute noise injection (`-n True`) is not
-    ported either: this project injects its own dataset bias upstream, before
-    the data is split, and the demonstrations here are built from those
-    already-biased labels.
-
-    Parameters
-    ----------
-    X : pandas.DataFrame
-        The training pool's input columns, including `z`.
-    y : pandas.Series
-        The training pool's labels, aligned with `X`.
-    feature_types : dict<str, list>
-        Used to build the demonstration baseline's preprocessing pipeline.
-    loss_fn : callable(y_true, y_pred, z) -> numpy.ndarray
-    num_of_demos : int, default 50
-        The original's `num_of_demos`.
-    constraints : str, default "demographic_parity"
-        The `ThresholdOptimizer` constraint the demonstrator satisfies.
-    logi_params : dict, Optional
-        Defaults to `SH_DEFAULT_LOGI_PARAMS`.
-    rng : numpy.random.Generator, Optional
-        Source of the per-demonstration shuffles, replacing the original's
-        `shuffle(dataset, random_state=random.randint(0, 10000000))`. A
-        dedicated generator keeps this baseline from shifting the global random
-        state the FairIRL technique draws from.
-
-    Returns
-    -------
-    demo_list : list<SuperhumanDemo>
-    """
-    logi_params = dict(logi_params or SH_DEFAULT_LOGI_PARAMS)
-    rng = rng if rng is not None else np.random.default_rng()
-
-    n = len(X)
-    positions = np.arange(n)
-    y_values = np.asarray(y)
-
-    demo_list = []
-    for i in range(num_of_demos):
-        shuffled = rng.permutation(positions)
-        idx_train, idx_test = train_test_split(
-            shuffled,
-            test_size=1 - SH_DEMO_TRAIN_FRAC,
-            random_state=SH_SPLIT_RANDOM_STATE,
-            stratify=y_values[shuffled],
-        )
-
-        X_train = X.iloc[idx_train]
-        y_train = y.iloc[idx_train]
-        X_test = X.iloc[idx_test]
-
-        # The demonstrator is the same post-processing model the paper also
-        # evaluates as a baseline in its own right, so both go through
-        # `fit_post_processing_model()`.
-        postprocess_est = fit_post_processing_model(
-            X_train,
-            y_train,
-            feature_types=feature_types,
-            constraints=constraints,
-            logi_params=logi_params,
-        )
-        # Post-process preds
-        baseline_preds = postprocess_est.predict(
-            X_test,
-            sensitive_features=X_test["z"],
-            # Drawn from the dedicated generator for the same reason the
-            # shuffles above are.
-            random_state=int(rng.integers(0, 2**31 - 1)),
-        )
-
-        demo_list.append(
-            SuperhumanDemo(
-                idx=idx_test,
-                metric=loss_fn(
-                    y_values[idx_test],
-                    baseline_preds,
-                    np.asarray(X_test["z"]),
-                ),
-            )
-        )
-        logging.debug(f"\t\t built pp demonstration {i + 1}/{num_of_demos}")
-
-    return demo_list

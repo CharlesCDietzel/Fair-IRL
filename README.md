@@ -49,19 +49,15 @@ After the experiment is run, see [here](#figures) for how to generate the paper'
 
 Every experiment setting lives in `configs/experiment.yaml`. That covers which
 datasets, experts and techniques are run, and every technique's
-hyperparameters. Its comments document each setting. The file has four parts:
+hyperparameters. Its comments document each setting. The file has three parts:
 
 * `SELECTED_DATASETS`, `EXPERT_ALGOS` and `RANDOM_SEED` at the top: which
   experiments run, with which experts, and the global random seed.
 * `common`: the settings shared by every experiment.
-* `presets`: named groups of settings that an experiment can opt into. The only
-  one is `sh_paper`, the Superhuman Fairness paper's conditions (see
-  [below](#reproducing-the-superhuman-fairness-paper)).
 * `experiments`: one entry per dataset, holding that dataset's own settings.
 
-Each experiment's settings are `common`, then its presets, then its own entry.
-Each later layer overrides the earlier ones, so a value set in an
-experiment's entry applies to that dataset only.
+Each experiment's settings are `common`, then its own entry, which overrides
+it, so a value set in an experiment's entry applies to that dataset only.
 
 Run the experiments with either of these commands:
 
@@ -265,7 +261,7 @@ See `src/fair_irl/sweep.py` for the details of how a trial is run.
 `configs/experiment.yaml.new` has exactly the same contents as
 `configs/experiment.yaml`, comments included, except for the hyperparameters
 that were tuned. Each of those is set to the best value its sweep found, in its
-dataset's entry under `experiments`, where it overrides `common` and any preset.
+dataset's entry under `experiments`, where it overrides `common`.
 If the entry doesn't have that setting yet, it's added at the end of the entry.
 FairIRL Bias Reduction's best optimizer is written as the entry's
 `WEIGHT_ADJUST_LIST`, keeping its evaluation budget.
@@ -395,12 +391,6 @@ paper compares itself against, ported from the same repository into
 `src/fair_irl/sh/baselines.py` (with the Rezaei et al. classifiers vendored
 verbatim in `src/fair_irl/sh/fair_logloss.py`).
 
-That paper's remaining baseline, **MFOpt** (Hsu et al., 2022), is not
-available. Its reference repository ships no implementation of it -- only CSVs
-of predictions its authors produced elsewhere -- and Hsu et al. published no
-code, so there is nothing to port and any implementation here would be a
-reconstruction of the paper rather than the published method.
-
 Which techniques a run covers is the `ALGORITHMS` list in
 `configs/experiment.yaml`; list any combination:
 
@@ -431,37 +421,11 @@ which is what the plotting notebook filters on -- and the trial carries on with
 the remaining techniques.
 
 The techniques' own parameters live next to `ALGORITHMS` in the same config
-file and are documented there: the `SH_*` entries for Superhuman Fairness (which
-demonstrations it imitates, which performance/fairness measures it optimizes,
-its learning rate and iteration count) and the `FAIR_LOGLOSS_DP_*` and
+file and are documented there: the `SH_*` entries for Superhuman Fairness (how
+many demonstrations it imitates, which performance/fairness measures it
+optimizes, its learning rate and iteration count) and the `FAIR_LOGLOSS_DP_*` and
 `FAIR_LOGLOSS_EQODDS_*` entries for the two fair-log-loss baselines, which are
 configured separately.
-
-### Reproducing the Superhuman Fairness paper
-
-The Superhuman Fairness paper's own versions of its two datasets are available as the `Adult_SH`
-and `COMPAS_SH` datasets. They are the reference implementation's
-already-encoded `dataset/<name>/dataset_ref.csv` files, which this repository
-does not track; copy them from
-[its repository](https://github.com/omidMemari/superhumn-fairness) to
-`data/superhuman_fairness/Adult/dataset_ref.csv` and
-`data/superhuman_fairness/COMPAS/dataset_ref.csv`. They differ from this
-project's `Adult` and `COMPAS` in their rows, encoding, label and protected
-attribute (see their loaders in `src/fair_irl/datasets.py`).
-
-Listing either in `SELECTED_DATASETS` runs it under the paper's experimental
-conditions, which the `sh_paper` preset in `configs/experiment.yaml` sets: the paper's post-processing demonstrations, measures, hyperparameters and
-stratified half/half split, plus, for COMPAS, the learning rate
-(`lr_theta = 0.0001`), iteration count (5) and fair log-loss initialization
-its runs used. Then set `plot_demo_source = "superhuman"` and
-`fair_logloss_paper_metrics = True` in the plotting notebook to draw the
-figures the way the paper does.
-
-The Superhuman Fairness paper's own demonstrator -- the post-processing model
-its `SH_DEMO_SOURCE = "pp_baseline"` setting learns from -- is also available
-to the FairIRL Bias Reduction technique as the `PostProcDemo` entry of
-`EXPERT_ALGOS`. It takes its fairness constraint from `SH_DEMO_CONSTRAINTS`,
-so selecting it makes both techniques imitate the same demonstrator.
 
 # Figures
 

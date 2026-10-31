@@ -31,13 +31,6 @@ had to, for them to run here:
   already coded {0, 1}, which is what those branches were shifting *to*, so
   there is nothing to shift.
 
-The paper's fifth baseline, MFOpt (Hsu et al., 2022), is deliberately absent:
-the reference repository contains no implementation of it, only CSVs of
-predictions its authors produced elsewhere (`experiments/test/MFOpt_*.csv`),
-and Hsu et al. published no official code. There is therefore nothing to port,
-and anything written here would be a reconstruction rather than the published
-method.
-
 Every baseline exposes `predict()`, so that `generate_demo()` and
 `_evaluate_policy()` can score it exactly like a learned FairIRL policy.
 """
@@ -113,10 +106,10 @@ def fit_post_processing_model(
     """
     Fit the post-processing model of Hardt et al. (2016).
 
-    `Super_human.eval_model_baseline()` with `baseline="pp"`, and the same
-    model `run_demo_baseline()` builds the paper's demonstrations from: a
-    logistic regression, wrapped in a fairlearn `ThresholdOptimizer` that is
-    fit on a class-balanced subsample of the same data.
+    `Super_human.eval_model_baseline()` with `baseline="pp"`, and the model
+    the `PostProcDemo` expert uses: a logistic regression, wrapped in a
+    fairlearn `ThresholdOptimizer` that is fit on a class-balanced subsample of
+    the same data.
 
     Parameters
     ----------
@@ -353,35 +346,3 @@ class FairLogLossBaseline:
         # As the original does, right after predicting.
         preds[np.isnan(preds)] = 1
         return preds.astype(np.int64)
-
-    def predict_proba_positive(self, X):
-        """The model's own probability of the positive class."""
-        return np.asarray(
-            self.model_.predict_proba(
-                self._design(X), np.asarray(X["z"]).astype(float)
-            ),
-            dtype=float,
-        )
-
-    def expected_error(self, X, y):
-        """
-        The model's own expected zero-one loss, `util.compute_error()`.
-
-        The original reports this in place of the measured zero-one loss for
-        these baselines, "since fair logloss uses expected violation". Here it
-        is reported alongside the shared evaluation rather than in place of any
-        of it, so that every model's headline metrics stay comparable.
-        """
-        proba = self.predict_proba_positive(X)
-        y_values = np.asarray(y)
-        return float(np.mean(np.where(y_values == 1, 1 - proba, proba)))
-
-    def fairness_violation(self, X, y):
-        """The model's own fairness violation, as the original reports it."""
-        return float(
-            self.model_.fairness_violation(
-                self._design(X),
-                np.asarray(y).astype(float),
-                np.asarray(X["z"]).astype(float),
-            )
-        )

@@ -60,10 +60,8 @@ from .sh.superhuman_fairness import (
     SH_DEFAULT_LAMDA,
     SH_DEFAULT_LOGI_PARAMS,
     SH_DEFAULT_LR_THETA,
-    SH_DEFAULT_NUM_OF_DEMOS,
     SuperhumanFairness,
     build_expert_demo_list,
-    build_pp_demo_list,
     compute_alphas,
     make_feature_loss_fn,
     feature_losses_from_demo,
@@ -733,14 +731,10 @@ def generate_expert_algo_lookup(feature_types, exp_info=None):
         lambda row: int(row["decile_score"] >= 6)
     )
 
-    # PostProcDemo: the demonstrator of the Superhuman Fairness paper -- a
-    # logistic regression post-processed by a fairlearn ThresholdOptimizer that
-    # is fit on a class-balanced subsample (see `fit_post_processing_model()`).
-    # It is the very model `SH_DEMO_SOURCE="pp_baseline"` builds that
-    # baseline's demonstrations from, so selecting it here lets the FairIRL
-    # Bias Reduction technique learn from the same demonstrator the paper's
-    # own technique does. Its fairness constraint is the demonstrator's
-    # `SH_DEMO_CONSTRAINTS`, so both use the same one.
+    # PostProcDemo: a logistic regression post-processed by a fairlearn
+    # ThresholdOptimizer that is fit on a class-balanced subsample (see
+    # `fit_post_processing_model()`). Its fairness constraint is
+    # `SH_DEMO_CONSTRAINTS`.
     #
     # Unlike the `Hardt*` experts, whose ThresholdOptimizers draw their
     # prediction-time randomization from the global numpy random state, this
@@ -847,10 +841,7 @@ SUBDOMINANCE_KEYS = tuple(
 #
 # The four names after them are the fair-classification baselines the
 # Superhuman Fairness paper compares itself against, ported in
-# `fair_irl.sh.baselines`. Its fifth, MFOpt (Hsu et al., 2022), is absent
-# because its reference repository ships no implementation of it -- only CSVs
-# of predictions produced elsewhere -- and its authors published no code; see
-# the module docstring of `fair_irl.sh.baselines`.
+# `fair_irl.sh.baselines`.
 ALGORITHM_FAIRIRL = "FairIRL Bias Reduction"
 ALGORITHM_SUPERHUMAN = "Superhuman Fairness"
 ALGORITHM_SUPERHUMAN_FIXED = "Superhuman Fairness Fixed"
@@ -914,19 +905,13 @@ FAIR_LOGLOSS_DEFAULTS = {
 # overridable through the correspondingly named `exp_info` key; see
 # `_superhuman_config()`.
 SH_DEFAULTS = {
-    # "expert_demos": imitate this project's expert, on the same demonstration
-    #   groups the subdominance metric scores every policy against.
-    # "pp_baseline": imitate the original paper's own demonstrator, a logistic
-    #   regression post-processed by a fairlearn ThresholdOptimizer.
-    "SH_DEMO_SOURCE": "expert_demos",
     # The performance/fairness measures the baseline optimizes, as objective
     # names (e.g. "Acc", "DemPar") or the original paper's metric names (e.g.
     # "inacc", "dp"). `None` uses this experiment's subdominance metrics, so
     # that the baseline optimizes exactly what both techniques are scored on.
     "SH_FEATURES": None,
     # How many demonstrations to imitate. `None` uses every group the
-    # subdominance metric already sampled ("expert_demos"), or the original's
-    # 50 ("pp_baseline").
+    # subdominance metric already sampled.
     "SH_NUM_DEMOS": None,
     "SH_ITERS": SH_DEFAULT_ITERS,
     "SH_LR_THETA": SH_DEFAULT_LR_THETA,
@@ -959,23 +944,14 @@ SH_DEFAULTS = {
     "SH_NN_FIXED_LR_BOOST_FACTOR": SH_NN_DEFAULT_LR_BOOST_FACTOR,
     "SH_NN_FIXED_LR_DECAY_GAMMA_FRAC": SH_NN_DEFAULT_LR_DECAY_GAMMA_FRAC,
     "SH_NN_FIXED_DEVICE": None,
-    # The fairness constraint the "pp_baseline" demonstrator satisfies. Unused
-    # by the "expert_demos" source.
+    # The fairness constraint the PostProcDemo expert satisfies.
     "SH_DEMO_CONSTRAINTS": "demographic_parity",
-    # How the starting `theta` is obtained; one of `SH_BASE_THETA_INITS`.
-    # "logistic_regression" is the original's general path; "fair_logloss_dp"
-    # is what it does for its COMPAS dataset.
-    "SH_BASE_THETA_INIT": "logistic_regression",
 }
 
 
 def _build_superhuman_lr(common, sh_config, fix_normalization):
     """A logistic regression `SuperhumanFairness`."""
-    return SuperhumanFairness(
-        **common,
-        base_theta_init=sh_config["SH_BASE_THETA_INIT"],
-        fix_normalization=fix_normalization,
-    )
+    return SuperhumanFairness(**common, fix_normalization=fix_normalization)
 
 
 def _build_superhuman_nn(common, sh_config, prefix, fix_gradient):
@@ -1002,9 +978,8 @@ def _build_superhuman_nn(common, sh_config, prefix, fix_gradient):
 #
 # Superhuman Fairness Fixed differs from Superhuman Fairness only in
 # `fix_normalization`: see `SuperhumanFairness._compute_feature_matching()`.
-# Superhuman Fairness Neural Network is `SuperhumanFairnessNN`, which ignores
-# SH_BASE_THETA_INIT (see its module docstring), and Superhuman Fairness Neural
-# Network Fixed differs from it only in `fix_gradient`: see
+# Superhuman Fairness Neural Network is `SuperhumanFairnessNN`, and Superhuman
+# Fairness Neural Network Fixed differs from it only in `fix_gradient`: see
 # `SuperhumanFairnessNN._fixed_loss()`.
 SUPERHUMAN_VARIANTS = {
     ALGORITHM_SUPERHUMAN: {
@@ -3625,9 +3600,8 @@ def _expert_demo_losses_summary(exp_info, bias_demos):
     `N_SUBDOMINANCE_GROUPS` groups by `generate_subdominance_groups()`, and
     each group is scored on the subdominance metrics as a loss (lower is
     better). Each group is one "demonstration" in the sense of the Superhuman
-    Fairness paper -- with `SH_DEMO_SOURCE="expert_demos"` they are exactly the
-    demonstrations that baseline imitates -- so these are the points its
-    `plot_features()` figures scatter.
+    Fairness paper -- they are exactly the demonstrations that baseline
+    imitates -- so these are the points its `plot_features()` figures scatter.
 
     The losses are stored as nested lists rather than as scalar keys: they are
     one value per group, not one value per run, so they have no meaningful
@@ -3655,43 +3629,27 @@ def _expert_demo_losses_summary(exp_info, bias_demos):
     return summary
 
 
-def _build_superhuman_demo_list(
-    exp_info, sh_config, bias_demos, feature_types, loss_fn, rng
-):
+def _build_superhuman_demo_list(sh_config, bias_demos, loss_fn):
     """
     Build the reference decisions the Superhuman Fairness baseline imitates,
     together with the training pool they index into.
 
-    Which source is used is set by `exp_info["SH_DEMO_SOURCE"]`:
-
-    `"expert_demos"`
-        This project's own expert demonstrations for the training split,
-        grouped exactly the way `generate_subdominance_groups()` grouped them
-        for the subdominance metric. The baseline then imitates the same
-        expert, on the same rows, that the FairIRL technique learns from, which
-        is what makes the two directly comparable.
-    `"pp_baseline"`
-        The original paper's own demonstrator (a logistic regression
-        post-processed by a fairlearn `ThresholdOptimizer`), rebuilt on this
-        project's training split.
+    These are this project's own expert demonstrations for the training split,
+    grouped exactly the way `generate_subdominance_groups()` grouped them for
+    the subdominance metric. The baseline then imitates the same expert, on the
+    same rows, that the FairIRL technique learns from, which is what makes the
+    two directly comparable.
 
     Parameters
     ----------
-    exp_info : dict
-        Experiment parameters.
     sh_config : dict
         The resolved baseline configuration, from `_superhuman_config()`.
     bias_demos : BiasedDatasetDemos
         The biased data split, expert demonstrations and subdominance groups of
         the bias type being run.
-    feature_types : dict<str, list>
-        Mapping of column names to their type of feature. Only the
-        `"pp_baseline"` source uses it, to build its demonstrator's pipeline.
     loss_fn : callable(y_true, y_pred, z) -> numpy.ndarray
         The feature losses a demonstration is scored with, from
         `make_feature_loss_fn()`.
-    rng : numpy.random.Generator
-        The baseline's dedicated source of randomness.
 
     Returns
     -------
@@ -3701,42 +3659,19 @@ def _build_superhuman_demo_list(
         That pool's labels.
     demo_list : list<SuperhumanDemo>
     """
-    demo_source = sh_config["SH_DEMO_SOURCE"]
     num_demos = sh_config["SH_NUM_DEMOS"]
 
-    if demo_source == "expert_demos":
-        # The expert's demonstrations cover every row of the training split
-        # exactly once, in their own order, and `subdom_groups_train` holds
-        # positional indices into that order.
-        expert_demo_df = bias_demos.expert_train.demo
-        group_idxs = bias_demos.subdom_groups_train[0]
-        if num_demos is not None:
-            group_idxs = group_idxs[:num_demos]
+    # The expert's demonstrations cover every row of the training split
+    # exactly once, in their own order, and `subdom_groups_train` holds
+    # positional indices into that order.
+    expert_demo_df = bias_demos.expert_train.demo
+    group_idxs = bias_demos.subdom_groups_train[0]
+    if num_demos is not None:
+        group_idxs = group_idxs[:num_demos]
 
-        pool_X = expert_demo_df[bias_demos.X_train.columns]
-        pool_y = expert_demo_df["y"]
-        demo_list = build_expert_demo_list(expert_demo_df, group_idxs, loss_fn)
-
-    elif demo_source == "pp_baseline":
-        pool_X = bias_demos.X_train
-        pool_y = bias_demos.y_train
-        demo_list = build_pp_demo_list(
-            pool_X,
-            pool_y,
-            feature_types=feature_types,
-            loss_fn=loss_fn,
-            num_of_demos=(
-                num_demos if num_demos is not None else SH_DEFAULT_NUM_OF_DEMOS
-            ),
-            constraints=sh_config["SH_DEMO_CONSTRAINTS"],
-            rng=rng,
-        )
-
-    else:
-        raise ValueError(
-            f"Unrecognized exp_info['SH_DEMO_SOURCE']: {demo_source!r}."
-            " Valid values are 'expert_demos' and 'pp_baseline'."
-        )
+    pool_X = expert_demo_df[bias_demos.X_train.columns]
+    pool_y = expert_demo_df["y"]
+    demo_list = build_expert_demo_list(expert_demo_df, group_idxs, loss_fn)
 
     return pool_X, pool_y, demo_list
 
@@ -3912,8 +3847,7 @@ def _run_superhuman_trial(
     variant = SUPERHUMAN_VARIANTS[algorithm]
     feature_names = sh_config["SH_FEATURES"] or subdominance_metric_names(exp_info)
     # Every variant draws from the generator seeded for Superhuman Fairness, so
-    # that on the same trial they all imitate exactly the same
-    # demonstrations. The two logistic regression variants also start from
+    # that on the same trial the two logistic regression variants start from
     # exactly the same model, and differ only by the normalization fix and
     # their own hyperparameters; likewise the two neural network variants
     # (given the same network settings), which differ only by the loss fix.
@@ -3947,7 +3881,7 @@ def _run_superhuman_trial(
 
             logging.info("Building Superhuman Fairness demonstrations...")
             pool_X, pool_y, demo_list = _build_superhuman_demo_list(
-                exp_info, sh_config, bias_demos, feature_types, loss_fn, rng
+                sh_config, bias_demos, loss_fn
             )
             logging.info(
                 f"\t {len(demo_list)} demonstrations over {len(pool_X)} training rows,"
@@ -3994,16 +3928,6 @@ def _run_superhuman_trial(
                 # What its SH_NN_DEVICE / SH_NN_FIXED_DEVICE resolved to.
                 run.summary["superhuman_nn_device"] = str(sh_model.device)
             run.summary["superhuman_num_demos"] = len(demo_list)
-            # The demonstrations this model imitated, as losses: one row per
-            # demonstration, one column per `superhuman_demo_feat_loss_metrics`
-            # entry. These are the `post_proc_demos` the original's
-            # `plot_features()` scatters, which differ from the expert's
-            # `expert_demo_feat_loss_*` groups unless SH_DEMO_SOURCE is
-            # "expert_demos". Like those, they are nested lists, not scalars.
-            run.summary["superhuman_demo_feat_loss_metrics"] = list(feature_names)
-            run.summary["superhuman_demo_feat_loss"] = _json_safe(
-                np.asarray(sh_model.demo_losses_, dtype=float)
-            )
             for j, name in enumerate(feature_names):
                 run.summary[f"superhuman_gamma_{name}"] = (
                     sh_model.history_.gamma_superhuman[sh_model.selected_iteration_][j]
@@ -4137,40 +4061,8 @@ def _run_baseline_trial(
                 policy_start,
                 trial_start,
             )
-
-            _log_baseline_extras(run, model, bias_demos)
         except Exception as error:
             _report_run_failure(run, algorithm, error)
-
-
-def _log_baseline_extras(run, model, bias_demos):
-    """
-    Report a baseline's own self-assessment, where it has one.
-
-    The original replaces the measured zero-one loss of the fair log-loss
-    baselines with the model's own expected zero-one loss, and its measured
-    fairness difference with the model's own fairness violation, "since fair
-    logloss uses expected violation". Those numbers are reported here
-    alongside the shared evaluation instead of in place of any of it, so that
-    every technique's headline metrics stay measured the same way and stay
-    comparable, while the original's own view of these two baselines is still
-    recorded.
-    """
-    if run is None or not isinstance(model, FairLogLossBaseline):
-        return
-
-    splits = (
-        ("train", bias_demos.X_train, bias_demos.y_train),
-        ("val", bias_demos.X_val, bias_demos.y_val),
-        ("test", bias_demos.X_test, bias_demos.y_test),
-    )
-    for split, X_split, y_split in splits:
-        run.summary[f"fair_logloss_expected_zeroone_{split}"] = model.expected_error(
-            X_split, y_split
-        )
-        run.summary[f"fair_logloss_violation_{split}"] = model.fairness_violation(
-            X_split, y_split
-        )
 
 
 def run_experiment_trial(

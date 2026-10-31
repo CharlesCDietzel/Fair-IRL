@@ -409,13 +409,13 @@ def _redlining_outcomes(dataset):
         The redlined Z value, the redline Y outcome, the non-redlined Z value
         and the non-redline Y outcome.
     """
-    if dataset in ("Adult", "Adult_SH"):
+    if dataset == "Adult":
         return 0, 0, 1, 1
     elif dataset == "Boston":
         return 0, 0, 1, 1
     elif "ACSIncome__" in dataset:  # All ACSIncome datasets have same strtucture
         return 0, 0, 1, 1
-    elif dataset in ("COMPAS", "COMPAS_SH"):  # COMPAS Y redlining is reversed
+    elif dataset == "COMPAS":  # COMPAS Y redlining is reversed
         return 0, 1, 1, 0
     raise ValueError(f"Redlining bias is not defined for dataset {dataset!r}.")
 
@@ -583,8 +583,8 @@ def add_noise_bias(X, y, dataset_bias_type=()):
     the noisy dataset.
 
     Only `z` is flipped, not any column of the dataset the protected attribute
-    came from (e.g. Adult_SH's `gender`), just as `add_noise_new()` flips the
-    protected attribute without touching the model inputs.
+    came from, just as `add_noise_new()` flips the protected attribute without
+    touching the model inputs.
 
     Parameters
     ----------

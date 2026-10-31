@@ -2,10 +2,9 @@
 Loading of the experiment configuration file, configs/experiment.yaml.
 
 The file holds everything the experiment script used to set up in Python: the
-`exp_info` values shared by every experiment (`common`), named groups of values
-some experiments add on top (`presets`), each experiment's own values
-(`experiments`), and which experiments and experts a run covers. See the header
-of configs/experiment.yaml for how they are merged.
+`exp_info` values shared by every experiment (`common`), each experiment's own
+values (`experiments`), and which experiments and experts a run covers. See the
+header of configs/experiment.yaml for how they are merged.
 
 `build_experiment_plan()` turns the file into exactly the `exp_info` dicts the
 experiment code has always received, and applies `--set KEY=VALUE` overrides on
@@ -128,10 +127,8 @@ def parse_assignment(text):
 def _known_keys(config):
     keys = set(TOP_LEVEL_KEYS) | {OPT_DEBIAS_OPTIMIZER}
     keys |= set(config.get("common") or {})
-    for preset in (config.get("presets") or {}).values():
-        keys |= set(preset)
     for experiment in (config.get("experiments") or {}).values():
-        keys |= {key for key in experiment or {} if key != "presets"}
+        keys |= set(experiment or {})
     return keys
 
 
@@ -167,7 +164,7 @@ def build_experiment_plan(config, overrides=None, annotations=None):
         Values that replace the file's, applied last. A key must be one the
         file sets somewhere (or `OPT_DEBIAS_OPTIMIZER`), which catches typos
         -- a misspelled override would otherwise be silently ignored. Applied
-        to every experiment, including over its presets and its own values.
+        to every experiment, including over its own values.
     annotations : dict<str, object>, optional
         Extra values added to every experiment's `exp_info` -- and so to every
         W&B run's config -- without that check, e.g. which sweep trial launched
@@ -193,16 +190,11 @@ def build_experiment_plan(config, overrides=None, annotations=None):
             top_level[key] = overrides.pop(key)
     optimizer = overrides.pop(OPT_DEBIAS_OPTIMIZER, None)
 
-    presets = config.get("presets") or {}
     experiments = []
     for name, own in (config.get("experiments") or {}).items():
         own = copy.deepcopy(own or {})
         exp_info = {"EXPERIMENT_NAME": name}
         exp_info |= copy.deepcopy(config.get("common") or {})
-        for preset in own.pop("presets", []):
-            if preset not in presets:
-                raise ValueError(f"Experiment {name} uses unknown preset {preset!r}.")
-            exp_info |= copy.deepcopy(presets[preset])
         exp_info |= own
         exp_info.setdefault("DATASET", name)
         exp_info["RANDOM_SEED"] = top_level["RANDOM_SEED"]
