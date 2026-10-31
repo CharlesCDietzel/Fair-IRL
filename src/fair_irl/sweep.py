@@ -10,39 +10,63 @@ One command does all of it:
     uv run fair-irl-tune [--algorithm NAME] [--dataset NAME]
 
 For every selected technique and dataset (or just the ones named) it creates a
-sweep, so that each dataset gets its own hyperparameters, runs W&B agents until
+sweep, so that each dataset gets its own hyperparameters, runs trials until
 every sweep has finished, and writes configs/experiment.yaml.new: a copy of
 configs/experiment.yaml with each sweep's best values set in its dataset's
-entry. The techniques are tuned one after another, each running as many of its
-sweeps at once as the `parallel_sweeps` of its sweep config says, a number
-measured to make that technique's sweeps finish soonest on their own. What it
-has created is recorded in `.tuning_state/`, so that running the
-same command again after an interruption continues the same sweeps.
+entry. The techniques are tuned one after another, each running as many trials
+at once as the `parallel_sweeps` of its sweep config says, a number measured to
+make that technique's sweeps finish soonest on their own. What it has created
+is recorded in `.tuning_state/`, so that running the same command again after an
+interruption continues the same sweeps.
 
-The agent runs `python -m fair_irl.sweep trial` for every set of
-hyperparameters the search picks. That trial is the sweep's own W&B run: it
-runs the experiment script with those hyperparameters as `--set` overrides, in
-a child process, and logs the objective the search minimizes.
+`uv run fair-irl-tune-pause` lets the running trials finish and then exits, and
+`uv run fair-irl-tune-resume` continues from there.
+
+Tuning is repeatable, so pausing it cannot change its results. A W&B sweep on
+its own is not: the server seeds each suggestion from a random request id, and
+what a suggestion is based on depends on which trials happen to have finished.
+So `fair-irl-tune` runs W&B's Bayesian search itself, from the `sweeps` package
+the server uses, and starts the trials without a `wandb agent`:
+
+* Each suggestion has its own seed, made from `RANDOM_SEED`, the sweep's name
+  and the trial's index.
+* What a suggestion is based on depends only on the trial's index. With
+  `parallel_sweeps` of P, trial k gets the results of the trials before k - P + 1,
+  and treats the P - 1 before it as still running, whether or not they are. So
+  trial k waits for every trial before k - P + 1 to end, and trials can run in
+  any order and at any time without changing what is suggested.
+
+Each trial still is a W&B run of its sweep, so the sweep looks the same in the
+W&B UI. The run comes from `python -m fair_irl.sweep trial`: it runs the
+experiment script with the suggested hyperparameters as `--set` overrides, in a
+child process, and logs the objective the search minimizes. It runs on a copy of
+the experiment config made when the sweep was created, so that editing the
+config file cannot change a sweep partway through.
 
 The child process is needed because the experiment script reports one W&B run
-per technique, bias type and trial, while inside a sweep agent every
-`wandb.init()` is forced onto the sweep's own run. The child is started without
-the agent's sweep environment variables, so its runs are ordinary runs -- the
-same ones the script reports outside a sweep -- each recording the sweep trial
-that launched it as `SWEEP_ID`/`SWEEP_RUN_ID` in its config.
+per technique, bias type and trial, while inside a sweep every `wandb.init()` is
+forced onto the sweep's own run. The child is started without the sweep's
+environment variables, so its runs are ordinary runs -- the same ones the script
+reports outside a sweep -- each recording the sweep trial that launched it as
+`SWEEP_ID`/`SWEEP_RUN_ID` in its config.
 """
 
 import argparse
 import copy
 import functools
+import hashlib
 import json
 import math
 import os
+import random
+import shutil
 import signal
 import subprocess
 import sys
 import tempfile
 import time
+import uuid
+import warnings
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -57,9 +81,10 @@ from fair_irl.config import (
     resolve_tuned_values,
     set_experiment_values,
 )
+from fair_irl.pause import is_alive, read_json, remove_file, write_json
 
 # This module must not import `fair_irl.experiment_utils`: it pulls in PyTorch
-# and every model library, close to 1 GB, which a sweep trial -- one per agent,
+# and every model library, close to 1 GB, which a sweep trial -- several at once,
 # alive for as long as its experiment runs -- does not need.
 
 # The sweep's metric: what `trial` logs, and what the sweep configs minimize.
@@ -71,8 +96,8 @@ OBJECTIVE = "objective"
 # `opt_debias` weight search minimizes.
 DEFAULT_OBJECTIVE_KEY = "sum_abs_subdominance_val"
 
-# Set by the sweep agent for its trial, and read by `wandb.init()`. A child
-# process that inherits them has its every run forced onto the trial's run.
+# Set for each trial, and read by `wandb.init()`. A child process that inherits
+# them has its every run forced onto the trial's run.
 SWEEP_ENV_VARS = ("WANDB_RUN_ID", "WANDB_SWEEP_ID", "WANDB_SWEEP_PARAM_PATH")
 
 REPO_ROOT = DEFAULT_CONFIG_PATH.parents[1]
@@ -86,28 +111,30 @@ TUNED_CONFIG_PATH = DEFAULT_CONFIG_PATH.with_name(DEFAULT_CONFIG_PATH.name + ".n
 # session of its project, and every sweep trial's runs form a session.
 TUNING_PROJECT = "fair-irl-tuning"
 
-# Where `fair-irl-tune` keeps the sweeps it has yet to finish, and its agents' logs.
+# What `fair-irl-tune` keeps while tuning: a directory per sweep it has yet to
+# finish, a record per `fair-irl-tune` that is running, and its trials' logs.
 TUNE_STATE_DIR = REPO_ROOT / ".tuning_state"
-TUNE_STATE_FILE = TUNE_STATE_DIR / "sweeps.json"
+TUNE_SWEEP_DIR = TUNE_STATE_DIR / "sweeps"
+TUNE_RUNNING_DIR = TUNE_STATE_DIR / "running"
 TUNE_LOG_DIR = TUNE_STATE_DIR / "logs"
 
-# How many times in a row a sweep's agents may exit without it having any new
-# finished runs before it is given up on.
-MAX_AGENT_RESTARTS = 3
+# How many of a sweep's trials may fail, with none succeeding, before it is
+# given up on. Failing is a fair result for some hyperparameters, but not for
+# this many in a row from the start.
+MAX_INITIAL_FAILURES = 20
 
-# How long `fair-irl-tune` waits between checks of its sweeps.
-POLL_SECONDS = 30
+# How long `fair-irl-tune` waits between checks of its trials.
+POLL_SECONDS = 2
 
-# The seconds a stopped agent gets to end its run before it is killed.
-AGENT_STOP_SECONDS = 30
+# The seconds a stopped trial gets to end before it is killed.
+TRIAL_STOP_SECONDS = 30
 
-# The seconds a run left behind by its agent gets to end before it is killed.
-AGENT_TERM_SECONDS = 5
-
-# The states of a W&B sweep that will not start any more runs, and of a W&B run
-# that has ended.
-ENDED_SWEEP_STATES = ("FINISHED", "CANCELED")
-ENDED_RUN_STATES = ("finished", "failed", "crashed", "killed")
+# A trial's status, in its sweep's state. A pending trial is one that has been
+# suggested and has not ended: it may be running, or be waiting to run again
+# because tuning was interrupted.
+TRIAL_PENDING = "pending"
+TRIAL_FINISHED = "finished"
+TRIAL_FAILED = "failed"
 
 
 def _scored_runs(runs):
@@ -144,7 +171,9 @@ def _summarize(runs, objective_key):
         )
 
     metrics = {
-        OBJECTIVE: float(np.mean([run["subdominance"][objective_key] for run in scored]))
+        OBJECTIVE: float(
+            np.mean([run["subdominance"][objective_key] for run in scored])
+        )
     }
     for key in subdominance_keys:
         metrics[f"mean/{key}"] = float(
@@ -181,8 +210,8 @@ def run_trial(args):
 
         env = {k: v for k, v in os.environ.items() if k not in SWEEP_ENV_VARS}
         experiment = subprocess.Popen(command, env=env)
-        # An agent stops its run with SIGTERM, which must not leave the
-        # experiment running on its own.
+        # A trial is stopped with SIGTERM, which must not leave the experiment
+        # running on its own.
         signal.signal(signal.SIGTERM, lambda *_: experiment.terminate())
         returncode = experiment.wait()
 
@@ -212,6 +241,9 @@ def run_trial(args):
     run.log(metrics)
     run.finish()
 
+    if args.result_file:
+        write_json(Path(args.result_file), {OBJECTIVE: metrics[OBJECTIVE]})
+
 
 def _dataset_sweep_config(sweep_config, dataset):
     """The config of the sweep of `sweep_config` on `dataset`."""
@@ -239,52 +271,92 @@ class TuningSweep:
         The `parallel_sweeps` of its sweep config.
     path : str
         The sweep's W&B path, "<entity>/<project>/<id>".
+    config : dict
+        The sweep's W&B config.
+    command : list<str>
+        The `command` of its sweep config.
+    directory : pathlib.Path
+        Where its state is kept, including its copy of the experiment config.
+    position : int
+        Its place in the order `fair-irl-tune` was asked to tune.
     exp_info : dict
         The `exp_info` of the experiment the sweep tunes.
-    tuned_keys : list<str>
-        The sweep parameters the search chooses.
-    run_cap : float
-        How many runs the sweep starts in total.
-    n_runs : int
-        How many runs it has started so far.
-    n_ended : int
-        How many of those have ended, however they ended.
-    n_finished : int
-        How many of those ended successfully.
-    agents : list<subprocess.Popen>
-        Its agents that are running.
-    agent_started : bool
-        Whether this `fair-irl-tune` has started an agent for it yet.
-    n_restarts : int
-        How many times in a row its agents have been restarted.
-    checked : bool
-        Whether `n_runs` and `n_ended` are up to date.
-    finished : bool
-        Whether the sweep has run to its end.
+    trials : list<dict>
+        Every trial suggested so far, in order: its `params`, its `status` and,
+        if it finished, its `objective`.
+    processes : dict<int, subprocess.Popen>
+        Its trials that are running, by index.
+    paused : bool
+        Whether `fair-irl-tune-pause` paused it.
     gave_up : bool
-        Whether its agents kept exiting before it could.
+        Whether it kept failing before it could finish.
     """
 
     name: str
     algorithm: str
     parallel_sweeps: int
     path: str
+    config: dict
+    command: list
+    directory: Path
+    position: int
     exp_info: dict
-    tuned_keys: list
-    run_cap: float
-    n_runs: int = 0
-    n_ended: int = 0
-    n_finished: int = 0
-    agents: list = field(default_factory=list)
-    agent_started: bool = False
-    n_restarts: int = 0
-    checked: bool = False
-    finished: bool = False
+    trials: list = field(default_factory=list)
+    processes: dict = field(default_factory=dict)
+    paused: bool = False
     gave_up: bool = False
 
     @property
+    def tuned_keys(self):
+        """The parameters the search chooses: a fixed `value` is not chosen."""
+        return [
+            key
+            for key, spec in self.config["parameters"].items()
+            if "value" not in spec
+        ]
+
+    @property
+    def run_cap(self):
+        """How many trials the sweep runs in total."""
+        return self.config.get("run_cap", math.inf)
+
+    @property
+    def n_ended(self):
+        return sum(trial["status"] != TRIAL_PENDING for trial in self.trials)
+
+    @property
+    def finished(self):
+        return self.n_ended >= self.run_cap
+
+    @property
     def settled(self):
-        return self.finished or self.gave_up
+        return self.finished or (self.gave_up and not self.processes)
+
+    def next_trial(self):
+        """
+        The index of the trial to start next, or None if there is none yet: a
+        trial can't start before everything its suggestion is based on has ended
+        (see the module docstring).
+        """
+        if self.gave_up:
+            return None
+        pending = [
+            index
+            for index, trial in enumerate(self.trials)
+            if trial["status"] == TRIAL_PENDING
+        ]
+        waiting = [index for index in pending if index not in self.processes]
+        next_index = waiting[0] if waiting else len(self.trials)
+        if next_index >= self.run_cap:
+            return None
+        first_pending = pending[0] if pending else next_index
+        if next_index - first_pending > self.parallel_sweeps - 1:
+            return None
+        return next_index
+
+
+class TuningPaused(Exception):
+    """Raised once every running trial has ended, to stop tuning."""
 
 
 def _log(message):
@@ -331,17 +403,45 @@ def _tune_targets(args, plan, sweep_configs):
     return targets
 
 
-def _load_tune_state():
-    if TUNE_STATE_FILE.exists():
-        return json.loads(TUNE_STATE_FILE.read_text())
-    return {}
+def _sweep_directory(name):
+    return TUNE_SWEEP_DIR / name.lower().replace(" | ", "__").replace(" ", "_")
 
 
-def _save_tune_state(state):
-    TUNE_STATE_DIR.mkdir(exist_ok=True)
-    temporary = TUNE_STATE_FILE.with_suffix(".tmp")
-    temporary.write_text(json.dumps(state, indent=2))
-    temporary.replace(TUNE_STATE_FILE)
+def _save_sweep(sweep):
+    """Record `sweep`, except for what is only true of this process."""
+    write_json(
+        sweep.directory / "state.json",
+        {
+            "name": sweep.name,
+            "algorithm": sweep.algorithm,
+            "parallel_sweeps": sweep.parallel_sweeps,
+            "path": sweep.path,
+            "config": sweep.config,
+            "command": sweep.command,
+            "position": sweep.position,
+            "trials": sweep.trials,
+            "paused": sweep.paused,
+        },
+    )
+
+
+def _load_sweep(directory):
+    """The sweep recorded in `directory`, or None if there is none."""
+    state = read_json(directory / "state.json")
+    if state is None:
+        return None
+    dataset = state["config"]["parameters"]["SELECTED_DATASETS"]["value"][0]
+    plan = build_experiment_plan(load_config(directory / "experiment.yaml"))
+    exp_infos = {exp_info["DATASET"]: exp_info for exp_info in plan.experiments}
+    return TuningSweep(directory=directory, exp_info=exp_infos[dataset], **state)
+
+
+def _load_paused_sweeps():
+    if not TUNE_SWEEP_DIR.exists():
+        return []
+    sweeps = [_load_sweep(directory) for directory in TUNE_SWEEP_DIR.iterdir()]
+    paused = [sweep for sweep in sweeps if sweep is not None and sweep.paused]
+    return sorted(paused, key=lambda sweep: sweep.position)
 
 
 @functools.cache
@@ -359,14 +459,23 @@ def _fetch_sweep(path):
     return sweep
 
 
-def _can_continue(saved, config):
-    """Whether a sweep from an earlier `fair-irl-tune` matches `config`."""
-    if saved is None or saved["config"] != config:
+def _can_continue(saved, config, parallel_sweeps, exp_info):
+    """
+    Whether a sweep from an earlier `fair-irl-tune` is the one it would create
+    now: changing its config, its experiment or what its suggestions are based
+    on would mix results from different conditions.
+    """
+    if (
+        saved is None
+        or saved.config != config
+        or saved.parallel_sweeps != parallel_sweeps
+        or saved.exp_info != exp_info
+    ):
         return False
     try:
-        _fetch_sweep(saved["path"])
+        _fetch_sweep(saved.path)
     except wandb.errors.CommError:
-        _log(f"{saved['path']} is gone from W&B; starting {config['name']} again.")
+        _log(f"{saved.path} is gone from W&B; starting {config['name']} again.")
         return False
     return True
 
@@ -374,190 +483,278 @@ def _can_continue(saved, config):
 def _open_sweeps(targets, sweep_configs):
     """
     Create the sweeps of `targets`, or find the ones an interrupted
-    `fair-irl-tune` left, as long as their sweep config hasn't changed since.
+    `fair-irl-tune` left, as long as nothing they depend on has changed since.
     """
-    state = _load_tune_state()
     entity = os.environ.get("WANDB_ENTITY") or _api().default_entity
 
     sweeps = []
-    for algorithm, exp_info in targets:
+    for position, (algorithm, exp_info) in enumerate(targets):
         sweep_config = sweep_configs[algorithm]
+        parallel_sweeps = sweep_config["parallel_sweeps"]
         config = _dataset_sweep_config(sweep_config, exp_info["DATASET"])
-        saved = state.get(config["name"])
-        if _can_continue(saved, config):
-            path = saved["path"]
-            _log(f"Continuing sweep {path}: {config['name']}")
+        directory = _sweep_directory(config["name"])
+        saved = _load_sweep(directory)
+        if _can_continue(saved, config, parallel_sweeps, exp_info):
+            sweep = saved
+            sweep.position = position
+            _log(f"Continuing sweep {sweep.path}: {sweep.name}")
         else:
             sweep_id = wandb.sweep(config, entity=entity, project=TUNING_PROJECT)
-            path = f"{entity}/{TUNING_PROJECT}/{sweep_id}"
-            state[config["name"]] = {"path": path, "config": config}
-            _save_tune_state(state)
-            _log(f"Created sweep {path}: {config['name']}")
-
-        sweeps.append(
-            TuningSweep(
+            shutil.rmtree(directory, ignore_errors=True)
+            directory.mkdir(parents=True)
+            shutil.copyfile(DEFAULT_CONFIG_PATH, directory / "experiment.yaml")
+            sweep = TuningSweep(
                 name=config["name"],
                 algorithm=algorithm,
-                parallel_sweeps=sweep_config["parallel_sweeps"],
-                path=path,
+                parallel_sweeps=parallel_sweeps,
+                path=f"{entity}/{TUNING_PROJECT}/{sweep_id}",
+                config=config,
+                command=sweep_config["command"],
+                directory=directory,
+                position=position,
                 exp_info=exp_info,
-                # A fixed `value` is set by the sweep, not chosen by its search.
-                tuned_keys=[
-                    key
-                    for key, spec in sweep_config["parameters"].items()
-                    if "value" not in spec
-                ],
-                run_cap=sweep_config.get("run_cap", math.inf),
             )
-        )
+            _log(f"Created sweep {sweep.path}: {sweep.name}")
+        _save_sweep(sweep)
+        sweeps.append(sweep)
     return sweeps
 
 
-def _check_sweep(sweep):
-    """Bring `sweep` up to date with W&B, and settle it if it has ended."""
-    try:
-        remote = _fetch_sweep(sweep.path)
-        states = [run.state for run in remote.runs]
-    except wandb.errors.Error as error:
-        # The server being briefly away is no reason to abandon days of work.
-        _log(f"Could not check {sweep.name}: {error}")
-        return
-
-    n_ended = sum(state in ENDED_RUN_STATES for state in states)
-    n_finished = states.count("finished")
-    if n_ended > sweep.n_ended:
-        _log(f"{sweep.name}: {n_ended}/{sweep.run_cap} runs done")
-    # Runs that fail are no sign that restarting the agents is doing any good.
-    if n_finished > sweep.n_finished:
-        sweep.n_restarts = 0
-    sweep.n_runs = len(states)
-    sweep.n_ended = n_ended
-    sweep.n_finished = n_finished
-    sweep.checked = True
-
-    if sweep.agents:
-        return
-    if remote.state.upper() in ENDED_SWEEP_STATES or sweep.n_runs >= sweep.run_cap:
-        # Runs that are still active are waited for, even with no agent left to
-        # run them: after a crash, W&B takes minutes to notice they are dead.
-        if n_ended == sweep.n_runs:
-            sweep.finished = True
-            _log(f"{sweep.name}: finished")
-    elif sweep.n_restarts >= MAX_AGENT_RESTARTS:
-        sweep.gave_up = True
-        _log(f"{sweep.name}: giving up, its agents keep exiting. See {TUNE_LOG_DIR}.")
+def _trial_seed(sweep, index):
+    text = f"{sweep.exp_info['RANDOM_SEED']}|{sweep.name}|{index}"
+    return int.from_bytes(hashlib.sha256(text.encode()).digest()[:4], "little")
 
 
-def _start_agent(sweep):
-    TUNE_LOG_DIR.mkdir(parents=True, exist_ok=True)
-    slug = sweep.name.lower().replace(" | ", "__").replace(" ", "_")
-    log_path = TUNE_LOG_DIR / f"{slug}.log"
+def _suggest_params(sweep):
+    """
+    What W&B's Bayesian search suggests for the sweep's next trial, which
+    depends only on the sweep's config and the results of the trials before it
+    that the trial's index says it may see (see the module docstring).
+    """
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        # Imported here rather than at the top of the module: the search pulls
+        # in scikit-learn, which a sweep trial does not need.
+        import sweeps as bayesian_search
 
-    env = dict(os.environ)
-    # The `python` the sweep configs run must be this environment's.
-    env["PATH"] = f"{Path(sys.executable).parent}{os.pathsep}{env['PATH']}"
-    # Using wandb here starts a service process and records it in WANDB_SERVICE.
-    # An agent that inherits that depends on this process staying alive.
-    env.pop("WANDB_SERVICE", None)
-
-    with open(log_path, "a") as log_file:
-        sweep.agents.append(
-            subprocess.Popen(
-                [sys.executable, "-m", "wandb", "agent", sweep.path],
-                # The sweep configs name the experiment config relative to the
-                # repository, and the datasets are loaded relative to it too.
-                cwd=REPO_ROOT,
-                env=env,
-                stdin=subprocess.DEVNULL,
-                stdout=log_file,
-                stderr=subprocess.STDOUT,
-                # Stopping agents is left to `_stop_agents()`: a signal from the
-                # terminal would reach the agents, but not the runs they started.
-                start_new_session=True,
+        n_seen = len(sweep.trials) - (sweep.parallel_sweeps - 1)
+        runs = []
+        for index, trial in enumerate(sweep.trials):
+            config = {key: {"value": value} for key, value in trial["params"].items()}
+            if index >= n_seen:
+                state = bayesian_search.RunState.running
+                metrics = {}
+            elif trial["status"] == TRIAL_FINISHED:
+                state = bayesian_search.RunState.finished
+                metrics = {OBJECTIVE: trial["objective"]}
+            else:
+                state = bayesian_search.RunState.failed
+                metrics = {}
+            # `SweepRun` silently ignores these two given by their field names.
+            runs.append(
+                bayesian_search.SweepRun(
+                    name=str(index),
+                    config=config,
+                    state=state,
+                    summaryMetrics=metrics,
+                    sampledHistory=[metrics] if metrics else [],
+                )
             )
+
+        seed = _trial_seed(sweep, len(sweep.trials))
+        np.random.seed(seed)
+        random.seed(seed)
+        suggestion = bayesian_search.next_runs(sweep.config, runs, validate=False)[0]
+
+    return {
+        # The search's values can be numpy scalars, which JSON has no form for.
+        key: (
+            param["value"].item()
+            if isinstance(param["value"], np.generic)
+            else param["value"]
         )
-    _log(f"{sweep.name}: started an agent, logging to {log_path}")
+        for key, param in suggestion.config.items()
+    }
 
 
-def _start_agents(sweeps, parallel_sweeps):
+def _trial_paths(sweep, index):
+    """Where trial `index` is given its parameters and leaves its result."""
+    directory = sweep.directory / "trials"
+    return directory / f"{index}.yaml", directory / f"{index}.json"
+
+
+def _start_trial(sweep, index):
+    """Start trial `index` of `sweep`, suggesting it if it is a new one."""
+    if index == len(sweep.trials):
+        sweep.trials.append({"params": _suggest_params(sweep), "status": TRIAL_PENDING})
+        _save_sweep(sweep)
+
+    params_path, result_path = _trial_paths(sweep, index)
+    params_path.parent.mkdir(exist_ok=True)
+    result_path.unlink(missing_ok=True)
+    params_path.write_text(
+        yaml.safe_dump(
+            {
+                key: {"value": value}
+                for key, value in sweep.trials[index]["params"].items()
+            }
+        )
+    )
+
+    TUNE_LOG_DIR.mkdir(parents=True, exist_ok=True)
+    log_path = TUNE_LOG_DIR / f"{sweep.directory.name}.log"
+
+    entity, project, sweep_id = sweep.path.split("/")
+    env = dict(os.environ)
+    # Using wandb here starts a service process and records it in WANDB_SERVICE.
+    # A trial that inherits that depends on this process staying alive.
+    env.pop("WANDB_SERVICE", None)
+    # What makes the trial's run one of the sweep's. The project and entity also
+    # send its child's runs to the same place.
+    env |= {
+        "WANDB_ENTITY": entity,
+        "WANDB_PROJECT": project,
+        "WANDB_RUN_ID": uuid.uuid4().hex[:8],
+        "WANDB_SWEEP_ID": sweep_id,
+        "WANDB_SWEEP_PARAM_PATH": str(params_path),
+    }
+
+    command = [
+        sys.executable if part == "${interpreter}" else part
+        for part in sweep.command
+        if part != "${env}"
+    ]
+    with open(log_path, "a") as log_file:
+        sweep.processes[index] = subprocess.Popen(
+            command
+            + [
+                "--config",
+                str(sweep.directory / "experiment.yaml"),
+                "--result-file",
+                str(result_path),
+            ],
+            # The datasets are loaded relative to the repository.
+            cwd=REPO_ROOT,
+            env=env,
+            stdin=subprocess.DEVNULL,
+            stdout=log_file,
+            stderr=subprocess.STDOUT,
+            # Stopping trials is left to `_stop_trials()`, as a signal from the
+            # terminal could reach them before this process had stopped
+            # starting new ones.
+            start_new_session=True,
+        )
+
+
+def _start_trials(sweeps, parallel_sweeps):
     """
-    Start agents until `parallel_sweeps` are running. Every sweep gets one
+    Start trials until `parallel_sweeps` are running. Every sweep gets one
     before any gets a second, so that many sweeps run at once if that many are
-    left. With fewer left, the spare agents join the ones that are, rather than
-    leaving the slowest sweep to finish alone. A sweep doesn't get more agents
-    than it has runs left.
+    left. With fewer left, the spare trials go to the ones that are, rather than
+    leaving the slowest sweep to finish alone. How the trials are shared out
+    has no effect on the results.
     """
-    n_agents = sum(len(sweep.agents) for sweep in sweeps)
-    while n_agents < parallel_sweeps:
-        candidates = [
-            sweep
-            for sweep in sweeps
-            if sweep.checked
-            and not sweep.settled
-            and sweep.run_cap - sweep.n_runs > len(sweep.agents)
-        ]
+    n_running = sum(len(sweep.processes) for sweep in sweeps)
+    while n_running < parallel_sweeps:
+        candidates = [sweep for sweep in sweeps if sweep.next_trial() is not None]
         if not candidates:
             return
-        sweep = min(candidates, key=lambda candidate: len(candidate.agents))
-        if sweep.agent_started and not sweep.agents:
-            sweep.n_restarts += 1
-        _start_agent(sweep)
-        sweep.agent_started = True
-        n_agents += 1
+        sweep = min(candidates, key=lambda candidate: len(candidate.processes))
+        _start_trial(sweep, sweep.next_trial())
+        n_running += 1
 
 
-def _run_agents(sweeps, parallel_sweeps):
-    """Run agents until every sweep has either finished or been given up on."""
+def _server_is_reachable(sweep):
+    try:
+        _fetch_sweep(sweep.path)
+    except wandb.errors.Error:
+        return False
+    return True
+
+
+def _end_trials(sweep):
+    """Record the trials of `sweep` that have ended."""
+    for index, process in list(sweep.processes.items()):
+        if process.poll() is None:
+            continue
+        del sweep.processes[index]
+
+        trial = sweep.trials[index]
+        result = read_json(_trial_paths(sweep, index)[1])
+        if process.returncode == 0 and result is not None:
+            trial["status"] = TRIAL_FINISHED
+            trial["objective"] = result[OBJECTIVE]
+        elif _server_is_reachable(sweep):
+            trial["status"] = TRIAL_FAILED
+        else:
+            # The hyperparameters can't be blamed for this. Run it again, or
+            # the server being away would change the results, and fail every
+            # trial left in the sweep.
+            _log(f"{sweep.name}: W&B is unreachable, so trial {index} will run again.")
+            continue
+        _save_sweep(sweep)
+        _log(f"{sweep.name}: {sweep.n_ended}/{sweep.run_cap} runs done")
+
+        if sweep.finished:
+            _log(f"{sweep.name}: finished")
+
+    n_failed = sum(trial["status"] == TRIAL_FAILED for trial in sweep.trials)
+    n_finished = sum(trial["status"] == TRIAL_FINISHED for trial in sweep.trials)
+    if not sweep.gave_up and n_failed >= MAX_INITIAL_FAILURES and not n_finished:
+        sweep.gave_up = True
+        _log(f"{sweep.name}: giving up, its trials keep failing. See {TUNE_LOG_DIR}.")
+
+
+def _run_trials(sweeps, parallel_sweeps, registration):
+    """
+    Run trials until every sweep has either finished or been given up on.
+
+    Raises
+    ------
+    TuningPaused
+        If a pause was requested, once every trial that was running has ended.
+    """
     while not all(sweep.settled for sweep in sweeps):
         for sweep in sweeps:
-            sweep.agents = [agent for agent in sweep.agents if agent.poll() is None]
-            if not sweep.settled:
-                _check_sweep(sweep)
-        _start_agents(sweeps, parallel_sweeps)
+            _end_trials(sweep)
+        if not registration.pause_requested():
+            _start_trials(sweeps, parallel_sweeps)
+        elif not any(sweep.processes for sweep in sweeps):
+            raise TuningPaused()
         if not all(sweep.settled for sweep in sweeps):
             time.sleep(POLL_SECONDS)
 
 
-def _stop_agents(sweeps):
+def _stop_trials(sweeps):
     """
-    Stop every agent and its run. An agent takes a first SIGINT as asking it to
-    wait for its run to end, and a second one as asking it to terminate it. A
-    busy agent can fail to do that, so whatever is left is signaled directly:
-    each agent leads a session, which its run stays in after the agent is gone.
+    Stop every running trial. Each one leads a process group, which the
+    experiment it started belongs to as well.
     """
-    agents = [agent for sweep in sweeps for agent in sweep.agents]
-    if not agents:
-        return
+    processes = [process for sweep in sweeps for process in sweep.processes.values()]
 
-    for _ in range(2):
-        for agent in agents:
-            if agent.poll() is None:
-                agent.send_signal(signal.SIGINT)
-        time.sleep(1)
-
-    deadline = time.monotonic() + AGENT_STOP_SECONDS
-    for agent in agents:
+    def signal_trial(process, signum):
         try:
-            agent.wait(timeout=max(0, deadline - time.monotonic()))
+            os.killpg(process.pid, signum)
+        except ProcessLookupError:
+            pass
+
+    for process in processes:
+        signal_trial(process, signal.SIGTERM)
+    deadline = time.monotonic() + TRIAL_STOP_SECONDS
+    for process in processes:
+        try:
+            process.wait(timeout=max(0, deadline - time.monotonic()))
         except subprocess.TimeoutExpired:
-            agent.kill()
-
-    sessions = ",".join(str(agent.pid) for agent in agents)
-    for signal_name in ("TERM", "KILL"):
-        # pkill fails if there was nothing left to signal.
-        if subprocess.run(["pkill", f"-{signal_name}", "-s", sessions]).returncode:
-            break
-        time.sleep(AGENT_TERM_SECONDS)
+            signal_trial(process, signal.SIGKILL)
 
 
-def _best_run(sweep):
-    """The finished run of `sweep` with the lowest objective, or None."""
-    runs = [
-        run
-        for run in _fetch_sweep(sweep.path).runs
-        if run.state == "finished" and run.summary.get(OBJECTIVE) is not None
-    ]
-    return min(runs, key=lambda run: run.summary[OBJECTIVE], default=None)
+def _best_trial(sweep):
+    """
+    The finished trial of `sweep` with the lowest objective, or None. Of several
+    with the same objective, it is the earliest.
+    """
+    trials = [trial for trial in sweep.trials if trial["status"] == TRIAL_FINISHED]
+    return min(trials, key=lambda trial: trial["objective"], default=None)
 
 
 def _write_tuned_config(sweeps):
@@ -573,33 +770,136 @@ def _write_tuned_config(sweeps):
     text = DEFAULT_CONFIG_PATH.read_text()
     n_written = 0
     for sweep in sweeps:
-        best = _best_run(sweep)
+        best = _best_trial(sweep)
         if best is None:
             _log(f"{sweep.name}: no run was scored, so it has nothing to write.")
             continue
-        values = {key: best.config[key] for key in sweep.tuned_keys}
+        values = {key: best["params"][key] for key in sweep.tuned_keys}
         text = set_experiment_values(
             text,
             sweep.exp_info["EXPERIMENT_NAME"],
             resolve_tuned_values(sweep.exp_info, values),
         )
         n_written += 1
-        _log(f"{sweep.name}: best objective {best.summary[OBJECTIVE]:.6g}, {values}")
+        _log(f"{sweep.name}: best objective {best[OBJECTIVE]:.6g}, {values}")
 
     if n_written:
         TUNED_CONFIG_PATH.write_text(text)
     return n_written
 
 
-def _forget_sweeps(sweeps):
-    """Drop `sweeps` from the state, so that their results aren't reused."""
-    state = _load_tune_state()
+def _end_wandb_sweep(sweep):
+    """
+    Mark `sweep` as finished in the W&B UI, which won't notice on its own without
+    an agent. Only the UI goes by this, so failing to is no reason to stop.
+    """
+    returncode = subprocess.run(
+        [sys.executable, "-m", "wandb", "sweep", "--stop", sweep.path],
+        cwd=REPO_ROOT,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    ).returncode
+    if returncode:
+        _log(f"{sweep.name}: could not mark {sweep.path} as finished in W&B.")
+
+
+def _running_tuners():
+    """
+    The record of every `fair-irl-tune` that is running. One left behind by a
+    process that died without cleaning up is removed, and doesn't count.
+    """
+    if not TUNE_RUNNING_DIR.exists():
+        return []
+    records = []
+    for path in TUNE_RUNNING_DIR.glob("*.json"):
+        record = read_json(path)
+        if is_alive(record["pid"]):
+            records.append(record)
+        else:
+            path.unlink(missing_ok=True)
+            remove_file(_pause_request_path(record["pid"]))
+    return records
+
+
+def _pause_request_path(pid):
+    return TUNE_RUNNING_DIR / f"{pid}.pause"
+
+
+class _TuningRegistration:
+    """
+    Records this process as tuning `names` for as long as the `with` block lasts,
+    which is how `fair-irl-tune-pause` finds it, and how two of them are kept
+    from running the same sweep.
+    """
+
+    def __init__(self, names):
+        self.names = names
+        self.record_path = TUNE_RUNNING_DIR / f"{os.getpid()}.json"
+        self.request_path = _pause_request_path(os.getpid())
+
+    def __enter__(self):
+        for other in _running_tuners():
+            taken = sorted(set(other["sweeps"]) & set(self.names))
+            if taken:
+                sys.exit(
+                    f"Another fair-irl-tune (pid {other['pid']}) is already running"
+                    f" these sweeps: {taken}."
+                )
+        write_json(self.record_path, {"pid": os.getpid(), "sweeps": self.names})
+        return self
+
+    def __exit__(self, *exc):
+        remove_file(self.request_path)
+        remove_file(self.record_path)
+        return False
+
+    def pause_requested(self):
+        return self.request_path.exists()
+
+
+def _tune(sweeps, registration):
+    """Run `sweeps` to the end, unless tuning is paused or interrupted."""
+    # However this process is told to stop, its trials have to stop with it.
+    for signum in (signal.SIGINT, signal.SIGTERM, signal.SIGHUP):
+        signal.signal(signum, _interrupt)
+    try:
+        # One technique at a time, because each one's `parallel_sweeps` is the
+        # number that suits it with the machine to itself.
+        for algorithm in dict.fromkeys(sweep.algorithm for sweep in sweeps):
+            algorithm_sweeps = [s for s in sweeps if s.algorithm == algorithm]
+            parallel_sweeps = algorithm_sweeps[0].parallel_sweeps
+            _log(f"Tuning {algorithm}, up to {parallel_sweeps} trials at once")
+            _run_trials(algorithm_sweeps, parallel_sweeps, registration)
+    except TuningPaused:
+        for sweep in sweeps:
+            sweep.paused = True
+            _save_sweep(sweep)
+        _log("Tuning is paused. Resume it with `uv run fair-irl-tune-resume`.")
+        return
+    except KeyboardInterrupt:
+        _log("Stopping the trials. Run the same command again to continue.")
+        _stop_trials(sweeps)
+        sys.exit(130)
+
+    finished = [sweep for sweep in sweeps if sweep.finished]
+    n_written = _write_tuned_config(finished)
+    for sweep in finished:
+        _end_wandb_sweep(sweep)
+        shutil.rmtree(sweep.directory)
+
+    # A sweep given up on starts over when tuning is next run, with the same
+    # suggestions: none of its trials got anywhere, and its results can't go on
+    # to depend on failures that fixing their cause would have prevented.
     for sweep in sweeps:
-        state.pop(sweep.name, None)
-    if state:
-        _save_tune_state(state)
-    else:
-        TUNE_STATE_FILE.unlink(missing_ok=True)
+        if sweep.gave_up and not sweep.finished:
+            sweep.trials = []
+            _save_sweep(sweep)
+
+    if n_written:
+        _log(f"Wrote the best values of {n_written} sweeps to {TUNED_CONFIG_PATH}")
+    n_failed = len(sweeps) - n_written
+    if n_failed:
+        sys.exit(f"{n_failed} of {len(sweeps)} sweeps did not produce a result.")
 
 
 def parse_tune_args(argv=None):
@@ -607,7 +907,7 @@ def parse_tune_args(argv=None):
         prog="fair-irl-tune",
         description=(
             "Tune hyperparameters with W&B sweeps: create the sweeps, run their"
-            f" agents, and write the best values found to {TUNED_CONFIG_PATH.name}"
+            f" trials, and write the best values found to {TUNED_CONFIG_PATH.name}"
             f" next to {DEFAULT_CONFIG_PATH.name}. Running it again after an"
             " interruption continues the same sweeps."
         ),
@@ -637,35 +937,90 @@ def tune_main(argv=None):
     if not targets:
         sys.exit("Nothing to tune: no selected algorithm has hyperparameters.")
 
-    sweeps = _open_sweeps(targets, sweep_configs)
+    names = [
+        f"{sweep_configs[algorithm]['name']} | {exp_info['DATASET']}"
+        for algorithm, exp_info in targets
+    ]
+    paused = sorted({sweep.name for sweep in _load_paused_sweeps()} & set(names))
+    if paused:
+        sys.exit(
+            f"These sweeps are paused: {paused}. Resume them with `uv run"
+            " fair-irl-tune-resume`, or discard them with `uv run"
+            " fair-irl-tune-resume --discard`."
+        )
 
-    # However this process is told to stop, its agents have to stop with it.
-    # Handling SIGINT here too means the agents can receive it even if this
-    # process was started in the background, which would have them ignore it.
-    for signum in (signal.SIGINT, signal.SIGTERM, signal.SIGHUP):
-        signal.signal(signum, _interrupt)
-    try:
-        # One technique at a time, because each one's `parallel_sweeps` is the
-        # number that suits it with the machine to itself.
-        for algorithm in dict.fromkeys(sweep.algorithm for sweep in sweeps):
-            algorithm_sweeps = [s for s in sweeps if s.algorithm == algorithm]
-            parallel_sweeps = algorithm_sweeps[0].parallel_sweeps
-            _log(f"Tuning {algorithm}, up to {parallel_sweeps} sweeps at once")
-            _run_agents(algorithm_sweeps, parallel_sweeps)
-    except KeyboardInterrupt:
-        _log("Stopping the agents. Run the same command again to continue.")
-        _stop_agents(sweeps)
-        sys.exit(130)
+    with _TuningRegistration(names) as registration:
+        _tune(_open_sweeps(targets, sweep_configs), registration)
 
-    finished = [sweep for sweep in sweeps if sweep.finished]
-    n_written = _write_tuned_config(finished)
-    _forget_sweeps(finished)
 
-    if n_written:
-        _log(f"Wrote the best values of {n_written} sweeps to {TUNED_CONFIG_PATH}")
-    n_failed = len(sweeps) - n_written
-    if n_failed:
-        sys.exit(f"{n_failed} of {len(sweeps)} sweeps did not produce a result.")
+def tune_pause_main(argv=None):
+    """The `fair-irl-tune-pause` command."""
+    parser = argparse.ArgumentParser(
+        prog="fair-irl-tune-pause",
+        description=(
+            "Pause all running hyperparameter tuning once its current trials"
+            " finish. Resume it with `uv run fair-irl-tune-resume`."
+        ),
+    )
+    parser.add_argument(
+        "--cancel",
+        action="store_true",
+        help="Withdraw a pause that has not happened yet.",
+    )
+    args = parser.parse_args(argv)
+
+    running = _running_tuners()
+    if not running:
+        print("No hyperparameter tuning is running.", file=sys.stderr)
+        sys.exit(1)
+
+    for record in running:
+        if args.cancel:
+            remove_file(_pause_request_path(record["pid"]))
+        else:
+            write_json(_pause_request_path(record["pid"]), {"pid": record["pid"]})
+    n_sweeps = sum(len(record["sweeps"]) for record in running)
+    if args.cancel:
+        print(f"Tuning of {n_sweeps} sweeps will carry on.")
+    else:
+        print(
+            f"Tuning of {n_sweeps} sweeps will pause once its current trials"
+            " finish. Resume it with `uv run fair-irl-tune-resume`."
+        )
+
+
+def tune_resume_main(argv=None):
+    """The `fair-irl-tune-resume` command."""
+    parser = argparse.ArgumentParser(
+        prog="fair-irl-tune-resume",
+        description=(
+            "Resume the hyperparameter tuning paused with `uv run"
+            " fair-irl-tune-pause`, and write the best values found when it"
+            " finishes, as `fair-irl-tune` does."
+        ),
+    )
+    parser.add_argument(
+        "--discard",
+        action="store_true",
+        help="Delete the paused sweeps' progress instead of resuming them.",
+    )
+    args = parser.parse_args(argv)
+
+    if any(_pause_request_path(record["pid"]).exists() for record in _running_tuners()):
+        sys.exit("Tuning is still finishing its trials. Try again when it has paused.")
+    sweeps = _load_paused_sweeps()
+    if not sweeps:
+        sys.exit("No hyperparameter tuning is paused.")
+
+    if args.discard:
+        for sweep in sweeps:
+            shutil.rmtree(sweep.directory)
+        print(f"Discarded the progress of {len(sweeps)} paused sweeps.")
+        return
+
+    with _TuningRegistration([sweep.name for sweep in sweeps]) as registration:
+        _log(f"Resuming {len(sweeps)} sweeps")
+        _tune(sweeps, registration)
 
 
 def parse_args(argv=None):
@@ -674,9 +1029,13 @@ def parse_args(argv=None):
 
     trial = subparsers.add_parser(
         "trial",
-        help="Run one sweep trial. Started by the sweep agent, not by hand.",
+        help="Run one sweep trial. Started by `fair-irl-tune`, not by hand.",
     )
     trial.add_argument("--config", default=str(DEFAULT_CONFIG_PATH))
+    trial.add_argument(
+        "--result-file",
+        help="Also write the objective to this JSON file, if the trial succeeds.",
+    )
     trial.add_argument(
         "--objective-key",
         default=DEFAULT_OBJECTIVE_KEY,

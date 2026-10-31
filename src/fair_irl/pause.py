@@ -55,7 +55,7 @@ CHECKPOINT_FILE = STATE_DIR / "checkpoint.json"
 CHECKPOINT_VERSION = 1
 
 
-def _read_json(path):
+def read_json(path):
     """The contents of the JSON file `path`, or None if there is none."""
     try:
         with open(path) as f:
@@ -64,7 +64,7 @@ def _read_json(path):
         return None
 
 
-def _write_json(path, data):
+def write_json(path, data):
     """Write `data` to `path` atomically, so a reader never sees half a file."""
     path.parent.mkdir(parents=True, exist_ok=True)
     tmp = path.with_name(path.name + ".tmp")
@@ -73,14 +73,14 @@ def _write_json(path, data):
     os.replace(tmp, path)
 
 
-def _remove(path):
+def remove_file(path):
     try:
         path.unlink()
     except FileNotFoundError:
         pass
 
 
-def _is_alive(pid):
+def is_alive(pid):
     try:
         os.kill(pid, 0)
     except ProcessLookupError:
@@ -96,8 +96,8 @@ def running_experiment():
     None if there is none. A record left behind by a process that died without
     cleaning up counts as none.
     """
-    record = _read_json(RUNNING_FILE)
-    if record is None or not _is_alive(record["pid"]):
+    record = read_json(RUNNING_FILE)
+    if record is None or not is_alive(record["pid"]):
         return None
     return record
 
@@ -128,7 +128,7 @@ def restore_rng_state(state):
 
 def load_checkpoint():
     """The paused experiment's checkpoint, or None if none is paused."""
-    checkpoint = _read_json(CHECKPOINT_FILE)
+    checkpoint = read_json(CHECKPOINT_FILE)
     if checkpoint is not None and checkpoint["version"] != CHECKPOINT_VERSION:
         raise RuntimeError(
             f"{CHECKPOINT_FILE} was written by an incompatible version of this"
@@ -138,11 +138,11 @@ def load_checkpoint():
 
 
 def save_checkpoint(checkpoint):
-    _write_json(CHECKPOINT_FILE, {"version": CHECKPOINT_VERSION, **checkpoint})
+    write_json(CHECKPOINT_FILE, {"version": CHECKPOINT_VERSION, **checkpoint})
 
 
 def discard_checkpoint():
-    _remove(CHECKPOINT_FILE)
+    remove_file(CHECKPOINT_FILE)
 
 
 class ExperimentPaused(Exception):
@@ -182,8 +182,8 @@ class PauseListener:
             )
             return self
         # A request left over from a process that died is not for this one.
-        _remove(PAUSE_REQUEST_FILE)
-        _write_json(
+        remove_file(PAUSE_REQUEST_FILE)
+        write_json(
             RUNNING_FILE,
             {
                 "pid": os.getpid(),
@@ -196,14 +196,14 @@ class PauseListener:
 
     def __exit__(self, *exc):
         if self.enabled:
-            _remove(PAUSE_REQUEST_FILE)
-            _remove(RUNNING_FILE)
+            remove_file(PAUSE_REQUEST_FILE)
+            remove_file(RUNNING_FILE)
         return False
 
     def pause_requested(self):
         if not self.enabled:
             return False
-        request = _read_json(PAUSE_REQUEST_FILE)
+        request = read_json(PAUSE_REQUEST_FILE)
         return request is not None and request["pid"] == os.getpid()
 
 
@@ -238,14 +238,14 @@ def pause_main(argv=None):
     )
 
     if args.cancel:
-        if _read_json(PAUSE_REQUEST_FILE) is None:
+        if read_json(PAUSE_REQUEST_FILE) is None:
             print(f"No pause of the {description} is pending.")
         else:
-            _remove(PAUSE_REQUEST_FILE)
+            remove_file(PAUSE_REQUEST_FILE)
             print(f"Withdrew the pause request of the {description}.")
         return
 
-    _write_json(
+    write_json(
         PAUSE_REQUEST_FILE,
         {
             "pid": running["pid"],

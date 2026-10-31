@@ -93,7 +93,7 @@ It takes these steps on its own:
 
 1. It creates a W&B sweep for each algorithm on each dataset, so each dataset
    gets its own hyperparameters.
-2. It runs W&B agents until every sweep has finished.
+2. It runs the sweeps' trials until every sweep has finished.
 3. It writes the best hyperparameters each sweep found to
    `configs/experiment.yaml.new`, ready for you to
    [review](#2-reviewing-and-keeping-the-tuned-hyperparameters).
@@ -138,8 +138,16 @@ same objective, the technique's mean validation subdominance
 (`sum_abs_subdominance_val`). The test split is never used for
 tuning. FairIRL Bias Reduction is scored on its weight-adjusted runs only, not
 on the unadjusted weights it starts from. If any of a trial's runs fail, the
-trial is left out of the search, so hyperparameters that make a technique fail
-on its hard cases are never chosen.
+trial can't be the best one, and the search treats it as the worst result so
+far, so hyperparameters that make a technique fail on its hard cases are never
+chosen.
+
+Tuning is repeatable: running it twice on the same configs gives the same
+trials and the same best hyperparameters, however the trials happen to be timed.
+To allow that, `fair-irl-tune` runs W&B's Bayesian search itself, from the
+`sweeps` package, instead of leaving it to the W&B server, which picks its
+suggestions differently every time. The sweeps still appear in the W&B UI as
+usual.
 
 ### While it runs
 
@@ -147,57 +155,108 @@ Tuning everything is 28 sweeps of 60 runs each, and can take days. The command
 prints each sweep's progress and stays running until the last sweep finishes.
 
 Techniques are tuned one after another. The `parallel_sweeps` value in a
-technique's sweep config sets how many agents it runs at once. Every sweep gets
-one agent before any gets a second, so a value above the number of datasets
-gives some sweeps several agents, and when a sweep finishes its agent's place
-goes to a sweep that still has runs left. The values in the sweep configs were
-measured on a machine with 16 CPU cores and 15 GB of RAM. Each is the most
-agents that use no more than 5 GB between them, which leaves about 4 GB free
-for other programs, so measure again on a different machine. More agents than
-that run a little faster, but can run the machine out of memory.
+technique's sweep config sets how many trials it runs at once. Every sweep gets
+one trial before any gets a second, so a value above the number of datasets
+gives some sweeps several, and when a sweep finishes its place goes to a sweep
+that still has runs left. The values in the sweep configs were measured on a
+machine with 16 CPU cores and 15 GB of RAM. Each is the most trials that use no
+more than 5 GB between them, which leaves about 4 GB free for other programs, so
+measure again on a different machine. More trials than that run a little faster,
+but can run the machine out of memory.
+
+`parallel_sweeps` also affects the search, because trials can overlap: each
+trial's hyperparameters are chosen without the results of the `parallel_sweeps -
+1` trials before it, even if some of them have finished. That's what makes the
+results repeatable. It also means that changing `parallel_sweeps` changes the
+results.
 
 Everything goes to the W&B project `fair-irl-tuning`. That keeps the sweeps out
 of the main project, because the plotting notebook loads the most recent
 session in its project by default, and a sweep trial's runs form a session too.
 You can follow the sweeps there in the W&B UI. Each sweep trial is a W&B run of
 its own, and the per-technique runs it reports record which trial launched them
-in their `SWEEP_ID` and `SWEEP_RUN_ID` config. The agents' output goes to
+in their `SWEEP_ID` and `SWEEP_RUN_ID` config. The trials' output goes to
 `.tuning_state/logs/`.
 
 A few things to keep in mind:
 
-* Each trial runs whatever `configs/experiment.yaml` says when the trial
-  starts. Don't edit the file while tuning is running, or later trials will be
-  scored under different conditions than earlier ones.
+* Each sweep runs on a copy of `configs/experiment.yaml` made when the sweep was
+  created, so editing the file while tuning is running doesn't affect it. When
+  tuning finishes, the best values are written to a copy of the file as it is
+  then.
 * Every trial runs `N_TRIALS` trials of the unbiased dataset and of each bias
   type in `DATASET_BIAS_TYPE_LIST` and `DEMO_BIAS_TYPE_LIST`, so a sweep costs
   as much as that many final runs, times the number of sweep runs.
 * Each sweep stops after a number of runs equal to its `run_cap`. To change a
   cap, edit the `run_cap` in the sweep config before tuning.
 
+### Pausing and resuming
+
+To pause tuning, run this from the repository root in another terminal:
+
+```sh
+uv run fair-irl-tune-pause
+```
+
+No new trials start, the trials that are running finish, and the command that
+was tuning saves its progress and exits. That can take as long as the slowest
+running trial. Nothing is lost, and you can then close the terminal or restart
+the computer. If you're running more than one `fair-irl-tune`, this pauses all
+of them. To continue, start the W&B server if it isn't running, then run:
+
+```sh
+uv run fair-irl-tune-resume
+```
+
+Tuning carries on with the next trial, or the next sweep if the paused one had
+finished its trials, and writes `configs/experiment.yaml.new` when the last sweep
+finishes, as usual. It picks up every paused sweep, whichever `fair-irl-tune` it
+came from, and runs them all from that one command.
+
+Pausing and resuming doesn't change the results: you get the same trials and the
+same best hyperparameters as a run that was never paused. Paused sweeps keep
+their settings too, so changing `configs/experiment.yaml` or a sweep config while
+paused has no effect on them.
+
+Some details:
+
+* `uv run fair-irl-tune-pause --cancel` withdraws a pause that hasn't happened
+  yet.
+* `uv run fair-irl-tune-resume --discard` deletes the paused sweeps' progress
+  instead of resuming them. Their runs stay in W&B.
+* `fair-irl-tune` won't start a sweep that's paused or that another
+  `fair-irl-tune` is running. Resume it or discard it first.
+* A resumed sweep stays resumable until it finishes. If tuning crashes or you
+  press Ctrl-C, `uv run fair-irl-tune-resume` carries on from where it got to.
+
 ### Stopping and continuing
 
-Press Ctrl-C to stop tuning. That stops the agents and the trials they are
-running. To continue, run the same command again:
+Press Ctrl-C to stop tuning right away. That stops the trials that are running.
+To continue, run the same command again:
 
 * Sweeps that had finished are not run again, and their results are kept.
 * Sweeps that hadn't finished carry on from where they were. The trials that
-  were stopped still count toward the sweep's 60 runs, but the search ignores
-  them.
+  were stopped run again with the same hyperparameters, so this doesn't change
+  the results either. Their stopped runs stay in W&B, marked as failed.
 
 The same goes if the computer restarts: start the W&B server, then run the same
-command again. If you've changed a sweep config in the meantime, that sweep
-starts over with the new settings.
+command again. If you've changed a sweep config, a sweep's `parallel_sweeps`, or
+that dataset's experiment settings in the meantime, that sweep starts over with
+the new settings.
 
 Closing the terminal also stops tuning, so use something like `tmux` for a long
 run. What's in progress is recorded in `.tuning_state/`, and is cleared when
 tuning finishes.
 
-If a sweep's agents keep exiting, for example because of an error in the code,
-the command gives up on that sweep and carries on with the others. It writes
-the results it has, then exits with an error. The cause will be in that sweep's
-log in `.tuning_state/logs/`. Run the same command again to continue the sweep
-once it's fixed. Its failed trials still count toward its 60 runs.
+If a trial fails, the sweep carries on, and the failure counts as one of its 60
+runs. The exception is if the W&B server can't be reached: the trial runs again
+until it can. Other failures that have nothing to do with the hyperparameters,
+such as the machine running out of memory, still count, and those can change the
+results. If a sweep's first 20 trials all fail, for example because
+of an error in the code, the command gives up on that sweep and carries on with
+the others. It writes the results it has, then exits with an error. The cause will
+be in that sweep's log in `.tuning_state/logs/`. Once it's fixed, run the same
+command again, and the sweep starts over.
 
 See `src/fair_irl/sweep.py` for the details of how a trial is run.
 
@@ -282,8 +341,10 @@ Some details:
   crashes, `uv run fair-irl-resume` starts again from the same pause point.
   The runs it reported to W&B before crashing aren't removed, so delete them
   in the W&B UI to avoid counting those trials twice.
-* W&B sweep trials can't be paused. `fair_irl.sweep` passes `--no-pause`,
-  because a trial has to run to completion to be scored.
+* `fair-irl-pause` doesn't pause hyperparameter tuning. Tuning passes
+  `--no-pause` to its experiments, because a trial has to run to completion to be
+  scored. See [Pausing and resuming](#pausing-and-resuming) under tuning for its
+  own commands.
 * The saved state lives in `.experiment_state/` at the repository root.
 
 ## Techniques
