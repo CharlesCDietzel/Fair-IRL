@@ -123,12 +123,6 @@ common:
   # Fairness baselines' SH_*LAMDA. It does not change the subdominance
   # reported as a result, which always uses lamda = 0.001.
   OPT_DEBIAS_LAMDA: 0.001
-  # The most iterations the `opt_debias` weight adjustment runs before giving
-  # up on finding a better weight set. This is only a safety net -- the loop
-  # is expected to stop on its own as soon as an iteration fails to improve.
-  # Setting this to 1 for now because the Iteration loop does not appear to
-  # improve performance versus the initial weight set.
-  OPT_DEBIAS_MAX_ITERATIONS: 1
   N_TRIALS: 3
   N_SUBDOMINANCE_GROUPS: 50
   DOT_WEIGHTS_FEAT_EXP: true

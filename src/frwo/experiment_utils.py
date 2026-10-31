@@ -2623,8 +2623,7 @@ def _apply_weight_adjustments(
     """Apply a sequence of weight adjustment operations to wi and return the result.
 
     `run` is the W&B run of the policy these weights are being learned for, or
-    `None` to disable W&B logging. Only the adjustments that iterate (i.e.
-    `"opt_debias"`) report anything to it.
+    `None` to disable W&B logging. Only `"opt_debias"` reports anything to it.
     """
     if len(weight_adjust) == 0:
         pass
@@ -2635,8 +2634,8 @@ def _apply_weight_adjustments(
         library = weight_adjust[1]
         optimizer = weight_adjust[2]
         n_steps = weight_adjust[3] if 3 < len(weight_adjust) else 200
-        wi = iteratively_optimize_weights(
-            wi,
+        wi = optimize_weights(
+            normalize(np.asarray(wi, dtype=float).reshape(1, -1), norm="l1").flatten(),
             feat_obj_set,
             demo_df,
             clf,
@@ -2649,384 +2648,68 @@ def _apply_weight_adjustments(
             library,
             optimizer,
             n_steps,
-            run=run,
+            step_logger=_OptDebiasStepLogger(run),
         )
     wi = normalize(wi.reshape(1, -1), norm="l1").flatten()
     return wi
 
 
-def _append_subdominance_groups(exp_info, subdom_groups, clf_demo):
-    """Add the demos of a learned policy to a set of subdominance groups.
-
-    `clf_demo` is sampled into `N_SUBDOMINANCE_GROUPS` new groups exactly the
-    way `generate_subdominance_groups()` samples an expert demo set, and those
-    groups are appended to the ones `subdom_groups` already holds. In other
-    words, the learned policy's demos become additional *raw* (reference) demos
-    that any later policy is scored against.
-
-    Returns a brand new tuple of brand new containers, so `subdom_groups` --
-    which the caller shares with every other weight adjustment of the trial --
-    is left completely untouched.
-
-    Parameters
-    ----------
-    exp_info : dict
-        Metadata about the experiment.
-    subdom_groups : tuple
-        `(group_idxs, raw_demos, raw_demos_feat_loss)`, as returned by
-        `generate_subdominance_groups()` or by this function.
-    clf_demo : pandas.DataFrame
-        The demos of the learned policy to add as reference demos. Must cover
-        the same rows as the demos the groups already hold, since the groups
-        are positional indices into whichever demo set is being scored.
-
-    Returns
-    -------
-    subdom_groups : tuple
-        The same three elements, each `N_SUBDOMINANCE_GROUPS` entries longer.
-    """
-    group_idxs, raw_demos, raw_demos_feat_loss = subdom_groups
-    (
-        new_group_idxs,
-        new_raw_demos,
-        new_raw_demos_feat_loss,
-    ) = generate_subdominance_groups(exp_info, clf_demo)
-    return (
-        list(group_idxs) + list(new_group_idxs),
-        list(raw_demos) + list(new_raw_demos),
-        np.concatenate([raw_demos_feat_loss, new_raw_demos_feat_loss]),
-    )
-
-
-def _log_opt_debias_iteration(
-    run,
-    feat_obj_set,
-    iteration,
-    wi,
-    muL,
-    expert_subdom,
-    augmented_subdom,
-    n_groups,
-):
-    """Report one `iteratively_optimize_weights()` iteration to the console and W&B."""
-    logging.info(
-        f"\t\t opt_debias iteration {iteration}: "
-        f"sum_abs_subdominance = {expert_subdom:.5f} "
-        f"({augmented_subdom:.5f} vs the {n_groups} augmented groups)"
-    )
-    logging.info(f"\t\t\t weights \t= {str(np.round(wi, 2)).replace('0.', '.')}")
-    logging.info(f"\t\t\t muL \t\t= {str(np.round(muL, 2)).replace('0.', '.')}")
-
-    if run is None:
-        return
-
-    metrics = {
-        "opt_debias/iteration": iteration,
-        "opt_debias/sum_abs_subdominance": expert_subdom,
-        "opt_debias/sum_abs_subdominance_augmented": augmented_subdom,
-        "opt_debias/n_subdominance_groups": n_groups,
-    }
-    for j, obj in enumerate(feat_obj_set.objectives):
-        metrics[f"opt_debias/weight/{obj.name}"] = wi[j]
-        metrics[f"opt_debias/muL/{obj.name}"] = muL[j]
-
-    run.log(metrics)
-
-
 class _OptDebiasStepLogger:
-    """Report every optimizer step of `iteratively_optimize_weights()` to the
-    console and W&B.
+    """Report every optimizer step of `optimize_weights()` to the console and W&B.
 
     Every optimizer library `optimize_weights()` supports evaluates a candidate
     weight set by calling `subdominance_of_weights()` exactly once per step, so
-    that function hands each step's weights and demos to `record()`. That keeps
-    the reporting independent of which library and optimizer are used.
-
-    Every subdominance reported here is measured against the expert
-    subdominance groups, not the augmented groups the optimizer minimizes,
-    since only the expert groups stay fixed -- and so only subdominance against
-    them is comparable -- across iterations. "Best" means the lowest of those
-    expert subdominances, both within one iteration and across all of them.
+    that function hands each step's weights to `record()`. That keeps the
+    reporting independent of which library and optimizer are used.
 
     In W&B, every `opt_debias_step/` metric is plotted against
-    `opt_debias_step/step`, which counts the steps of every iteration so far,
-    so each graph holds one point per step of every iteration.
+    `opt_debias_step/step`, so each graph holds one point per step.
     """
 
-    def __init__(self, run, exp_info, expert_subdom_groups):
+    def __init__(self, run):
         self.run = run
-        self.exp_info = exp_info
-        self.expert_subdom_groups = expert_subdom_groups
         self.step = 0
-        self.iteration = None
-        self.iteration_step = 0
-        self.best_wi_iteration = None
-        self.best_subdom_iteration = np.inf
-        self.best_wi_overall = None
-        self.best_subdom_overall = np.inf
+        self.best_wi = None
+        self.best_subdom = np.inf
         if run is not None:
             run.define_metric("opt_debias_step/step")
             run.define_metric("opt_debias_step/*", step_metric="opt_debias_step/step")
 
-    def start_iteration(self, iteration):
-        """Reset the per-iteration step count and best weights."""
-        self.iteration = iteration
-        self.iteration_step = 0
-        self.best_wi_iteration = None
-        self.best_subdom_iteration = np.inf
-
-    def record(self, wi, demo, subdom_groups, subdom):
+    def record(self, wi, subdom):
         """Report one optimizer step.
 
         Parameters
         ----------
         wi : numpy.ndarray
             The L1 normalized weights evaluated at this step.
-        demo : pandas.DataFrame
-            The demos of those weights' optimal policy.
-        subdom_groups : tuple
-            The subdominance groups the optimizer scored `demo` against.
         subdom : float
-            The sum-aggregated absolute subdominance of `demo` against
-            `subdom_groups`.
+            The sum-aggregated absolute subdominance of those weights' demos.
         """
-        if subdom_groups is self.expert_subdom_groups:
-            expert_subdom = subdom
-        else:
-            expert_subdom = compute_iteration_subdominance(
-                self.exp_info,
-                *self.expert_subdom_groups,
-                clf_demo_cur=demo,
-                subdominance_type="sum_abs",
-                alpha_lamda=opt_debias_lamda(self.exp_info),
-            )
+        if subdom < self.best_subdom:
+            self.best_subdom = subdom
+            self.best_wi = wi
 
-        if expert_subdom < self.best_subdom_iteration:
-            self.best_subdom_iteration = expert_subdom
-            self.best_wi_iteration = wi
-        if expert_subdom < self.best_subdom_overall:
-            self.best_subdom_overall = expert_subdom
-            self.best_wi_overall = wi
-
+        logging.info(f"\t\t opt_debias step {self.step}")
         logging.info(
-            f"\t\t opt_debias iteration {self.iteration}, step {self.iteration_step}"
+            f"\t\t\t current weights \t= {str(np.round(wi, 2)).replace('0.', '.')}"
+            f" \t sum_abs_subdominance = {subdom:.5f}"
         )
         logging.info(
-            f"\t\t\t current weights \t\t= {str(np.round(wi, 2)).replace('0.', '.')}"
-            f" \t sum_abs_subdominance = {expert_subdom:.5f}"
-        )
-        logging.info(
-            "\t\t\t best weights (iteration) \t= "
-            f"{str(np.round(self.best_wi_iteration, 2)).replace('0.', '.')}"
-            f" \t sum_abs_subdominance = {self.best_subdom_iteration:.5f}"
-        )
-        logging.info(
-            "\t\t\t best weights (overall) \t= "
-            f"{str(np.round(self.best_wi_overall, 2)).replace('0.', '.')}"
-            f" \t sum_abs_subdominance = {self.best_subdom_overall:.5f}"
+            f"\t\t\t best weights \t\t= "
+            f"{str(np.round(self.best_wi, 2)).replace('0.', '.')}"
+            f" \t sum_abs_subdominance = {self.best_subdom:.5f}"
         )
 
         if self.run is not None:
             self.run.log(
                 {
                     "opt_debias_step/step": self.step,
-                    "opt_debias_step/iteration": self.iteration,
-                    "opt_debias_step/iteration_step": self.iteration_step,
-                    "opt_debias_step/sum_abs_subdominance": expert_subdom,
-                    "opt_debias_step/best_sum_abs_subdominance_iteration": (
-                        self.best_subdom_iteration
-                    ),
-                    "opt_debias_step/best_sum_abs_subdominance_overall": (
-                        self.best_subdom_overall
-                    ),
+                    "opt_debias_step/sum_abs_subdominance": subdom,
+                    "opt_debias_step/best_sum_abs_subdominance": self.best_subdom,
                 }
             )
 
         self.step += 1
-        self.iteration_step += 1
-
-
-def iteratively_optimize_weights(
-    wi,
-    feat_obj_set,
-    demo_df,
-    clf,
-    x_cols,
-    exp_info,
-    X,
-    y,
-    can_observe_y,
-    subdom_groups,
-    library,
-    optimizer,
-    n_steps,
-    run=None,
-):
-    """Optimize the reward weights against a growing set of subdominance groups.
-
-    Each iteration
-
-    1. optimizes the weights with `optimize_weights()`, starting from the
-       previous iteration's weights and scoring against every subdominance
-       group accumulated so far,
-    2. computes the optimal policy of those weights and the demos it produces,
-       and
-    3. appends those demos -- sampled into `N_SUBDOMINANCE_GROUPS` groups the
-       same way the expert demos were -- to the subdominance groups as extra
-       raw demos, so that the next iteration is also penalized for behaving
-       like this iteration's policy.
-
-    Iterating stops as soon as an iteration's policy fails to improve on the
-    best sum-aggregated absolute subdominance seen so far, and the weights of
-    the lowest-subdominance iteration are returned.
-
-    Improvement is judged against the *original* `subdom_groups` (the expert
-    demos), not against the augmented ones: only the original groups stay fixed
-    across iterations, so only subdominance measured against them is comparable
-    from one iteration to the next. The subdominance against the augmented
-    groups -- the quantity `optimize_weights()` actually minimizes -- is
-    reported alongside it, but is not what the stopping rule looks at.
-
-    `subdom_groups` is never mutated. The appended groups only ever go into
-    containers created by `_append_subdominance_groups()`, so the caller's
-    groups stay usable by the trial's other weight adjustments.
-
-    Parameters
-    ----------
-    wi : array-like<float>
-        The weights to start optimizing from.
-    subdom_groups : tuple
-        The expert `(group_idxs, raw_demos, raw_demos_feat_loss)` of the split
-        being optimized against.
-    exp_info : dict
-        Metadata about the experiment. `OPT_DEBIAS_MAX_ITERATIONS` caps how
-        many iterations run before giving up on finding a better weight set.
-        That cap is only a safety net -- the loop is expected to stop on its
-        own as soon as an iteration fails to improve.
-    run : wandb.sdk.wandb_run.Run or None
-        The W&B run to report each iteration to. `None` disables W&B logging.
-
-    Returns
-    -------
-    wi : numpy.ndarray
-        The L1 normalized weights of the iteration with the lowest
-        subdominance against the expert subdominance groups.
-    """
-    if run is not None:
-        # Plot every `opt_debias/` metric against the iteration it came from
-        # rather than against the run's global step.
-        run.define_metric("opt_debias/iteration")
-        run.define_metric("opt_debias/*", step_metric="opt_debias/iteration")
-
-    expert_subdom_groups = subdom_groups
-    cur_subdom_groups = subdom_groups
-    cur_wi = normalize(np.asarray(wi, dtype=float).reshape(1, -1), norm="l1").flatten()
-
-    best_wi = cur_wi
-    best_subdom = np.inf
-    n_iterations = 0
-
-    max_iterations = exp_info["OPT_DEBIAS_MAX_ITERATIONS"]
-    step_logger = _OptDebiasStepLogger(run, exp_info, expert_subdom_groups)
-
-    for iteration in range(max_iterations):
-        step_logger.start_iteration(iteration)
-        cur_wi = optimize_weights(
-            cur_wi,
-            feat_obj_set,
-            demo_df,
-            clf,
-            x_cols,
-            exp_info,
-            X,
-            y,
-            can_observe_y,
-            cur_subdom_groups,
-            library,
-            optimizer,
-            n_steps,
-            step_logger=step_logger,
-        )
-
-        # The optimal classifier of this iteration's weights, and its demos.
-        reward_weights = {
-            obj.name: cur_wi[j] for j, obj in enumerate(feat_obj_set.objectives)
-        }
-        clf_pol = compute_optimal_policy(
-            clf_df=demo_df,
-            clf=clf,
-            x_cols=x_cols,
-            obj_set=feat_obj_set,
-            reward_weights=reward_weights,
-            skip_error_terms=True,
-            method=exp_info["METHOD"],
-            min_freq_fill_pct=exp_info["MIN_FREQ_FILL_PCT"],
-            restrict_y=exp_info["RESTRICT_Y_ACTION"],
-        )
-        demo = generate_demo(clf_pol, X, y, can_observe_y=can_observe_y)
-
-        expert_subdom = compute_iteration_subdominance(
-            exp_info,
-            *expert_subdom_groups,
-            clf_demo_cur=demo,
-            subdominance_type="sum_abs",
-            alpha_lamda=opt_debias_lamda(exp_info),
-        )
-        if cur_subdom_groups is expert_subdom_groups:
-            # First iteration: nothing has been appended yet, so the augmented
-            # groups still are the expert groups.
-            augmented_subdom = expert_subdom
-        else:
-            augmented_subdom = compute_iteration_subdominance(
-                exp_info,
-                *cur_subdom_groups,
-                clf_demo_cur=demo,
-                subdominance_type="sum_abs",
-                alpha_lamda=opt_debias_lamda(exp_info),
-            )
-
-        n_iterations = iteration + 1
-        _log_opt_debias_iteration(
-            run,
-            feat_obj_set,
-            iteration,
-            cur_wi,
-            feat_obj_set.compute_demo_feature_exp(demo),
-            expert_subdom,
-            augmented_subdom,
-            len(cur_subdom_groups[1]),
-        )
-
-        if expert_subdom >= best_subdom:
-            logging.info(
-                "\t\t opt_debias stopping: this iteration did not improve on "
-                f"the best sum_abs_subdominance ({best_subdom:.5f})"
-            )
-            break
-
-        best_subdom = expert_subdom
-        best_wi = cur_wi
-
-        # Treat this iteration's demos as raw demos of their own subdominance
-        # groups, so the next iteration has to beat this policy too.
-        cur_subdom_groups = _append_subdominance_groups(
-            exp_info, cur_subdom_groups, demo
-        )
-    else:
-        logging.info(
-            f"\t\t opt_debias stopping: hit the {max_iterations} "
-            "iteration cap while still improving"
-        )
-
-    logging.info(
-        f"\t\t opt_debias ran {n_iterations} iteration(s); best "
-        f"sum_abs_subdominance = {best_subdom:.5f}"
-    )
-    if run is not None:
-        run.summary["opt_debias/n_iterations"] = n_iterations
-        run.summary["opt_debias/best_sum_abs_subdominance"] = best_subdom
-
-    return best_wi
 
 
 def optimize_weights(
@@ -3368,7 +3051,7 @@ def subdominance_of_weights(
     # lp.disable_by_count()
     # lp.print_stats()
     if step_logger is not None:
-        step_logger.record(weights, demo, subdom_groups, sum_abs_subdom)
+        step_logger.record(weights, sum_abs_subdom)
     return sum_abs_subdom
 
 
